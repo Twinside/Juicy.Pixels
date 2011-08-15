@@ -1,0 +1,40 @@
+Name:                hPicture
+Version:             0.1
+Synopsis:            Picture loading/serialization
+-- Description:         
+License:             BSD3
+License-file:        LICENSE
+Author:              Vincent Berthoux
+Maintainer:          vincent.berthoux@gmail.com
+-- Copyright:           
+Category:            Codec
+Build-type:          Simple
+
+-- Extra files to be distributed with the package, such as examples or
+-- a README.
+-- Extra-source-files:  
+
+-- Constraint on the version of Cabal needed to build this package.
+Cabal-version:       >=1.2
+
+Executable imageTest
+  Main-Is: main.hs
+  Build-depends: base, 
+                 array,
+                 bytestring,
+                 binary >= 0.5.0.2 && < 0.6,
+                 zlib >= 0.5.3.1
+
+Library
+  -- Modules exported by the library.
+  Exposed-modules:  Codec.Picture.Png
+  Ghc-options: -Wall
+  Build-depends: base, 
+                 array,
+                 bytestring,
+                 binary >= 0.5.0.2 && < 0.6,
+                 zlib >= 0.5.3.1
+  
+  -- Modules not exported by this package.
+  -- Other-modules:       
+  
