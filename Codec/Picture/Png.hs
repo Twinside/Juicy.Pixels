@@ -17,11 +17,19 @@ import qualified Data.ByteString.Lazy as Lb
 pngSignature :: ChunkSignature
 pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 
--- | This reordering is used for progressive PNG, creating
--- 7 "buckets" to store pixel to.
-adam7Reordering :: Word32 -> Word32 -> Word32
-adam7Reordering x y = arr ! (x `mod` 8, y `mod` 8)
-  where coefsList =
+starting_row, starting_col, row_increment, col_increment, 
+    block_height, block_width :: UArray Word32 Word32
+starting_row  = listArray (0, 7) [0, 0, 4, 0, 2, 0, 1]
+starting_col  = listArray (0, 7) [0, 4, 0, 2, 0, 1, 0]
+row_increment = listArray (0, 7) [8, 8, 8, 4, 4, 2, 2]
+col_increment = listArray (0, 7) [8, 8, 4, 4, 2, 2, 1]
+block_height  = listArray (0, 7) [8, 8, 4, 4, 2, 2, 1]
+block_width   = listArray (0, 7) [8, 4, 4, 2, 2, 1, 1]
+
+adam7Matrix :: UArray (Word32, Word32) Word32
+adam7Matrix   = array ((0,0), (7,7)) [((j,i), val) | (j, row) <- zip [0..] coefsList
+                                                   , (i, val) <- zip [0..] row ]
+    where coefsList =
             [ [0, 5, 3, 5, 1, 5, 3, 5]
             , [6, 6, 6, 6, 6, 6, 6, 6]
             , [4, 5, 4, 5, 4, 5, 4, 5]
@@ -31,10 +39,11 @@ adam7Reordering x y = arr ! (x `mod` 8, y `mod` 8)
             , [4, 5, 4, 5, 4, 5, 4, 5]
             , [6, 6, 6, 6, 6, 6, 6, 6] ]
 
-        arr :: UArray (Word32, Word32) Word32
-        arr = array ((0,0), (7,7))
-               [((j,i), val) | (j, row) <- zip [0..] coefsList
-                             , (i, val) <- zip [0..] row ]
+
+-- | This reordering is used for progressive PNG, creating
+-- 7 "buckets" to store pixel to.
+adam7Reordering :: Word32 -> Word32 -> Word32
+adam7Reordering x y = adam7Matrix ! (x `mod` 8, y `mod` 8)
 
 type ChunkSignature = B.ByteString
 -- | The pixels value should be :
@@ -251,8 +260,7 @@ pngCrcTable = listArray (0, 255) [ foldl' updateCrcConstant c [zero .. 7] | c <-
 -- | Compute the CRC of a raw buffer, as described in annex D of the PNG
 -- specification.
 pngComputeCrc :: [B.ByteString] -> Word32
-pngComputeCrc = (0xFFFFFFFF `xor`) . foldl' updateCrc 0xFFFFFFFF
-              . concat . map B.unpack
+pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
     where updateCrc crc val =
               let u32Val = fromIntegral val
                   lutVal = pngCrcTable ! ((crc `xor` u32Val) .&. 0xFF)
