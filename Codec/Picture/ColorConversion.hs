@@ -6,7 +6,6 @@ module Codec.Picture.ColorConversion( ColorConvertible(..) ) where
 
 import Codec.Picture.Types
 import Data.Array.Unboxed
-import Data.Word
 
 class ColorConvertible a b where
     promotePixels :: Image a -> Image b
@@ -22,5 +21,12 @@ instance ColorConvertible Pixel2 Pixel24Alpha where
     promotePixels = amap (\a -> if a then rgba 255 255 255 255
                                      else rgba   0   0   0 255)
 
-{-instance ColorConvertible Bool () where-}
+instance ColorConvertible Pixel8 Pixel24 where
+    promotePixels = amap (\c -> rgb c c c)
+
+instance ColorConvertible Pixel8 Pixel24Alpha where
+    promotePixels = amap (\c -> rgba c c c 255)
+
+instance ColorConvertible Pixel24 Pixel24Alpha where
+    promotePixels = amap (\(Pixel24 r g b)-> rgba r g b 255)
 

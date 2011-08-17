@@ -6,8 +6,8 @@
 module Codec.Picture.Types( Image
                           , Pixel2
                           , Pixel8
-                          , Pixel24
-                          , Pixel24Alpha
+                          , Pixel24( .. )
+                          , Pixel24Alpha( .. )
                           , rgb
                           , rgba
                           ) where
@@ -27,9 +27,11 @@ type Pixel8 = Word8
 data Pixel24 = Pixel24 !Word8 !Word8 !Word8
 data Pixel24Alpha = Pixel24Alpha !Word8 !Word8 !Word8 !Word8
 
+{-# INLINE rgb #-}
 rgb :: Word8 -> Word8 -> Word8 -> Pixel24
 rgb = Pixel24
 
+{-# INLINE rgba #-}
 rgba :: Word8 -> Word8 -> Word8 -> Word8 -> Pixel24Alpha
 rgba = Pixel24Alpha
 
@@ -59,7 +61,7 @@ instance MArray (STUArray s) Pixel24Alpha (ST s) where
         case writeWord8Array# marr# idx# r s1# of { s2# ->
         case writeWord8Array# marr# (idx# +# 1#) g s2# of { s3# ->
         case writeWord8Array# marr# (idx# +# 2#) b s3# of { s4# ->
-        case writeWord8Array# marr# (idx# +# 3#) a s3# of { s5# ->
+        case writeWord8Array# marr# (idx# +# 3#) a s4# of { s5# ->
         (# s5#, () #) } } } } }
 
 instance MArray (STUArray s) Pixel24 (ST s) where
@@ -102,6 +104,33 @@ instance IArray UArray Pixel24 where
             Pixel24 (W8# (indexWord8Array# arr# idx#))
                     (W8# (indexWord8Array# arr# (idx# +# 1#)))
                     (W8# (indexWord8Array# arr# (idx# +# 2#))) }
+#endif
+#ifdef __HUGS__
+    unsafeAt = unsafeAtBArray
+#endif
+    {-# INLINE unsafeReplace #-}
+    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
+    {-# INLINE unsafeAccum #-}
+    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
+    {-# INLINE unsafeAccumArray #-}
+    unsafeAccumArray f initialValue lu ies = runST (unsafeAccumArrayUArray f initialValue lu ies)
+
+instance IArray UArray Pixel24Alpha where
+    {-# INLINE bounds #-}
+    bounds (UArray l u _ _) = (l,u)
+    {-# INLINE numElements #-}
+    numElements (UArray _ _ n _) = n
+    {-# INLINE unsafeArray #-}
+    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ Pixel24Alpha 0 0 0 255)
+#ifdef __GLASGOW_HASKELL__
+    {-# INLINE unsafeAt #-}
+    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
+        case i# *# 4# of { idx# ->
+            Pixel24Alpha
+                    (W8# (indexWord8Array# arr# idx#))
+                    (W8# (indexWord8Array# arr# (idx# +# 1#)))
+                    (W8# (indexWord8Array# arr# (idx# +# 2#)))
+                    (W8# (indexWord8Array# arr# (idx# +# 3#))) }
 #endif
 #ifdef __HUGS__
     unsafeAt = unsafeAtBArray
