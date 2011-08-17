@@ -1,5 +1,8 @@
 
 import Codec.Picture.Png
+import Codec.Picture.Types
+import Codec.Picture.ColorConversion
+
 import System.Environment
 import qualified Data.ByteString.Lazy as Lb
 

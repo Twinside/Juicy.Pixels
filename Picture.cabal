@@ -19,6 +19,8 @@ Cabal-version:       >=1.2
 
 Executable imageTest
   Main-Is: main.hs
+  Extensions: CPP
+  Ghc-options: -Wall -cpp
   Build-depends: base, 
                  array,
                  bytestring,
@@ -28,7 +30,8 @@ Executable imageTest
 Library
   -- Modules exported by the library.
   Exposed-modules:  Codec.Picture.Png
-  Ghc-options: -Wall
+  Extensions: CPP
+  Ghc-options: -Wall -cpp
   Build-depends: base, 
                  array,
                  bytestring,

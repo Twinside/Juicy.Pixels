@@ -8,10 +8,9 @@ import Data.Binary.Get
 import Data.Array.Unboxed
 import Data.List( foldl' )
 import Data.Bits
+import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
-
-{-newtype PngImage = [PngChunk]-}
 
 -- | Signature signalling that the following data will be a png image
 -- in the png bit stream
@@ -36,9 +35,8 @@ adam7Reordering x y = arr ! (x `mod` 8, y `mod` 8)
         arr = array ((0,0), (7,7))
                [((j,i), val) | (j, row) <- zip [0..] coefsList
                              , (i, val) <- zip [0..] row ]
-        
-type ChunkSignature = B.ByteString
 
+type ChunkSignature = B.ByteString
 -- | The pixels value should be :
 -- +---+---+
 -- | c | b |
@@ -146,14 +144,17 @@ instance Binary PngChunk where
 instance Binary PngIHdr where
     put hdr = do
         putWord32be 14
-        putWord32be $ width hdr
-        putWord32be $ height hdr
-        put $ bitDepth hdr
-        put $ colourType hdr
-        put $ filterMethod hdr
-        put $ interlaceMethod hdr
-        -- TODO somehow: compute CRC
-        putWord32be 0
+        putByteString iHDRSignature
+        let inner = runPut $ do
+                putWord32be $ width hdr
+                putWord32be $ height hdr
+                put $ bitDepth hdr
+                put $ colourType hdr
+                put $ filterMethod hdr
+                put $ interlaceMethod hdr
+            crc = pngComputeCrc $ iHDRSignature : Lb.toChunks inner
+        putLazyByteString inner
+        putWord32be crc
 
     get = do
         _size <- getWord32be
@@ -259,4 +260,22 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . foldl' updateCrc 0xFFFFFFFF
 
 loadRawPng :: Lb.ByteString -> PngRawImage 
 loadRawPng = runGet get
+
+{-putGreyScalePng :: PngFilter -> PngInterlaceMethod -> UArray (Word32, Word32) Word32-}
+
+class PngRepresentable a where
+    unpack :: PngIHdr -> Lb.ByteString -> UArray (Word32, Word32) a
+
+
+loadPng :: Lb.ByteString -> ()
+loadPng byte = ()
+    where rawImg = runGet get byte
+
+          imgData :: Lb.ByteString
+          imgData = Z.decompress compressedImageData
+
+          compressedImageData :: Lb.ByteString
+          compressedImageData = 
+                Lb.fromChunks [chunkData chunk | chunk <- chunks rawImg
+                                               , chunkType chunk == iDATSignature ]
 
