@@ -1,51 +1,58 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Rank2Types #-}
 module Codec.Picture.Png where
 
 import Control.Applicative
-import Control.Monad( when )
+import Control.Monad( when, replicateM )
 import Data.Binary
 import Data.Binary.Put
 import Data.Binary.Get
 import Data.Array.Unboxed
-import Data.List( foldl' )
+import Data.List( foldl', zip4 )
 import Data.Bits
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
 
--- | Signature signalling that the following data will be a png image
--- in the png bit stream
-pngSignature :: ChunkSignature
-pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
+import Codec.Picture.ColorConversion
+import Codec.Picture.Types
 
-starting_row, starting_col, row_increment, col_increment, 
-    block_height, block_width :: UArray Word32 Word32
-starting_row  = listArray (0, 7) [0, 0, 4, 0, 2, 0, 1]
-starting_col  = listArray (0, 7) [0, 4, 0, 2, 0, 1, 0]
-row_increment = listArray (0, 7) [8, 8, 8, 4, 4, 2, 2]
-col_increment = listArray (0, 7) [8, 8, 4, 4, 2, 2, 1]
-block_height  = listArray (0, 7) [8, 8, 4, 4, 2, 2, 1]
-block_width   = listArray (0, 7) [8, 4, 4, 2, 2, 1, 1]
-
-adam7Matrix :: UArray (Word32, Word32) Word32
-adam7Matrix   = array ((0,0), (7,7)) [((j,i), val) | (j, row) <- zip [0..] coefsList
-                                                   , (i, val) <- zip [0..] row ]
-    where coefsList =
-            [ [0, 5, 3, 5, 1, 5, 3, 5]
-            , [6, 6, 6, 6, 6, 6, 6, 6]
-            , [4, 5, 4, 5, 4, 5, 4, 5]
-            , [6, 6, 6, 6, 6, 6, 6, 6]
-            , [2, 5, 3, 5, 2, 5, 3, 5]
-            , [6, 6, 6, 6, 6, 6, 6, 6]
-            , [4, 5, 4, 5, 4, 5, 4, 5]
-            , [6, 6, 6, 6, 6, 6, 6, 6] ]
-
-
--- | This reordering is used for progressive PNG, creating
--- 7 "buckets" to store pixel to.
-adam7Reordering :: Word32 -> Word32 -> Word32
-adam7Reordering x y = adam7Matrix ! (x `mod` 8, y `mod` 8)
-
+--------------------------------------------------
+----            Types
+--------------------------------------------------
 type ChunkSignature = B.ByteString
+
+data PngIHdr = PngIHdr
+    { width             :: Word32
+    , height            :: Word32
+    , bitDepth          :: Word8
+    , colourType        :: PngImageType 
+    , compressionMethod :: Word8
+    , filterMethod      :: PngFilter
+    , interlaceMethod   :: PngInterlaceMethod
+    }
+    deriving Show
+
+data PngImageType =
+      PngGreyscale
+    | PngTrueColour
+    | PngIndexedColor
+    | PngGreyscaleWithAlpha
+    | PngTrueColourWithAlpha
+    deriving Show
+
+data PngRawImage = PngRawImage
+    { header       :: PngIHdr
+    , chunks       :: [PngChunk]
+    }
+
+data PngChunk = PngChunk
+    { chunkLength :: Word32
+    , chunkType   :: ChunkSignature
+    , chunkCRC    :: Word32
+    , chunkData   :: B.ByteString
+    }
+
 -- | The pixels value should be :
 -- +---+---+
 -- | c | b |
@@ -68,25 +75,22 @@ data PngFilter =
     | FilterPaeth
     deriving (Enum, Show)
 
+-- | Different known interlace methods for PNG image
+data PngInterlaceMethod =
+      -- | No interlacing, basic data ordering, line by line
+      -- from left to right.
+      PngNoInterlace
+
+      -- | Use the Adam7 ordering, see `adam7Reordering` 
+    | PngInterlaceAdam7
+    deriving (Enum, Show)
+
+--------------------------------------------------
+----            Instances
+--------------------------------------------------
 instance Binary PngFilter where
     put = putWord8 . toEnum . fromEnum
     get = toEnum . fromIntegral <$> getWord8
-
--- | Directly stolen from the definition in the standard (on W3C page)
-paeth :: Word8 -> Word8 -> Word8 -> Word8
-paeth a b c
-  | pa <= pb && pa <= pc = a
-  | pb <= pc              = b
-  | otherwise             = c
-    where p = a + b - c
-          pa = abs $ p - a
-          pb = abs $ p - b
-          pc = abs $ p - c
-
-data PngRawImage = PngRawImage
-    { header       :: PngIHdr
-    , chunks       :: [PngChunk]
-    }
 
 instance Binary PngRawImage where
     put img = do
@@ -95,33 +99,6 @@ instance Binary PngRawImage where
         mapM_ put $ chunks img
 
     get = parseRawPngImage
-
-parseRawPngImage :: Get PngRawImage
-parseRawPngImage = do
-    sig <- getByteString (B.length pngSignature)
-    when (sig /= pngSignature)
-         (fail "Invalid PNG file, signature broken")
-
-    ihdr <- get
-
-    chunkList <- parseChunks
-    return $ PngRawImage { header = ihdr, chunks = chunkList }
-
-parseChunks :: Get [PngChunk]
-parseChunks = do
-    chunk <- get
-
-    if chunkType chunk == iENDSignature
-       then return [chunk]
-       else (chunk:) <$> parseChunks
-
-
-data PngChunk = PngChunk
-    { chunkLength :: Word32
-    , chunkType   :: ChunkSignature
-    , chunkCRC    :: Word32
-    , chunkData   :: B.ByteString
-    }
 
 instance Binary PngChunk where
     put chunk = do
@@ -188,38 +165,95 @@ instance Binary PngIHdr where
             interlaceMethod = interlace
         }
 
--- | Different known interlace methods for PNG image
-data PngInterlaceMethod =
-      -- | No interlacing, basic data ordering, line by line
-      -- from left to right.
-      PngNoInterlace
+parseRawPngImage :: Get PngRawImage
+parseRawPngImage = do
+    sig <- getByteString (B.length pngSignature)
+    when (sig /= pngSignature)
+         (fail "Invalid PNG file, signature broken")
 
-      -- | Use the Adam7 ordering, see `adam7Reordering` 
-    | PngInterlaceAdam7
-    deriving (Enum, Show)
+    ihdr <- get
+
+    chunkList <- parseChunks
+    return $ PngRawImage { header = ihdr, chunks = chunkList }
+
+parseChunks :: Get [PngChunk]
+parseChunks = do
+    chunk <- get
+
+    if chunkType chunk == iENDSignature
+       then return [chunk]
+       else (chunk:) <$> parseChunks
+
 
 instance Binary PngInterlaceMethod where
     get = toEnum . fromIntegral <$> getWord8
     put = putWord8 . fromIntegral . fromEnum
 
-data PngIHdr = PngIHdr
-    { width             :: Word32
-    , height            :: Word32
-    , bitDepth          :: Word8
-    , colourType        :: PngImageType 
-    , compressionMethod :: Word8
-    , filterMethod      :: PngFilter
-    , interlaceMethod   :: PngInterlaceMethod
-    }
-    deriving Show
+--------------------------------------------------
+----            functions
+--------------------------------------------------
 
-data PngImageType =
-      PngGreyscale
-    | PngTrueColour
-    | PngIndexedColor
-    | PngGreyscaleWithAlpha
-    | PngTrueColourWithAlpha
-    deriving Show
+-- | Signature signalling that the following data will be a png image
+-- in the png bit stream
+pngSignature :: ChunkSignature
+pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
+
+block_height, block_width :: UArray Word32 Word32
+block_height  = listArray (0, 7) [8, 8, 4, 4, 2, 2, 1]
+block_width   = listArray (0, 7) [8, 4, 4, 2, 2, 1, 1]
+
+adam7Indices :: Word32 -> Word32 -> [(Word32,Word32)]
+adam7Indices imgWidth imgHeight =
+  [ (x,y) | (xBeg, dx, yBeg, dy) <- infos
+          , y <- [yBeg, yBeg + dy .. imgHeight - 1]
+          , x <- [xBeg, xBeg + dx .. imgWidth - 1]]
+    where starting_row  = [0, 0, 4, 0, 2, 0, 1]
+          starting_col  = [0, 4, 0, 2, 0, 1, 0]
+          row_increment = [8, 8, 8, 4, 4, 2, 2]
+          col_increment = [8, 8, 4, 4, 2, 2, 1]
+
+          infos = zip4 starting_col col_increment starting_row row_increment
+
+
+-- | Recreate image from normal (scanlines) png image.
+scanLineUnpack :: (Binary a, IArray UArray a)
+               => Word32 -> Word32 -> Lb.ByteString 
+               -> UArray (Word32, Word32) a
+scanLineUnpack imgWidth imgHeight bytes = array ((0,0), (imgWidth - 1, imgHeight - 1))
+                                        $ zip indices unpacked
+    where indices = [(x,y) | y <- [0 .. imgHeight - 1], x <- [0 .. imgWidth - 1]]
+          unpacked = runGet unpackArray bytes
+          unpackArray = replicateM (fromIntegral $ imgWidth * imgHeight) get
+
+-- | Given data and image size, recreate an image with deinterlaced
+-- data for PNG's adam 7 method.
+adam7Unpack :: (Binary a, IArray UArray a) 
+            => Word32 -> Word32 -> Lb.ByteString
+            -> UArray (Word32, Word32) a
+adam7Unpack imgWidth imgHeight bytes = array ((0,0), (imgWidth - 1, imgHeight - 1)) reorderedPixels
+    where reorderedPixels = zip (adam7Indices imgWidth imgHeight) unpacked
+          unpacked = runGet unpackArray bytes
+          unpackArray = replicateM (fromIntegral $ imgWidth * imgHeight) get
+
+-- | deinterlace picture in function of the method indicated
+-- in the iHDR
+deinterlacer :: (Binary a, IArray UArray a)
+             => PngInterlaceMethod -> Word32 -> Word32 -> Lb.ByteString
+             -> UArray (Word32, Word32) a
+deinterlacer PngNoInterlace = scanLineUnpack
+deinterlacer PngInterlaceAdam7 = adam7Unpack
+
+
+-- | Directly stolen from the definition in the standard (on W3C page)
+paeth :: Word8 -> Word8 -> Word8 -> Word8
+paeth a b c
+  | pa <= pb && pa <= pc = a
+  | pb <= pc              = b
+  | otherwise             = c
+    where p = a + b - c
+          pa = abs $ p - a
+          pb = abs $ p - b
+          pc = abs $ p - c
 
 -- | Helper function to help pack signatures.
 signature :: [Word8] -> ChunkSignature 
@@ -266,18 +300,38 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
                   lutVal = pngCrcTable ! ((crc `xor` u32Val) .&. 0xFF)
               in lutVal `xor` (crc `shiftR` 8)
 
-loadRawPng :: Lb.ByteString -> PngRawImage 
-loadRawPng = runGet get
+unparsePixel8 :: PngImageType 
+              -> (forall b. Lb.ByteString -> Image b)
+              -> Lb.ByteString
+              -> Either String (UArray (Word32, Word32) Pixel8)
+unparsePixel8 PngGreyscale f bytes = Right $ f bytes
+unparsePixel8 PngIndexedColor f bytes = Right $ f bytes
+unparsePixel8 _ _ _ = Left "Cannot reduce bit depth of image"
 
-{-putGreyScalePng :: PngFilter -> PngInterlaceMethod -> UArray (Word32, Word32) Word32-}
+unparsePixelYA8 :: PngImageType 
+              -> (forall b. (ColorConvertible b PixelYA8) => Lb.ByteString -> Image b)
+              -> Lb.ByteString
+              -> Either String (UArray (Word32, Word32) PixelYA8)
+unparsePixelYA8 PngGreyscale f bytes = Right $ promotePixels (f bytes :: Image Pixel8)
+unparsePixelYA8 PngIndexedColor f bytes = Right $ promotePixels (f bytes :: Image Pixel8)
+unparsePixelYA8 PngGreyscaleWithAlpha f bytes = Right $ (f bytes :: Image PixelYA8)
+unparsePixelYA8 _ _ _ = Left "Cannot reduce bit depth of image"
 
-class PngRepresentable a where
-    unpack :: PngIHdr -> Lb.ByteString -> UArray (Word32, Word32) a
+{-unparsePixelRGB8 :: PngImageType-}
+                 {--> (Lb.ByteString -> UArray (Word32, Word32) b)-}
+                 {--> Lb.ByteString-}
+                 {--> Either String (UArray (Word32, Word32) PixelRGB8)-}
+{-unparsePixelRGB8 PngGreyscale f bytes = Right . promotePixels $ f bytes-}
+{-unparsePixelRGB8 PngTrueColour =-}
+{-unparsePixelRGB8 PngIndexedColor =-}
+{-unparsePixelRGB8 PngGreyscaleWithAlpha =-}
+{-unparsePixelRGB8 PngTrueColourWithAlpha =-}
 
-
-loadPng :: Lb.ByteString -> ()
+{-loadPng :: Lb.ByteString -> Either String (Image )-}
 loadPng byte = ()
     where rawImg = runGet get byte
+
+          unpacker = deinterlacer . interlaceMethod  $ header rawImg
 
           imgData :: Lb.ByteString
           imgData = Z.decompress compressedImageData

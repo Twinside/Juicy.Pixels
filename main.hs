@@ -1,5 +1,6 @@
 
 import Codec.Picture.Png
+import Codec.Picture.Jpg
 import Codec.Picture.Types
 import Codec.Picture.ColorConversion
 

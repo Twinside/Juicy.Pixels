@@ -24,17 +24,22 @@ Executable imageTest
   Build-depends: base, 
                  array,
                  bytestring,
+                 mtl >= 1.1,
                  binary >= 0.5.0.2 && < 0.6,
                  zlib >= 0.5.3.1
 
 Library
   -- Modules exported by the library.
-  Exposed-modules:  Codec.Picture.Png
+  Exposed-modules:  Codec.Picture.Png,
+                    Codec.Picture.Jpg,
+                    Codec.Picture.Types,
+                    Codec.Picture.ColorConversion
   Extensions: CPP
   Ghc-options: -Wall -cpp
   Build-depends: base, 
                  array,
                  bytestring,
+                 mtl >= 1.1,
                  binary >= 0.5.0.2 && < 0.6,
                  zlib >= 0.5.3.1
   
