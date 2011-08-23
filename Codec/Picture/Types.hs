@@ -31,6 +31,7 @@ type Pixel8 = Word8
 data PixelYA8 = PixelYA8 !Word8 !Word8
 data PixelRGB8 = PixelRGB8 !Word8 !Word8 !Word8
 data PixelRGBA8 = PixelRGBA8 !Word8 !Word8 !Word8 !Word8
+    deriving Show
 
 instance Serialize PixelYA8 where
     put (PixelYA8 y a) = put y >> put a
@@ -41,7 +42,7 @@ instance Serialize PixelRGB8 where
     get = PixelRGB8 <$> get <*> get <*> get
 
 instance Serialize PixelRGBA8 where
-    put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
+    put (PixelRGBA8 r g b a) = put b >> put g >> put r >> put a
     get = PixelRGBA8 <$> get <*> get <*> get <*> get
 
 {-# INLINE rgb #-}
@@ -92,7 +93,7 @@ instance MArray (STUArray s) PixelRGB8 (ST s) where
     newArray_ arrBounds = newArray arrBounds (PixelRGB8 0 0 0)
     {-# INLINE unsafeRead #-}
     unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
-        case i# *# 4# of { idx# ->
+        case i# *# 3# of { idx# ->
         case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
         case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
         case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->

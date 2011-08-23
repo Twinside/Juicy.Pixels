@@ -60,7 +60,7 @@ invalidTests =
     "xs1n0g01.png", "xs2n0g01.png", "xs4n0g01.png", "xs7n0g01.png"]
 
 exportBmpWitness :: IO ()
-exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 237 241
+exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
     where img w h = array ((0,0), (w - 1, h - 1)) $ pixels w h
           pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
           pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255

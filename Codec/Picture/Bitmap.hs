@@ -85,14 +85,17 @@ instance Serialize BmpImage where
     get = error "Unimplemented"
 
 bmpEncode :: Image PixelRGBA8 -> Put
-bmpEncode arr = mapM_ put $ elems arr-- [(col, line) | line <- [0 .. h], col <- [0 .. w]]
-    {-where (_, (w, h)) = bounds arr-}
+bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [0..h], col <- [0..w]]
+    where (_, (w,h)) = bounds arr
+
 
 writeBitmapFile :: FilePath -> Image PixelRGBA8 -> IO ()
-writeBitmapFile filename img = B.writeFile filename encodedImage
+writeBitmapFile filename img = do
+    {-mapM_ print $ elems img-}
+    B.writeFile filename encodedImage
     where (_, (imgWidth, imgHeight)) = bounds img
 
-          encodedImage = encode (hdr, info, img)
+          encodedImage = encode $ BmpImage (hdr, info, img)
 
           imagePixelSize = (imgWidth + 1) * (imgHeight + 1) * 4
           hdr = BmpHeader {
