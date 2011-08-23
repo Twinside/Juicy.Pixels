@@ -30,7 +30,8 @@ Executable imageTest
 
 Library
   -- Modules exported by the library.
-  Exposed-modules:  Codec.Picture.Png,
+  Exposed-modules:  Codec.Picture.Bitmap,
+                    Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Types,
                     Codec.Picture.ColorConversion

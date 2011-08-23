@@ -1,7 +1,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# OPTIONS_GHC -fglasgow-exts #-}
+{-# LANGUAGE UnboxedTuples #-}
 -- | Module providing the basic types for image manipulation in the library.
 module Codec.Picture.Types( Image
                           , Pixel2
