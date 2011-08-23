@@ -4,11 +4,11 @@ module Codec.Picture.Bitmap( -- * Functions
                            ) where
 
 import Data.Array.Unboxed
-import Data.Binary
-import Data.Binary.Put
-import Data.Binary.Get
+import Data.Serialize
+import Data.Word
 
-import qualified Data.ByteString.Lazy as Lb
+import qualified Data.ByteString as B
+{-import qualified Data.ByteString.Lazy as Lb-}
 
 import Codec.Picture.Types
 
@@ -20,7 +20,8 @@ data BmpHeader = BmpHeader
     , dataOffset      :: !Word32
     }
 
-instance Binary BmpHeader where
+
+instance Serialize BmpHeader where
     put hdr = do
         putWord16le $ magicIdentifier hdr
         putWord32le $ fileSize hdr
@@ -57,7 +58,11 @@ data BmpInfoHeader = BmpInfoHeader
     , importantColours  :: !Word32
     }
 
-instance Binary BmpInfoHeader where
+sizeofBmpHeader, sizeofBmpInfo  :: Word32
+sizeofBmpHeader = 2 + 4 + 2 + 2 + 4
+sizeofBmpInfo = 3 * 4 + 2 * 2 + 6 * 4
+
+instance Serialize BmpInfoHeader where
     put hdr = do
         putWord32le $ size hdr
         putWord32le $ width hdr
@@ -75,35 +80,33 @@ instance Binary BmpInfoHeader where
 
 data BmpImage = BmpImage (BmpHeader, BmpInfoHeader, Image PixelRGBA8)
 
-instance Binary BmpImage where
+instance Serialize BmpImage where
     put (BmpImage (hdr, ihdr, img)) = put hdr >> put ihdr >> bmpEncode img
     get = error "Unimplemented"
 
 bmpEncode :: Image PixelRGBA8 -> Put
-bmpEncode arr = mapM_ (\c -> put $ arr ! c) [(col, line) | line <- [0 .. h - 1], col <- [0 .. w - 1]]
-    where (_, (w, h)) = bounds arr
+bmpEncode arr = mapM_ put $ elems arr-- [(col, line) | line <- [0 .. h], col <- [0 .. w]]
+    {-where (_, (w, h)) = bounds arr-}
 
 writeBitmapFile :: FilePath -> Image PixelRGBA8 -> IO ()
-writeBitmapFile filename img = Lb.writeFile filename encodedImage
+writeBitmapFile filename img = B.writeFile filename encodedImage
     where (_, (imgWidth, imgHeight)) = bounds img
 
           encodedImage = encode (hdr, info, img)
 
-          bmpHeaderSize = 2 + 4 + 2 + 2 + 4 
-          infoHeaderSize = 4 + 4 + 4 + 2 + 2 + 4 * 6
-          imagePixelSize = imgWidth * imgHeight * 4
+          imagePixelSize = (imgWidth + 1) * (imgHeight + 1) * 4
           hdr = BmpHeader {
               magicIdentifier = 0x4D42,
-              fileSize = bmpHeaderSize + infoHeaderSize + imagePixelSize,
+              fileSize = sizeofBmpHeader + sizeofBmpInfo + imagePixelSize,
               reserved1 = 0,
               reserved2 = 0,
-              dataOffset = bmpHeaderSize + infoHeaderSize
+              dataOffset = sizeofBmpHeader + sizeofBmpInfo
           }
 
           info = BmpInfoHeader {
-              size = infoHeaderSize,
-              width = imgWidth,
-              height = imgHeight,
+              size = sizeofBmpInfo,
+              width = imgWidth + 1,
+              height = imgHeight + 1,
               planes = 1,
               bitPerPixel = 32,
               bitmapCompression = 0, -- no compression

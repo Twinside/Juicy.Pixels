@@ -21,12 +21,10 @@ import Control.Applicative
 import Control.Monad( when, replicateM )
 import Data.Maybe( catMaybes )
 import Data.Bits
-import Data.Binary
-import Data.Binary.Put
-import Data.Binary.Get
+import Data.Serialize
 import Data.Array.Unboxed
-import Data.List( foldl', zip4, mapAccumL )
-import Data.Tuple( swap )
+import Data.List( foldl', zip4 )
+import Data.Word
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
@@ -115,11 +113,11 @@ data PngInterlaceMethod =
 --------------------------------------------------
 ----            Instances
 --------------------------------------------------
-instance Binary PngFilter where
+instance Serialize PngFilter where
     put = putWord8 . toEnum . fromEnum
     get = toEnum . fromIntegral <$> getWord8
 
-instance Binary PngRawImage where
+instance Serialize PngRawImage where
     put img = do
         putByteString pngSignature
         put $ header img
@@ -127,7 +125,7 @@ instance Binary PngRawImage where
 
     get = parseRawPngImage
 
-instance Binary PngChunk where
+instance Serialize PngChunk where
     put chunk = do
         putWord32be $ chunkLength chunk
         putByteString $ chunkType chunk
@@ -154,7 +152,7 @@ instance Binary PngChunk where
         	chunkType = chunkSig
         }
 
-instance Binary PngIHdr where
+instance Serialize PngIHdr where
     put hdr = do
         putWord32be 14
         putByteString iHDRSignature
@@ -165,8 +163,8 @@ instance Binary PngIHdr where
                 put $ colourType hdr
                 put $ filterMethod hdr
                 put $ interlaceMethod hdr
-            crc = pngComputeCrc $ iHDRSignature : Lb.toChunks inner
-        putLazyByteString inner
+            crc = pngComputeCrc $ [iHDRSignature, inner]
+        putByteString inner
         putWord32be crc
 
     get = do
@@ -212,7 +210,7 @@ parseChunks = do
        else (chunk:) <$> parseChunks
 
 
-instance Binary PngInterlaceMethod where
+instance Serialize PngInterlaceMethod where
     get = toEnum . fromIntegral <$> getWord8
     put = putWord8 . fromIntegral . fromEnum
 
@@ -242,23 +240,23 @@ adam7Indices imgWidth imgHeight =
 
 -- | Given a line size in bytes, a line count (repetition count), split
 -- a byte string of lines of the given size.
-breakLines :: Word32 -> Word32 -> Lb.ByteString -> ([Lb.ByteString], Lb.ByteString)
+breakLines :: Word32 -> Word32 -> B.ByteString -> ([B.ByteString], B.ByteString)
 breakLines size times wholestr = inner times [] wholestr
     where inner 0 lst rest = (lst, rest)
           inner n lst str = inner (n - 1) (lst ++ [piece]) rest
-            where (piece, rest) = Lb.splitAt (fromIntegral size) str
+            where (piece, rest) = B.splitAt (fromIntegral size) str
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line.
-pngFiltering :: PngFilter -> Lb.ByteString -> (Word32, Word32) 
-             -> (Lb.ByteString, Lb.ByteString) -- ^ Filtered scanlines, rest
-pngFiltering method str (imgWidth, imgHeight) = (Lb.pack filteredBytes , wholeRest)
+pngFiltering :: PngFilter -> B.ByteString -> (Word32, Word32) 
+             -> (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
+pngFiltering method str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
     where (filterLines, wholeRest) = breakLines imgWidth imgHeight str
-          nullLine = Lb.replicate (fromIntegral imgWidth) 0
+          nullLine = B.replicate (fromIntegral imgWidth) 0
 
           filteredBytes = concatMap (step (0, 0)) $ zip (nullLine : filterLines) filterLines
 
-          step (prevLineByte, prevByte) (Lb.uncons -> Just (b, restPrev), Lb.uncons -> Just (x, rest)) =
+          step (prevLineByte, prevByte) (B.uncons -> Just (b, restPrev), B.uncons -> Just (x, rest)) =
               innerMethod (prevLineByte, b, prevByte, x) : step (b, x) (restPrev, rest)
           step _ _ = []
 
@@ -304,7 +302,7 @@ unpackScanline 8 imgWidth imgHeight = replicateM (fromIntegral $ imgWidth * imgH
 unpackScanline 16 imgWidth imgHeight = replicateM (fromIntegral $ imgWidth * imgHeight) (fromIntegral <$> (get :: Get Word16))
 unpackScanline _ _ _ = fail "Impossible bit depth"
 
-type Unpacker a =  Lb.ByteString -> Image a
+type Unpacker a = B.ByteString -> Either String (Image a)
 
 pixelizeRawData :: (ColorConvertible a b) => [a] -> [Maybe b]
 pixelizeRawData [] = []
@@ -312,10 +310,10 @@ pixelizeRawData lst = px : pixelizeRawData rest
     where (px, rest) = fromRawData lst
 
 scanLineFilterUnpack :: (ColorConvertible Word8 a) 
-                     => PngFilter -> Word32 -> Lb.ByteString -> (Word32, Word32)
-                     -> ([a], Lb.ByteString)
+                     => PngFilter -> Word32 -> B.ByteString -> (Word32, Word32)
+                     -> Either String ([a], B.ByteString)
 scanLineFilterUnpack pngfilter depth bytes (imgWidth, imgHeight) =
-  (catMaybes $ pixelizeRawData unpackedBytes, rest)
+  (\a -> (catMaybes $ pixelizeRawData a, rest)) <$> unpackedBytes
     where scanlineByteSize = byteSizeOfBitLength depth imgWidth 
           (filtered, rest) = pngFiltering pngfilter bytes (scanlineByteSize, imgHeight)
           unpackedBytes = runGet (unpackScanline depth imgWidth imgHeight) filtered
@@ -323,25 +321,46 @@ scanLineFilterUnpack pngfilter depth bytes (imgWidth, imgHeight) =
 -- | Recreate image from normal (scanlines) png image.
 scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a) => PngFilter -> Word32 -> Word32 -> Word32
                -> Unpacker a
-scanLineUnpack pngfilter depth imgWidth imgHeight bytes = 
-  array ((0,0), (imgWidth - 1, imgHeight - 1)) $ zip pixelsIndices unpacked
+scanLineUnpack pngfilter depth imgWidth imgHeight bytes = case scanLineData of
+        Left err -> Left err
+        Right (unpacked,_) -> Right . array ((0,0), (imgWidth - 1, imgHeight - 1)) 
+                                   $ zip pixelsIndices unpacked
     where pixelsIndices = [(x,y) | y <- [0 .. imgHeight - 1], x <- [0 .. imgWidth - 1]]
-          (unpacked, _) = scanLineFilterUnpack pngfilter depth bytes (imgWidth, imgHeight)
+          scanLineData = scanLineFilterUnpack pngfilter depth bytes (imgWidth, imgHeight)
 
 byteSizeOfBitLength :: Word32 -> Word32 -> Word32
 byteSizeOfBitLength pixelBitDepth dimension = size + (if rest /= 0 then 1 else 0)
    where (size, rest) = (pixelBitDepth * dimension) `quotRem` 8
 
+eitherMapAccumL :: (acc -> x -> Either err (acc, y)) -- Function of elt of input list
+                                    -- and accumulator, returning new
+                                    -- accumulator and elt of result list
+                -> acc            -- Initial accumulator 
+                -> [x]            -- Input list
+                -> Either err (acc, [y])     -- Final accumulator and result list
+eitherMapAccumL _ s []        =  Right (s, [])
+eitherMapAccumL f s (x:xs)    = case f s x of
+        Left e -> Left e
+        Right (s', y) -> case eitherMapAccumL f s' xs of
+                            Left err -> Left err
+                            Right (s'', ys) -> Right (s'',y:ys)
+
 -- | Given data and image size, recreate an image with deinterlaced
 -- data for PNG's adam 7 method.
 adam7Unpack :: (IArray UArray a, ColorConvertible Word8 a) => PngFilter -> Word32 -> Word32 -> Word32 -> Unpacker a
-adam7Unpack pngfilter depth imgWidth imgHeight bytes = array ((0,0), (imgWidth - 1, imgHeight - 1)) pixels
-    where pixels = concat [zip idxs pass | (idxs, pass) <- zip pixelIndices passBytes]
-          pixelIndices = adam7Indices imgWidth imgHeight
+adam7Unpack pngfilter depth imgWidth imgHeight bytes = case passes of
+        Left err -> Left err
+        Right (_, passBytes) -> let pixels = concat [zip idxs pass | (idxs, pass) <- zip pixelIndices passBytes]
+                               in Right $ array ((0,0), (imgWidth - 1, imgHeight - 1)) pixels
+    where pixelIndices = adam7Indices imgWidth imgHeight
 
           -- given the sizes of the pass, will produce bytetring of the deseried
           -- sizes.
-          (_, passBytes) = mapAccumL (\acc -> swap . scanLineFilterUnpack pngfilter depth acc) bytes passSizes
+          passes = eitherMapAccumL (\acc -> eitherSwap . scanLineFilterUnpack pngfilter depth acc) 
+                                    bytes passSizes
+
+          eitherSwap (Left a) = Left a
+          eitherSwap (Right (a,b)) = Right (b,a)
 
           passSizes = [ (passWidth bw, passHeight bh) | (bw, bh) <- zip block_width block_height ]
 
@@ -374,7 +393,7 @@ iHDRSignature = signature [73, 72, 68, 82]
 iDATSignature = signature [73, 68, 65, 84]
 iENDSignature = signature [73, 69, 78, 68]
 
-instance Binary PngImageType where
+instance Serialize PngImageType where
     put PngGreyscale = putWord8 0
     put PngTrueColour = putWord8 2
     put PngIndexedColor = putWord8 3
@@ -409,47 +428,49 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
               in lutVal `xor` (crc `shiftR` 8)
 
 -- | Type used for png parser/converter
-type PngParser a = PngImageType -> PngIHdr -> Lb.ByteString
+type PngParser a = PngImageType -> PngIHdr -> B.ByteString
                  -> Either String (Image a)
 
 -- | Parse a greyscale png
 unparsePixel8 :: PngParser Pixel8
-unparsePixel8 PngGreyscale ihdr bytes = Right $ deinterlacer ihdr bytes
-unparsePixel8 PngIndexedColor ihdr bytes = Right $ deinterlacer ihdr bytes
+unparsePixel8 PngGreyscale ihdr bytes = deinterlacer ihdr bytes
+unparsePixel8 PngIndexedColor ihdr bytes = deinterlacer ihdr bytes
 unparsePixel8 _ _ _ = Left "Cannot reduce bit depth of image"
+
+type ErrImage a = Either String (Image a)
 
 -- | Parse a greyscale with alpha channel
 unparsePixelYA8 :: PngParser PixelYA8
-unparsePixelYA8 PngGreyscale ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelYA8 PngIndexedColor ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelYA8 PngGreyscaleWithAlpha ihdr bytes = Right img
-    where img = deinterlacer ihdr bytes :: Image PixelYA8
+unparsePixelYA8 PngGreyscale ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelYA8 PngIndexedColor ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelYA8 PngGreyscaleWithAlpha ihdr bytes = img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
 unparsePixelYA8 _ _ _ = Left "Cannot reduce bit depth of image"
 
 unparsePixelRGB8 :: PngParser PixelRGB8
-unparsePixelRGB8 PngGreyscale ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelRGB8 PngIndexedColor ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelRGB8 PngTrueColour ihdr bytes = Right img
-    where img = deinterlacer ihdr bytes :: Image PixelRGB8
-unparsePixelRGB8 PngGreyscaleWithAlpha ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image PixelYA8
+unparsePixelRGB8 PngGreyscale ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelRGB8 PngIndexedColor ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelRGB8 PngTrueColour ihdr bytes = img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelRGB8
+unparsePixelRGB8 PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
 unparsePixelRGB8 _ _ _ = Left "Cannot reduce data kind"
 
 unparsePixelRGBA8 :: PngParser PixelRGBA8
-unparsePixelRGBA8 PngGreyscale ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelRGBA8 PngIndexedColor ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image Pixel8
-unparsePixelRGBA8 PngTrueColour ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image PixelRGB8
-unparsePixelRGBA8 PngGreyscaleWithAlpha ihdr bytes = Right $ promotePixels img
-    where img = deinterlacer ihdr bytes :: Image PixelYA8
-unparsePixelRGBA8 PngTrueColourWithAlpha ihdr bytes = Right img
-    where img = deinterlacer ihdr bytes :: Image PixelRGBA8
+unparsePixelRGBA8 PngGreyscale ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelRGBA8 PngIndexedColor ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+unparsePixelRGBA8 PngTrueColour ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelRGB8
+unparsePixelRGBA8 PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
+unparsePixelRGBA8 PngTrueColourWithAlpha ihdr bytes = img
+    where img = deinterlacer ihdr bytes :: ErrImage PixelRGBA8
 
 -- | Class to use in order to load a png in a given pixel type,
 -- you can choose a given pixel type, the library will convert
@@ -467,7 +488,7 @@ class (IArray UArray a) => PngLoadable a where
     -- but you can't:
     --   - convert from rgba to rgb
     --   - convert from rgb to greyscale with alpha
-    loadPng :: Lb.ByteString -> Either String (Image a)
+    loadPng :: B.ByteString -> Either String (Image a)
 
 instance PngLoadable Pixel8 where
     loadPng = pngUnparser unparsePixel8
@@ -482,16 +503,13 @@ instance PngLoadable PixelRGBA8 where
     loadPng = pngUnparser unparsePixelRGBA8
 
 pngUnparser :: (IArray UArray a, ColorConvertible Word8 a)
-            => PngParser a -> Lb.ByteString -> Either String (Image a)
-pngUnparser unparser byte = unparser (colourType ihdr) ihdr imgData
-    where rawImg = runGet get byte
-          ihdr = header rawImg
-
-          imgData :: Lb.ByteString
-          imgData = Z.decompress compressedImageData
-
-          compressedImageData :: Lb.ByteString
-          compressedImageData = 
-                Lb.fromChunks [chunkData chunk | chunk <- chunks rawImg
-                                               , chunkType chunk == iDATSignature]
+            => PngParser a -> B.ByteString -> Either String (Image a)
+pngUnparser unparser byte = do
+    rawImg <- runGet get byte
+    let ihdr = header rawImg
+        compressedImageData = 
+              B.concat [chunkData chunk | chunk <- chunks rawImg
+                                        , chunkType chunk == iDATSignature]
+        imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
+    unparser (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
 

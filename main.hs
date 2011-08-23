@@ -1,17 +1,21 @@
 
+import Data.Array.Unboxed
 import Codec.Picture.Bitmap
 import Codec.Picture.Png
+import Codec.Picture.Types
 -- import Codec.Picture.Jpg
 
 -- import System.Environment
 import System.FilePath
-import qualified Data.ByteString.Lazy as Lb
+import qualified Data.ByteString as B
+{-import qualified Data.ByteString.Lazy as Lb-}
 
 convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
-    file <- Lb.readFile filePath
+    file <- B.readFile filePath
+    putStrLn $ "(?) Loading: " ++ filePath
     case loadPng file of
-        Left err -> putStrLn $ "PNG loading error: (" ++ filePath ++ ")" ++ err
+        Left err -> putStrLn $ "(X) PNG loading error: (" ++ filePath ++ ")" ++ err
         Right img -> writeBitmapFile (filePath ++ ".bmp") img
 
 validTests :: [FilePath]
@@ -55,10 +59,17 @@ invalidTests =
     "xd3n2c08.png", "xd9n2c08.png", "xdtn0g01.png", "xhdn0g08.png", "xlfn0g04.png",
     "xs1n0g01.png", "xs2n0g01.png", "xs4n0g01.png", "xs7n0g01.png"]
 
+exportBmpWitness :: IO ()
+exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 237 241
+    where img w h = array ((0,0), (w - 1, h - 1)) $ pixels w h
+          pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
+          pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
+
 main :: IO ()
 main = do
-	putStrLn ">>>> Valid instances"
-	mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
-	putStrLn ">>>> invalid instances"
-	mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
+    exportBmpWitness
+    putStrLn ">>>> Valid instances"
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
+    putStrLn ">>>> invalid instances"
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
 

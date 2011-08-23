@@ -25,7 +25,7 @@ Executable imageTest
                  array,
                  bytestring,
                  mtl >= 1.1,
-                 binary >= 0.5.0.2 && < 0.6,
+                 cereal >= 0.3.3.0 && < 0.4,
                  zlib >= 0.5.3.1,
                  filepath >= 1.2
 
@@ -42,7 +42,7 @@ Library
                  array,
                  bytestring,
                  mtl >= 1.1,
-                 binary >= 0.5.0.2 && < 0.6,
+                 cereal >= 0.3.3.0 && < 0.4,
                  zlib >= 0.5.3.1
   
   -- Modules not exported by this package.

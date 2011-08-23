@@ -18,7 +18,7 @@ import Control.Monad.ST
 import Data.Word
 import Data.Array.Unboxed
 import Data.Array.Base
-import Data.Binary
+import Data.Serialize
 import GHC.ST( ST(..) )
 import GHC.Exts
 import GHC.Word		( Word8(..) )
@@ -32,15 +32,15 @@ data PixelYA8 = PixelYA8 !Word8 !Word8
 data PixelRGB8 = PixelRGB8 !Word8 !Word8 !Word8
 data PixelRGBA8 = PixelRGBA8 !Word8 !Word8 !Word8 !Word8
 
-instance Binary PixelYA8 where
+instance Serialize PixelYA8 where
     put (PixelYA8 y a) = put y >> put a
     get = PixelYA8 <$> get <*> get
 
-instance Binary PixelRGB8 where
+instance Serialize PixelRGB8 where
     put (PixelRGB8 r g b) = put r >> put g >> put b
     get = PixelRGB8 <$> get <*> get <*> get
 
-instance Binary PixelRGBA8 where
+instance Serialize PixelRGBA8 where
     put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
     get = PixelRGBA8 <$> get <*> get <*> get <*> get
 
@@ -74,7 +74,7 @@ instance MArray (STUArray s) PixelRGBA8 (ST s) where
     {-# INLINE unsafeWrite #-}
     unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelRGBA8 (W8# r) (W8# g) (W8# b) (W8# a)) =
        ST $ \s1# ->
-        case i# *# 3# of { idx# ->
+        case i# *# 4# of { idx# ->
         case writeWord8Array# marr# idx# r s1# of { s2# ->
         case writeWord8Array# marr# (idx# +# 1#) g s2# of { s3# ->
         case writeWord8Array# marr# (idx# +# 2#) b s3# of { s4# ->
