@@ -3,7 +3,6 @@ module Codec.Picture.Bitmap( -- * Functions
                              writeBitmapFile
                            ) where
 
-import Control.Monad( replicateM_ )
 import Data.Array.Unboxed
 import Data.Binary
 import Data.Binary.Put
@@ -74,7 +73,7 @@ instance Binary BmpInfoHeader where
 
     get = error "Unimplemented"
 
-data BmpImage = BmpImage (BmpHeader, BmpInfoHeader, Image PixelRGB8)
+data BmpImage = BmpImage (BmpHeader, BmpInfoHeader, Image PixelRGBA8)
 
 instance Binary BmpImage where
     put (BmpImage (hdr, ihdr, img)) = put hdr >> put ihdr >> bmpEncode img
