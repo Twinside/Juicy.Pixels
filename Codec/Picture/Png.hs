@@ -23,7 +23,7 @@ import Data.Maybe( catMaybes )
 import Data.Bits
 import Data.Serialize
 import Data.Array.Unboxed
-import Data.List( foldl', zip4 )
+import Data.List( foldl', zip4, find )
 import Data.Word
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
@@ -63,6 +63,15 @@ data PngRawImage = PngRawImage
     { header       :: PngIHdr
     , chunks       :: [PngChunk]
     }
+
+type PngPalette = Array Word32 PixelRGB8
+
+parsePalette :: PngChunk -> Either String PngPalette
+parsePalette plte 
+ | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
+ | otherwise = listArray (0, pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
+    where pixelUnpacker = replicateM (fromIntegral pixelCount) get
+          pixelCount = chunkLength plte `div` 3
 
 data PngChunk = PngChunk
     { chunkLength :: Word32
@@ -387,9 +396,9 @@ signature :: [Word8] -> ChunkSignature
 signature = B.pack . map (toEnum . fromEnum)
 
 -- | Signature for all the critical chunks in a PNG image.
-iHDRSignature, iDATSignature, iENDSignature :: ChunkSignature 
+iHDRSignature, iDATSignature, iENDSignature, pLTESignature :: ChunkSignature 
 iHDRSignature = signature [73, 72, 68, 82]
--- pLTESignature = signature [80, 76, 84, 69]
+pLTESignature = signature [80, 76, 84, 69]
 iDATSignature = signature [73, 68, 65, 84]
 iENDSignature = signature [73, 69, 78, 68]
 
@@ -428,48 +437,48 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
               in lutVal `xor` (crc `shiftR` 8)
 
 -- | Type used for png parser/converter
-type PngParser a = PngImageType -> PngIHdr -> B.ByteString
+type PngParser a = Maybe PngPalette -> PngImageType -> PngIHdr -> B.ByteString
                  -> Either String (Image a)
 
 -- | Parse a greyscale png
 unparsePixel8 :: PngParser Pixel8
-unparsePixel8 PngGreyscale ihdr bytes = deinterlacer ihdr bytes
-unparsePixel8 PngIndexedColor ihdr bytes = deinterlacer ihdr bytes
-unparsePixel8 _ _ _ = Left "Cannot reduce bit depth of image"
+unparsePixel8 _ PngGreyscale ihdr bytes = deinterlacer ihdr bytes
+unparsePixel8 _ PngIndexedColor ihdr bytes = deinterlacer ihdr bytes
+unparsePixel8 _ _ _ _ = Left "Cannot reduce data kind"
 
 type ErrImage a = Either String (Image a)
 
 -- | Parse a greyscale with alpha channel
 unparsePixelYA8 :: PngParser PixelYA8
-unparsePixelYA8 PngGreyscale ihdr bytes = promotePixels <$> img
+unparsePixelYA8 _ PngGreyscale ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelYA8 PngIndexedColor ihdr bytes = promotePixels <$> img
-    where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelYA8 PngGreyscaleWithAlpha ihdr bytes = img
+unparsePixelYA8 _ PngGreyscaleWithAlpha ihdr bytes = img
     where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
-unparsePixelYA8 _ _ _ = Left "Cannot reduce bit depth of image"
+unparsePixelYA8 _ _ _ _ = Left "Cannot reduce data kind"
 
 unparsePixelRGB8 :: PngParser PixelRGB8
-unparsePixelRGB8 PngGreyscale ihdr bytes = promotePixels <$> img
+unparsePixelRGB8 _ PngGreyscale ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelRGB8 PngIndexedColor ihdr bytes = promotePixels <$> img
+unparsePixelRGB8 (Just plte) PngIndexedColor ihdr bytes = amap ((plte !) . fromIntegral) <$> img
     where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelRGB8 PngTrueColour ihdr bytes = img
+unparsePixelRGB8 Nothing PngIndexedColor _ _ = Left "no valid palette found"
+unparsePixelRGB8 _ PngTrueColour ihdr bytes = img
     where img = deinterlacer ihdr bytes :: ErrImage PixelRGB8
-unparsePixelRGB8 PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
+unparsePixelRGB8 _ PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
-unparsePixelRGB8 _ _ _ = Left "Cannot reduce data kind"
+unparsePixelRGB8 _ _ _ _ = Left "Cannot reduce data kind"
 
 unparsePixelRGBA8 :: PngParser PixelRGBA8
-unparsePixelRGBA8 PngGreyscale ihdr bytes = promotePixels <$> img
+unparsePixelRGBA8 _ PngGreyscale ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelRGBA8 PngIndexedColor ihdr bytes = promotePixels <$> img
+unparsePixelRGBA8 (Just plte) PngIndexedColor ihdr bytes = amap (promotePixel . (plte !) . fromIntegral) <$> img
     where img = deinterlacer ihdr bytes :: ErrImage Pixel8
-unparsePixelRGBA8 PngTrueColour ihdr bytes = promotePixels <$> img
+unparsePixelRGBA8 Nothing PngIndexedColor _ _ = Left "no valid palette found"
+unparsePixelRGBA8 _ PngTrueColour ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage PixelRGB8
-unparsePixelRGBA8 PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
+unparsePixelRGBA8 _ PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
-unparsePixelRGBA8 PngTrueColourWithAlpha ihdr bytes = img
+unparsePixelRGBA8 _ PngTrueColourWithAlpha ihdr bytes = img
     where img = deinterlacer ihdr bytes :: ErrImage PixelRGBA8
 
 -- | Class to use in order to load a png in a given pixel type,
@@ -511,5 +520,12 @@ pngUnparser unparser byte = do
               B.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
         imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
-    unparser (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
+        palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
+            Nothing -> Nothing
+            Just p -> case parsePalette p of
+                    Left _ -> Nothing
+                    Right plte -> Just plte
+
+    unparser palette (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
+
 
