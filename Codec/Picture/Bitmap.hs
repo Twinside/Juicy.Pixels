@@ -85,7 +85,7 @@ instance Serialize BmpImage where
     get = error "Unimplemented"
 
 bmpEncode :: Image PixelRGBA8 -> Put
-bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [0..h], col <- [0..w]]
+bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [h, h-1..0], col <- [0..w]]
     where (_, (w,h)) = bounds arr
 
 
