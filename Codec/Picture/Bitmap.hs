@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmapFile
+                           , encodeBitmapFile
                            ) where
 
 import Data.Array.Unboxed
@@ -88,14 +89,15 @@ bmpEncode :: Image PixelRGBA8 -> Put
 bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [h, h-1..0], col <- [0..w]]
     where (_, (w,h)) = bounds arr
 
-
+-- | Write an image in a file use the bitmap format.
 writeBitmapFile :: FilePath -> Image PixelRGBA8 -> IO ()
 writeBitmapFile filename img = do
-    {-mapM_ print $ elems img-}
-    B.writeFile filename encodedImage
-    where (_, (imgWidth, imgHeight)) = bounds img
+    B.writeFile filename $ encodeBitmapFile img
 
-          encodedImage = encode $ BmpImage (hdr, info, img)
+-- | Convert an image to a bytestring ready to be serialized.
+encodeBitmapFile :: Image PixelRGBA8 -> B.ByteString
+encodeBitmapFile img = encode $ BmpImage (hdr, info, img)
+    where (_, (imgWidth, imgHeight)) = bounds img
 
           imagePixelSize = (imgWidth + 1) * (imgHeight + 1) * 4
           hdr = BmpHeader {

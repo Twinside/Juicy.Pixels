@@ -3,14 +3,18 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Module providing the basic types for image manipulation in the library.
-module Codec.Picture.Types( Image
+module Codec.Picture.Types( -- * Types
+                            -- ** Image types
+                            Image
+                          , DynamicImage( .. )
+                            -- ** Pixel types
                           , Pixel2
                           , Pixel8
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
                           , PixelRGBA8( .. )
-                          , rgb
-                          , rgba
+                            -- * Helper functions
+                          , swapBlueRed 
                           ) where
 
 import Control.Applicative
@@ -23,15 +27,66 @@ import GHC.ST( ST(..) )
 import GHC.Exts
 import GHC.Word		( Word8(..) )
 
+-- | Image or pixel buffer, the coordinates are assumed to start
+-- from the upper-left corner of the image, with the horizontal
+-- position first, then the vertical one.
 type Image a = UArray (Word32, Word32) a
 
+-- | Type allowing the loading of an image with different pixel
+-- structures
+data DynamicImage =
+       -- | A greyscale image.
+       ImageY8   (Image Pixel8)
+       -- | An image in greyscale with an alpha channel.
+     | ImageYA8  (Image PixelYA8)
+       -- | An image in true color.
+     | ImageRGB8 (Image PixelRGB8)
+       -- | An image in true color and an alpha channel.
+     | ImageRGBA8 (Image PixelRGBA8)
+
 type Pixel2 = Bool
+
+-- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
 
-data PixelYA8 = PixelYA8 !Word8 !Word8
-data PixelRGB8 = PixelRGB8 !Word8 !Word8 !Word8
-data PixelRGBA8 = PixelRGBA8 !Word8 !Word8 !Word8 !Word8
-    deriving Show
+-- | Pixel type storing Luminance (Y) and alpha information
+-- on 8 bits.
+-- Value are stored in the following order :
+--
+--  * Luminance
+--
+--  * Alpha
+--
+data PixelYA8 = PixelYA8 !Word8  -- Luminance
+                         !Word8  -- Alpha value
+
+-- | Pixel type storing classic pixel on 8 bits
+-- Value are stored in the following order :
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+data PixelRGB8 = PixelRGB8 !Word8 -- Red
+                           !Word8 -- Green
+                           !Word8 -- Blue
+
+-- | Pixel type storing a classic pixel, with an alpha component.
+-- Values are stored in the following order
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+-- * Alpha
+data PixelRGBA8 = PixelRGBA8 !Word8 -- Red
+                             !Word8 -- Green
+                             !Word8 -- Blue
+                             !Word8 -- Alpha
 
 instance Serialize PixelYA8 where
     put (PixelYA8 y a) = put y >> put a
@@ -41,17 +96,14 @@ instance Serialize PixelRGB8 where
     put (PixelRGB8 r g b) = put r >> put g >> put b
     get = PixelRGB8 <$> get <*> get <*> get
 
+-- | Helper function to let put color in the "windows" order
+-- used in the Bitmap file format.
+swapBlueRed :: PixelRGBA8 -> PixelRGBA8
+swapBlueRed (PixelRGBA8 r g b a) = PixelRGBA8 b g r a
+
 instance Serialize PixelRGBA8 where
     put (PixelRGBA8 r g b a) = put b >> put g >> put r >> put a
     get = PixelRGBA8 <$> get <*> get <*> get <*> get
-
-{-# INLINE rgb #-}
-rgb :: Word8 -> Word8 -> Word8 -> PixelRGB8
-rgb = PixelRGB8
-
-{-# INLINE rgba #-}
-rgba :: Word8 -> Word8 -> Word8 -> Word8 -> PixelRGBA8
-rgba = PixelRGBA8
 
 instance MArray (STUArray s) PixelRGBA8 (ST s) where
     {-# INLINE getBounds #-}

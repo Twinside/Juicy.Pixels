@@ -69,7 +69,11 @@ main :: IO ()
 main = do
     exportBmpWitness
     putStrLn ">>>> Valid instances"
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
-    putStrLn ">>>> invalid instances"
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
+    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) ["basn0g01.png", "basn0g02.png", 
+                                                              "basn0g04.png", "basn0g08.png",
+                                                               "basn0g16.png", "basn3p04.png",
+                                                               "basn3p08.png"]
+    -- putStrLn ">>>> invalid instances"
+    -- mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
 
