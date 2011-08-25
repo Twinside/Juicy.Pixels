@@ -359,7 +359,7 @@ unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromInt
 unpackScanline 8 sampleCount imgWidth imgHeight = 
     replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) get
 unpackScanline 16 sampleCount imgWidth imgHeight = 
-    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (fromIntegral . (`div` 256) <$> (get :: Get Word16))
+    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (fromIntegral . (`div` 256) <$> getWord16be)
 unpackScanline _ _ _ _ = fail "Impossible bit depth"
 
 type Unpacker a = B.ByteString -> Either String (Image a)

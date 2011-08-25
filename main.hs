@@ -53,11 +53,33 @@ validTests =
     "tbwn3p08.png", "tbyn3p08.png", "tp0n0g08.png", "tp0n2c08.png", "tp0n3p08.png",
     "tp1n3p08.png", "z00n2c08.png", "z03n2c08.png", "z06n2c08.png", "z09n2c08.png"]
 
+sizeNonInterlaced, basicNonInterlaced, paletteTest, filterTest, chunkOrderingTest, compressionTest :: [FilePath]
+basicNonInterlaced = [ "basn0g01.png", "basn0g02.png", "basn0g04.png", "basn0g08.png",
+                       "basn0g16.png", "basn2c08.png", "basn2c16.png", "basn3p01.png",
+                       "basn3p02.png", "basn3p04.png", "basn3p08.png", "basn4a08.png",
+                       "basn4a16.png", "basn6a08.png", "basn6a16.png"]
+sizeNonInterlaced = [ "s01n3p01.png", "s02n3p01.png", "s03n3p01.png", "s04n3p01.png",
+                      "s05n3p02.png", "s06n3p02.png", "s07n3p02.png", "s08n3p02.png",
+                      "s09n3p02.png", "s32n3p04.png", "s33n3p04.png", "s34n3p04.png",
+                      "s35n3p04.png", "s36n3p04.png", "s37n3p04.png", "s38n3p04.png",
+                      "s39n3p04.png", "s40n3p04.png"]
+
+paletteTest = ["pp0n2c16.png", "pp0n6a08.png", "ps1n0g08.png", "ps1n2c16.png", "ps2n0g08.png", "ps2n2c16.png"]
+filterTest = [ "f00n0g08.png", "f01n0g08.png", "f02n0g08.png", "f03n0g08.png", 
+               "f04n0g08.png", "f00n2c08.png", "f01n2c08.png", "f02n2c08.png", 
+               "f03n2c08.png", "f04n2c08.png" ]
+
+chunkOrderingTest = [ "oi1n0g16.png", "oi2n0g16.png", "oi4n0g16.png", "oi9n0g16.png", 
+                      "oi1n2c16.png", "oi2n2c16.png", "oi4n2c16.png", "oi9n2c16.png" ]
+
+compressionTest = ["z00n2c08.png", "z03n2c08.png", "z06n2c08.png", "z09n2c08.png"]
+
 invalidTests :: [FilePath]
 invalidTests =
    ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", "xd0n2c08.png",
     "xd3n2c08.png", "xd9n2c08.png", "xdtn0g01.png", "xhdn0g08.png", "xlfn0g04.png",
     "xs1n0g01.png", "xs2n0g01.png", "xs4n0g01.png", "xs7n0g01.png"]
+
 
 exportBmpWitness :: IO ()
 exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
@@ -70,10 +92,7 @@ main = do
     exportBmpWitness
     putStrLn ">>>> Valid instances"
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) ["basn0g01.png", "basn0g02.png", 
-                                                              "basn0g04.png", "basn0g08.png",
-                                                               "basn0g16.png", "basn3p04.png",
-                                                               "basn3p08.png"]
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) $ basicNonInterlaced ++ sizeNonInterlaced ++ filterTest ++ paletteTest ++ chunkOrderingTest ++ compressionTest
     -- putStrLn ">>>> invalid instances"
     -- mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
 
