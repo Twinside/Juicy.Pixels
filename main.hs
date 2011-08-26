@@ -92,7 +92,8 @@ main = do
     exportBmpWitness
     putStrLn ">>>> Valid instances"
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) $ basicNonInterlaced ++ sizeNonInterlaced ++ filterTest ++ paletteTest ++ chunkOrderingTest ++ compressionTest
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) -- ["basn0g08.png"]
+            $ basicNonInterlaced ++ sizeNonInterlaced ++ filterTest ++ paletteTest ++ chunkOrderingTest ++ compressionTest
     -- putStrLn ">>>> invalid instances"
     -- mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) invalidTests
 

@@ -31,8 +31,6 @@ import qualified Data.ByteString.Lazy as Lb
 import Codec.Picture.ColorConversion
 import Codec.Picture.Types
 
-import Debug.Trace
-
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -275,15 +273,18 @@ pngFiltering :: B.ByteString -> (Word32, Word32)
              -> (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
 pngFiltering str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
     where (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
-          nullLine = B.replicate (fromIntegral imgWidth) 0
+          nullLine = repeat 0
 
-          filteredBytes = concatMap methodRead $ zip (nullLine : map B.tail filterLines) filterLines
+          filteredBytes = concat imageLines
+            where imageLines = map methodRead $ zip (nullLine : imageLines) filterLines
 
           methodRead (prev, B.uncons -> Just (rawMeth, rest)) =
               step (toEnum $ fromIntegral rawMeth) (0,0) (prev, rest)
+          methodRead _ = []
 
-          step method (prevLineByte, prevByte) (B.uncons -> Just (b, restPrev), B.uncons -> Just (x, rest)) =
-              inner method (prevLineByte, b, prevByte, x) : step method (b, x) (restPrev, rest)
+          step method (prevLineByte, prevByte) (b : restPrev, B.uncons -> Just (x, rest)) =
+              thisByte : step method (b, thisByte) (restPrev, rest)
+                where thisByte = inner method (prevLineByte, b, prevByte, x)
           step _ _ _ = []
 
           inner :: PngFilter 
@@ -309,10 +310,6 @@ paeth a b c
 -- | Transform a scanline to real data
 unpackScanline :: Word32 -> Word32 -> Word32 -> Word32 -> Get [Word8]
 unpackScanline 1 1 imgWidth imgHeight = 
-   (trace $ "unpackScanline 1bit: w:" ++ show imgWidth ++ " h:" 
-                                ++ show imgHeight ++ " lineSize:" ++ show lineSize
-                                ++ " rest:" ++ show bitRest
-                                ) $
    concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting
           split times c = map (extractBit c) [times - 1, times - 2 .. 0]
@@ -357,7 +354,7 @@ unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromInt
                         return $ line ++ [lastElem]
 
 unpackScanline 8 sampleCount imgWidth imgHeight = 
-    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) get
+    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) getWord8
 unpackScanline 16 sampleCount imgWidth imgHeight = 
     replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (fromIntegral . (`div` 256) <$> getWord16be)
 unpackScanline _ _ _ _ = fail "Impossible bit depth"
@@ -379,20 +376,18 @@ scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
   (\a -> (catMaybes $ pixelizeRawData a, rest)) <$> unpackedBytes
 
 -- | Recreate image from normal (scanlines) png image.
-scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a)
+scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a, Show a)
                => Word32 -> Word32 -> Word32 -> Word32
                -> Unpacker a
 scanLineUnpack depth sampleCount imgWidth imgHeight bytes = case scanLineData of
         Left err -> Left err
-        Right (unpacked,_) -> trace (show $ length unpacked) $ 
-                             Right . array ((0,0), (imgWidth - 1, imgHeight - 1)) 
-                                   $ zip pixelsIndices unpacked
+        Right (unpacked,_) -> Right . array ((0,0), (imgWidth - 1, imgHeight - 1)) 
+                                    $ zip pixelsIndices unpacked
     where pixelsIndices = [(x,y) | y <- [0 .. imgHeight - 1], x <- [0 .. imgWidth - 1]]
           scanLineData = scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight)
 
 byteSizeOfBitLength :: Word32 -> Word32 -> Word32 -> Word32
-byteSizeOfBitLength pixelBitDepth sampleCount dimension = (\a -> trace (show (size,rest, a)) a) $
- size + (if rest /= 0 then 1 else 0)
+byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 then 1 else 0)
    where (size, rest) = (pixelBitDepth * dimension * sampleCount) `quotRem` 8
 
 eitherMapAccumL :: (acc -> x -> Either err (acc, y)) -- Function of elt of input list
@@ -438,7 +433,7 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
-deinterlacer :: (ColorConvertible Word8 a, IArray UArray a)
+deinterlacer :: (ColorConvertible Word8 a, IArray UArray a, Show a)
              => PngIHdr -> Unpacker a
 deinterlacer ihdr = fun (fromIntegral $ bitDepth ihdr) sampleCount
                         (width ihdr) (height ihdr)
