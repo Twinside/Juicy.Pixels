@@ -54,7 +54,11 @@ def performTests():
             ofile.write("""
             <table>
                 <!-- <tr><td>{0}</td><td>{1}</td><td>{2}</td></tr> -->
-                <tr><td><img src="file:///{0}" /></td><td><img src="{1}" /></td><td><img src="file:///{2}" /></td><td>{0}</td></tr>
+                <tr>
+                    <td><img width="64" height="64" src="file:///{0}" /></td>
+                    <td><img width="64" height="64" src="{1}" /></td>
+                    <td><img width="64" height="64" src="file:///{2}" /></td>
+                    <td>{0}</td></tr>
             </table>
             """.format(left, neofile, right))
         

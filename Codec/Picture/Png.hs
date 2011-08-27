@@ -269,21 +269,24 @@ breakLines size times wholestr = inner times [] wholestr
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line.
-pngFiltering :: B.ByteString -> (Word32, Word32) 
+pngFiltering :: Word32 -> B.ByteString -> (Word32, Word32) 
              -> (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
-pngFiltering str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
+pngFiltering beginZeroes str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
     where (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
           nullLine = repeat 0
 
           filteredBytes = concat imageLines
             where imageLines = map methodRead $ zip (nullLine : imageLines) filterLines
 
-          methodRead (prev, B.uncons -> Just (rawMeth, rest)) =
-              step (toEnum $ fromIntegral rawMeth) (0,0) (prev, rest)
+          stride = fromIntegral beginZeroes
+          zeroes = replicate stride 0
+
+          methodRead (prev, B.uncons -> Just (rawMeth, rest)) = drop stride thisLine
+              where thisLine = zeroes ++ step (toEnum $ fromIntegral rawMeth) (0, thisLine) (prev, rest)
           methodRead _ = []
 
-          step method (prevLineByte, prevByte) (b : restPrev, B.uncons -> Just (x, rest)) =
-              thisByte : step method (b, thisByte) (restPrev, rest)
+          step method (prevLineByte, (prevByte:restLine)) (b : restPrev, B.uncons -> Just (x, rest)) =
+              thisByte : step method (b, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
           step _ _ _ = []
 
@@ -293,19 +296,25 @@ pngFiltering str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
           inner FilterNone    (_,_,_,x) = x
           inner FilterSub     (_,_,a,x) = x + a
           inner FilterUp      (_,b,_,x) = x + b
-          inner FilterAverage (_,b,a,x) = x + (a + b) `div` 2
+          -- standard indicate that Orig(a) + Orig(b) shall be computed without overflow
+          inner FilterAverage (_,b,a,x) = x + fromIntegral ((a' + b') `div` (2 :: Word16))
+            where a' = fromIntegral a
+                  b' = fromIntegral b
           inner FilterPaeth   (c,b,a,x) = x + paeth a b c
 
 -- | Directly stolen from the definition in the standard (on W3C page)
 paeth :: Word8 -> Word8 -> Word8 -> Word8
 paeth a b c
   | pa <= pb && pa <= pc = a
-  | pb <= pc              = b
-  | otherwise             = c
-    where p = a + b - c
-          pa = abs $ p - a
-          pb = abs $ p - b
-          pc = abs $ p - c
+  | pb <= pc             = b
+  | otherwise            = c
+    where a' = fromIntegral a :: Int
+          b' = fromIntegral b
+          c' = fromIntegral c
+          p = a' + b' - c'
+          pa = abs $ p - a'
+          pb = abs $ p - b'
+          pc = abs $ p - c'
 
 -- | Transform a scanline to real data
 unpackScanline :: Word32 -> Word32 -> Word32 -> Word32 -> Get [Word8]
@@ -371,12 +380,13 @@ scanLineFilterUnpack :: (ColorConvertible Word8 a)
                      -> Either String ([a], B.ByteString)
 scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
   let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth 
-      (filtered, rest) = pngFiltering bytes (scanlineByteSize, imgHeight)
+      stride = if depth >= 8 then sampleCount else 1
+      (filtered, rest) = pngFiltering stride bytes (scanlineByteSize, imgHeight)
       unpackedBytes = runGet (unpackScanline depth sampleCount imgWidth imgHeight) filtered
   (\a -> (catMaybes $ pixelizeRawData a, rest)) <$> unpackedBytes
 
 -- | Recreate image from normal (scanlines) png image.
-scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a, Show a)
+scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a)
                => Word32 -> Word32 -> Word32 -> Word32
                -> Unpacker a
 scanLineUnpack depth sampleCount imgWidth imgHeight bytes = case scanLineData of
@@ -433,7 +443,7 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
-deinterlacer :: (ColorConvertible Word8 a, IArray UArray a, Show a)
+deinterlacer :: (ColorConvertible Word8 a, IArray UArray a)
              => PngIHdr -> Unpacker a
 deinterlacer ihdr = fun (fromIntegral $ bitDepth ihdr) sampleCount
                         (width ihdr) (height ihdr)
