@@ -435,6 +435,8 @@ pixelizeRawData lst = px : pixelizeRawData rest
 scanLineFilterUnpack :: (ColorConvertible Word8 a) 
                      => Word32 -> Word32 -> B.ByteString -> (Word32, Word32)
                      -> Either String ([a], B.ByteString)
+scanLineFilterUnpack     _           _ bytes (0       ,         _) = Right ([], bytes)
+scanLineFilterUnpack     _           _ bytes (_       ,         0) = Right ([], bytes)
 scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
   let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth 
       stride = if depth >= 8 then sampleCount * (depth `div` 8) else 1
@@ -490,13 +492,16 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
           passSizes = zip passWidth passHeight
 
           infos = adam7MatrixInfo
-          passHeight = [ pHeight | (begin, incr) <- zip (adam7_starting_row infos) (adam7_row_increment infos)
-                                 , let (h,hRest) = (imgHeight - begin) `quotRem` incr
-                                       pHeight = h + (if hRest /= 0 then 1 else 0)]
+          sizer dimension begin increment
+            | dimension <= begin = 0
+            | otherwise = outDim + (if restDim /= 0 then 1 else 0)
+                where (outDim, restDim) = (dimension - begin) `quotRem` increment
 
-          passWidth = [ pWidth | (begin, incr) <- zip (adam7_starting_col infos) (adam7_col_increment infos)
-                               , let (w,wRest) = (imgHeight - begin) `quotRem` incr
-                                     pWidth = w + (if wRest /= 0 then 1 else 0)]
+          passHeight = [ sizer imgHeight begin incr 
+                            | (begin, incr) <- zip (adam7_starting_row infos) (adam7_row_increment infos)]
+
+          passWidth = [ sizer imgWidth begin incr 
+                            | (begin, incr) <- zip (adam7_starting_col infos) (adam7_col_increment infos)]
 
 
 -- | deinterlace picture in function of the method indicated
