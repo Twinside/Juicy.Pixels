@@ -282,11 +282,12 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (B.pack filteredBytes , who
           zeroes = replicate stride 0
 
           methodRead (prev, B.uncons -> Just (rawMeth, rest)) = drop stride thisLine
-              where thisLine = zeroes ++ step (toEnum $ fromIntegral rawMeth) (0, thisLine) (prev, rest)
+              where thisLine = zeroes ++ step (toEnum $ fromIntegral rawMeth) (prevLine, thisLine) (prev, rest)
+                    prevLine = zeroes ++ prev
           methodRead _ = []
 
-          step method (prevLineByte, (prevByte:restLine)) (b : restPrev, B.uncons -> Just (x, rest)) =
-              thisByte : step method (b, restLine) (restPrev, rest)
+          step method (prevLineByte:prevLinerest, (prevByte:restLine)) (b : restPrev, B.uncons -> Just (x, rest)) =
+              thisByte : step method (prevLinerest, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
           step _ _ _ = []
 
