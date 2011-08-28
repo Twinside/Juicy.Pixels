@@ -246,6 +246,28 @@ instance Serialize PngInterlaceMethod where
 pngSignature :: ChunkSignature
 pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 
+-- | Simple structure used to hold information about Adam7 deinterlacing.
+-- A structure is used to avoid pollution of the module namespace.
+data Adam7MatrixInfo = Adam7MatrixInfo 
+    { adam7_starting_row :: [Word32]
+    , adam7_starting_col  :: [Word32]
+    , adam7_row_increment :: [Word32]
+    , adam7_col_increment :: [Word32]
+    , adam7_block_height  :: [Word32]
+    , adam7_block_width   :: [Word32]
+    }
+
+-- | The real info about the matrix.
+adam7MatrixInfo :: Adam7MatrixInfo 
+adam7MatrixInfo = Adam7MatrixInfo 
+    { adam7_starting_row  = [0, 0, 4, 0, 2, 0, 1]
+    , adam7_starting_col  = [0, 4, 0, 2, 0, 1, 0]
+    , adam7_row_increment = [8, 8, 8, 4, 4, 2, 2]
+    , adam7_col_increment = [8, 8, 4, 4, 2, 2, 1]
+    , adam7_block_height  = [8, 8, 4, 4, 2, 2, 1]
+    , adam7_block_width   = [8, 4, 4, 2, 2, 1, 1]
+    }
+
 -- | Return the image indices used for adam7 interlacing methods.
 -- Each returned list return a pass of reaordering, there is 7 of
 -- them, all resulting indices go from left to right, top to bottom.
@@ -254,12 +276,11 @@ adam7Indices imgWidth imgHeight =
   [[ (x,y) | y <- [yBeg, yBeg + dy .. imgHeight - 1]
            , x <- [xBeg, xBeg + dx .. imgWidth - 1] ]  
           | (xBeg, dx, yBeg, dy) <- infos]
-    where starting_row  = [0, 0, 4, 0, 2, 0, 1]
-          starting_col  = [0, 4, 0, 2, 0, 1, 0]
-          row_increment = [8, 8, 8, 4, 4, 2, 2]
-          col_increment = [8, 8, 4, 4, 2, 2, 1]
-
-          infos = zip4 starting_col col_increment starting_row row_increment
+    where info = adam7MatrixInfo
+          infos = zip4 (adam7_starting_col info)
+                       (adam7_col_increment info)
+                       (adam7_starting_row info)
+                       (adam7_row_increment info)
 
 -- | Given a line size in bytes, a line count (repetition count), split
 -- a byte string of lines of the given size.
@@ -433,16 +454,17 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
           eitherSwap (Left a) = Left a
           eitherSwap (Right (a,b)) = Right (b,a)
 
-          passSizes = [ (passWidth bw, passHeight bh) | (bw, bh) <- zip block_width block_height ]
+          passSizes = zip passWidth passHeight
 
-          passHeight bh = size + (if restSize /= 0 then 1 else 0)
-            where (size, restSize) = (depth * imgHeight) `quotRem` bh
+          infos = adam7MatrixInfo
+          passHeight = [ pHeight | (begin, incr) <- zip (adam7_starting_row infos) (adam7_row_increment infos)
+                                 , let (h,hRest) = (imgHeight - begin) `quotRem` incr
+                                       pHeight = h + (if hRest /= 0 then 1 else 0)]
 
-          passWidth bw = size + (if restSize /= 0 then 1 else 0)
-            where (size, restSize) = (depth * imgWidth) `quotRem` bw
+          passWidth = [ pWidth | (begin, incr) <- zip (adam7_starting_col infos) (adam7_col_increment infos)
+                               , let (w,wRest) = (imgHeight - begin) `quotRem` incr
+                                     pWidth = w + (if wRest /= 0 then 1 else 0)]
 
-          block_height = [8, 8, 4, 4, 2, 2, 1]
-          block_width = [8, 4, 4, 2, 2, 1, 1]
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
@@ -589,10 +611,14 @@ instance PngLoadable PixelRGB8 where
 instance PngLoadable PixelRGBA8 where
     decodePng = pngUnparser unparsePixelRGBA8
 
+
 -- | Load a png file, perform the same casts as 'decodePng'
 loadPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
 loadPng f = decodePng <$> B.readFile f
 
+-- | Generic function used to launch the png parsing, the first
+-- parameter is actually a continuation in charge of converting
+-- the pixels to the desired output format.
 pngUnparser :: (IArray UArray a, ColorConvertible Word8 a)
             => PngParser a -> B.ByteString -> Either String (Image a)
 pngUnparser unparser byte = do
