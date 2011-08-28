@@ -6,7 +6,9 @@
 -- looking deeply about it and the low level, allowing access to data chunks contained
 -- in the PNG image.
 --
--- For general use, please use 'loadPng' function.
+-- For general use, please use 'encodePng' function.
+--
+-- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
                           PngLoadable( .. )
                         , loadPng
@@ -371,7 +373,7 @@ unpackScanline :: Word32 -> Word32 -> Word32 -> Word32 -> Get [Word8]
 unpackScanline 1 1 imgWidth imgHeight = 
    concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting
-          split times c = map (extractBit c) [times - 1, times - 2 .. 0]
+          split times c = map (extractBit c) [7, 6 .. 8 - times]
           lineSize = imgWidth `quot` 8
           bitRest = imgWidth `mod` 8
 
@@ -386,7 +388,7 @@ unpackScanline 1 1 imgWidth imgHeight =
 
 unpackScanline 2 1 imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting
-          split times c = map (extractBit c) [times - 1, times - 2 .. 0]
+          split times c = map (extractBit c) [3, 2 .. 4 - times]
           lineSize = imgWidth `quot` 4
           bitRest = imgWidth `mod` 4
 
@@ -415,7 +417,12 @@ unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromInt
 unpackScanline 8 sampleCount imgWidth imgHeight = 
     replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) getWord8
 unpackScanline 16 sampleCount imgWidth imgHeight = 
-    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (fromIntegral . (`div` 256) <$> getWord16be)
+    replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (bitDepthReducer <$> getWord16be)
+        where bitDepthReducer v = fromIntegral $ v32 * word8Max `div` word16Max
+                  where v32 = fromIntegral v :: Word32 -- type signature to avoid defaulting to Integer
+                        word8Max = 2 ^ (8 :: Word32) - 1 :: Word32
+                        word16Max = 2 ^ (16 :: Word32) - 1 :: Word32
+
 unpackScanline _ _ _ _ = fail "Impossible bit depth"
 
 type Unpacker a = B.ByteString -> Either String (Image a)
