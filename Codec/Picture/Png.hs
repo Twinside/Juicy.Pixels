@@ -7,13 +7,15 @@
 -- in the PNG image.
 --
 -- For general use, please use 'loadPng' function.
-module Codec.Picture.Png( -- * Low level types
-                          ChunkSignature 
+module Codec.Picture.Png( -- * High level functions
+                          PngLoadable( .. )
+                        , loadPng
+
+                          -- * Low level types
+                        , ChunkSignature 
                         , PngChunk( .. )
                         , PngLowLevel( .. )
 
-                          -- * High level functions
-                        , PngLoadable( .. )
                         ) where
 
 import Control.Applicative
@@ -381,7 +383,7 @@ scanLineFilterUnpack :: (ColorConvertible Word8 a)
                      -> Either String ([a], B.ByteString)
 scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
   let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth 
-      stride = if depth >= 8 then sampleCount else 1
+      stride = if depth >= 8 then sampleCount * (depth `div` 8) else 1
       (filtered, rest) = pngFiltering stride bytes (scanlineByteSize, imgHeight)
       unpackedBytes = runGet (unpackScanline depth sampleCount imgWidth imgHeight) filtered
   (\a -> (catMaybes $ pixelizeRawData a, rest)) <$> unpackedBytes
@@ -573,19 +575,23 @@ class (IArray UArray a) => PngLoadable a where
     -- but you can't:
     --   - convert from rgba to rgb
     --   - convert from rgb to greyscale with alpha
-    loadPng :: B.ByteString -> Either String (Image a)
+    decodePng :: B.ByteString -> Either String (Image a)
 
 instance PngLoadable Pixel8 where
-    loadPng = pngUnparser unparsePixel8
+    decodePng = pngUnparser unparsePixel8
 
 instance PngLoadable PixelYA8 where
-    loadPng = pngUnparser unparsePixelYA8
+    decodePng = pngUnparser unparsePixelYA8
 
 instance PngLoadable PixelRGB8 where
-    loadPng = pngUnparser unparsePixelRGB8
+    decodePng = pngUnparser unparsePixelRGB8
 
 instance PngLoadable PixelRGBA8 where
-    loadPng = pngUnparser unparsePixelRGBA8
+    decodePng = pngUnparser unparsePixelRGBA8
+
+-- | Load a png file, perform the same casts as 'decodePng'
+loadPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
+loadPng f = decodePng <$> B.readFile f
 
 pngUnparser :: (IArray UArray a, ColorConvertible Word8 a)
             => PngParser a -> B.ByteString -> Either String (Image a)

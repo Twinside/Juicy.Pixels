@@ -14,7 +14,7 @@ convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
     file <- B.readFile filePath
     putStrLn $ "(?) Loading: " ++ filePath
-    case loadPng file of
+    case decodePng file of
         Left err -> putStrLn $ "(X) PNG loading error: (" ++ filePath ++ ")" ++ err
         Right img -> writeBitmapFile (filePath ++ ".bmp") img
 
