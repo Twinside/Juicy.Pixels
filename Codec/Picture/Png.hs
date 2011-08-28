@@ -138,7 +138,21 @@ data PngInterlaceMethod =
 --------------------------------------------------
 instance Serialize PngFilter where
     put = putWord8 . toEnum . fromEnum
-    get = toEnum . fromIntegral <$> getWord8
+    get = getWord8 >>= \w -> case w of
+        0 -> return FilterNone
+        1 -> return FilterSub
+        2 -> return FilterUp
+        3 -> return FilterAverage
+        4 -> return FilterPaeth
+        _ -> fail "Invalid scanline filter"
+
+unparsePngFilter :: Word8 -> Either String PngFilter
+unparsePngFilter 0 = Right FilterNone
+unparsePngFilter 1 = Right FilterSub
+unparsePngFilter 2 = Right FilterUp
+unparsePngFilter 3 = Right FilterAverage
+unparsePngFilter 4 = Right FilterPaeth
+unparsePngFilter _ = Left "Invalid scanline filter"
 
 instance Serialize PngRawImage where
     put img = do
@@ -234,7 +248,11 @@ parseChunks = do
 
 
 instance Serialize PngInterlaceMethod where
-    get = toEnum . fromIntegral <$> getWord8
+    get = getWord8 >>= \w -> case w of
+        0 -> return PngNoInterlace
+        1 -> return PngInterlaceAdam7
+        _ -> fail "Invalid interlace method"
+
     put = putWord8 . fromIntegral . fromEnum
 
 --------------------------------------------------
@@ -293,21 +311,29 @@ breakLines size times wholestr = inner times [] wholestr
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line.
 pngFiltering :: Word32 -> B.ByteString -> (Word32, Word32) 
-             -> (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
-pngFiltering beginZeroes str (imgWidth, imgHeight) = (B.pack filteredBytes , wholeRest)
+             -> Either String (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
+pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest)) <$> filteredBytes 
     where (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
           nullLine = repeat 0
 
-          filteredBytes = concat imageLines
-            where imageLines = map methodRead $ zip (nullLine : imageLines) filterLines
+          filteredBytes = concat <$> imageLines nullLine filterLines
+            where imageLines        _ [] = return []
+                  imageLines prevLine (line:newLine) = 
+                        case methodRead (prevLine, line) of
+                             Left err -> Left err
+                             Right ll -> do
+                                 lineRest <- imageLines ll newLine
+                                 return $ ll : lineRest
 
           stride = fromIntegral beginZeroes
           zeroes = replicate stride 0
 
-          methodRead (prev, B.uncons -> Just (rawMeth, rest)) = drop stride thisLine
-              where thisLine = zeroes ++ step (toEnum $ fromIntegral rawMeth) (prevLine, thisLine) (prev, rest)
-                    prevLine = zeroes ++ prev
-          methodRead _ = []
+          methodRead (prev, B.uncons -> Just (rawMeth, rest)) = case unparsePngFilter rawMeth of
+                Left err -> Left err
+                Right method -> Right $ drop stride thisLine
+                    where thisLine = zeroes ++ step method (prevLine, thisLine) (prev, rest)
+                          prevLine = zeroes ++ prev
+          methodRead _ = Right []
 
           step method (prevLineByte:prevLinerest, (prevByte:restLine)) (b : restPrev, B.uncons -> Just (x, rest)) =
               thisByte : step method (prevLinerest, restLine) (restPrev, rest)
@@ -405,8 +431,8 @@ scanLineFilterUnpack :: (ColorConvertible Word8 a)
 scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
   let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth 
       stride = if depth >= 8 then sampleCount * (depth `div` 8) else 1
-      (filtered, rest) = pngFiltering stride bytes (scanlineByteSize, imgHeight)
-      unpackedBytes = runGet (unpackScanline depth sampleCount imgWidth imgHeight) filtered
+  (filtered, rest) <- pngFiltering stride bytes (scanlineByteSize, imgHeight)
+  let unpackedBytes = runGet (unpackScanline depth sampleCount imgWidth imgHeight) filtered
   (\a -> (catMaybes $ pixelizeRawData a, rest)) <$> unpackedBytes
 
 -- | Recreate image from normal (scanlines) png image.
@@ -627,13 +653,18 @@ pngUnparser unparser byte = do
         compressedImageData = 
               B.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
-        imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
-        palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
-            Nothing -> Nothing
-            Just p -> case parsePalette p of
-                    Left _ -> Nothing
-                    Right plte -> Just plte
+        zlibHeaderSize = 1 {- compression method/flags code -}  
+                       + 1 {- Additional flags/check bits -} 
+                       + 4 {-CRC-}
+    if B.length compressedImageData <= zlibHeaderSize
+       then Left "Invalid data size"
+       else let imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
+                palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
+                    Nothing -> Nothing
+                    Just p -> case parsePalette p of
+                            Left _ -> Nothing
+                            Right plte -> Just plte
+            in unparser palette (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
 
-    unparser palette (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
 
 
