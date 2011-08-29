@@ -3,7 +3,7 @@ import Data.Array.Unboxed
 import Codec.Picture.Bitmap
 import Codec.Picture.Png
 import Codec.Picture.Types
--- import Codec.Picture.Jpg
+import Codec.Picture.Jpg
 
 -- import System.Environment
 import System.FilePath
