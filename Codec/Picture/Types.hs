@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UnboxedTuples #-}
 -- | Module providing the basic types for image manipulation in the library.
+-- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
                             Image

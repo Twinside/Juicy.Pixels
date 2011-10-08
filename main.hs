@@ -76,11 +76,11 @@ exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
           pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
 
 main :: IO ()
-main = do
-    exportBmpWitness
-    putStrLn ">>>> Valid instances"
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
-    putStrLn "\n>>>> invalid instances"
-    mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests
-    putStr "\n"
+main = do jpegTest "tests/jpeg/sheep.jpg"
+    {-exportBmpWitness-}
+    {-putStrLn ">>>> Valid instances"-}
+    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
+    {-putStrLn "\n>>>> invalid instances"-}
+    {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
+    {-putStr "\n"-}
 
