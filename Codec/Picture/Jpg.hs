@@ -1,7 +1,7 @@
 module Codec.Picture.Jpg where
 
 import Control.Applicative( (<$>), (<*>) )
-import Control.Monad( when, replicateM )
+import Control.Monad( when, replicateM, forM )
 import Data.Bits
 import Data.Word
 import Data.Serialize
@@ -36,12 +36,12 @@ data JpgFrameKind =
 
 
 data JpgFrame = 
-      JpgAppFrame Word8 B.ByteString
-    | JpgExtension Word8 B.ByteString
-    | JpgQuantTable B.ByteString
-    | JpgHuffmanTable B.ByteString
-    | JpgScanBlob B.ByteString
-    | JpgScans JpgFrameKind JpgFrameHeader
+      JpgAppFrame     Word8 B.ByteString
+    | JpgExtension    Word8 B.ByteString
+    | JpgQuantTable   JpgQuantTableSpec
+    | JpgHuffmanTable JpgHuffmanTableSpec
+    | JpgScanBlob     B.ByteString
+    | JpgScans        JpgFrameKind JpgFrameHeader
     deriving Show
 
 data JpgFrameHeader = JpgFrameHeader
@@ -99,21 +99,44 @@ data JpgScanHeader = JpgScanHeader
     }
     deriving Show
 
-{-data JpgQuantTable = JpgQuantTable-}
-    {-{ quantTableSize :: Word16-}
-    {-, -}
-    {-}-}
+data JpgQuantTableSpec = JpgQuantTableSpec
+    { quantTableSize :: Word16
+      -- | Stored on 4 bits
+    , quantPrecision     :: Word8
+
+      -- | Stored on 4 bits
+    , quantDestination   :: Word8
+
+    , quantTable         :: UArray Word32 Word16
+    }
+    deriving Show
+
+instance Serialize JpgQuantTableSpec where
+    put _ = fail "Error unimplemented"
+    get = do
+        size <- getWord16be
+        (precision, dest) <- get4BitOfEach
+        coeffs <- replicateM 64 $ if precision == 0 
+                then fromIntegral <$> getWord8
+                else getWord16be
+        return $ JpgQuantTableSpec
+            { quantTableSize = size
+            , quantPrecision = precision
+            , quantDestination = dest
+            , quantTable = listArray (0, 63) coeffs
+            }
 
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
-    { huffmanTableSize :: Word16
+    { huffmanTableSize        :: !Word16
       -- | 0 : DC, 1 : AC, stored on 4 bits
-    , huffmanTableClass       :: Word8
+    , huffmanTableClass       :: !Word8
       -- | Stored on 4 bits
-    , huffmanTableDest        :: Word8
+    , huffmanTableDest        :: !Word8
     
-    , sizes :: UArray Word32 Word8
-    , codes :: Array Word32 (UArray Word32 Word8)
+    , huffSizes :: !(UArray Word32 Word8)
+    , huffCodes :: !(Array Word32 (UArray Int Word8))
     }
+    deriving Show
 
 --------------------------------------------------
 ----            Serialization instances
@@ -136,11 +159,22 @@ eatUntilCode = do
        then return ()
        else skip 1 >> eatUntilCode
 
-{-instance Serialize JpgFrame where-}
-    {-put = error "Unimplemented"-}
-    {-get = do-}
-        {-hdr <- get-}
-        {-return $ JpgFrame { jpgFrameHeader = hdr }-}
+instance Serialize JpgHuffmanTableSpec where
+    put = error "Unimplemented"
+    get = do
+        size <- getWord16be
+        (huffClass, huffDest) <- get4BitOfEach
+        sizes <- replicateM 16 getWord8
+        codes <- forM sizes $ \s -> do
+            let si = fromIntegral s
+            listArray (0, si - 1) <$> replicateM (fromIntegral s) getWord8
+        return $ JpgHuffmanTableSpec 
+            { huffmanTableSize = size
+            , huffmanTableClass = huffClass
+            , huffmanTableDest = huffDest
+            , huffSizes = listArray (0, 15) sizes
+            , huffCodes = listArray (0, 15) codes
+            }
 
 instance Serialize JpgImage where
     put = error "Unimplemented"
@@ -163,6 +197,8 @@ takeCurrentFrame = do
     size <- getWord16be
     trace ("taking : " ++ show size) $ getBytes (fromIntegral size - 2)
 
+traShow :: (Show a) => a -> a
+traShow a = trace (show a) a
 
 parseFrames :: Get [JpgFrame]
 parseFrames = do
@@ -173,11 +209,11 @@ parseFrames = do
         JpgExtensionSegment c ->
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgQuantizationTable -> 
-            (\frm lst -> JpgQuantTable frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\quant lst -> JpgQuantTable quant : lst) <$> get <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\frm lst -> JpgHuffmanTable frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\huffTable lst -> JpgHuffmanTable huffTable : lst) <$> get <*> parseFrames
         JpgStartOfScan -> 
-            (\frm lst -> JpgScanBlob frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\frm lst -> JpgScanBlob frm : lst) <$> takeCurrentFrame <*> return [] -- parseFrames
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
@@ -239,12 +275,12 @@ instance Serialize JpgComponent where
     get = do
         ident <- getWord8
         (horiz, vert) <- get4BitOfEach
-        quantTable <- getWord8
+        quantTableIndex <- getWord8
         return $ JpgComponent
             { componentIdentifier = ident
             , horizontalSamplingFactor = horiz
             , verticalSamplingFactor = vert
-            , quantizationTableDest = quantTable
+            , quantizationTableDest = quantTableIndex
             }
     put v = do
         put $ componentIdentifier v

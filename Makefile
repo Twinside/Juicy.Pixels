@@ -11,6 +11,6 @@ doc:
 clean:
 	rm -f tests/pngsuite/*.bmp
 
-test:
+run:
 	dist\build\imageTest\imageTest.exe
 
