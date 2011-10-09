@@ -28,16 +28,20 @@ data JpgFrameKind =
     | JpgDifferentialProgressiveDCT_Arithmetic
     | JpgDifferentialLossless_Arithmetic
     | JpgQuantizationTable
+    | JpgHuffmanTableMarker
+    | JpgStartOfScan
     | JpgAppSegment Word8
     | JpgExtensionSegment Word8
-    deriving Show
+    deriving (Eq, Show)
 
 
 data JpgFrame = 
       JpgAppFrame Word8 B.ByteString
     | JpgExtension Word8 B.ByteString
     | JpgQuantTable B.ByteString
-    | JpgScans JpgFrameKind JpgFrameHeader [JpgScanSpecification]
+    | JpgHuffmanTable B.ByteString
+    | JpgScanBlob B.ByteString
+    | JpgScans JpgFrameKind JpgFrameHeader
     deriving Show
 
 data JpgFrameHeader = JpgFrameHeader
@@ -61,6 +65,12 @@ data JpgComponent = JpgComponent
     deriving Show
 
 data JpgImage = JpgImage { jpgFrame :: [JpgFrame]}
+    deriving Show
+
+data JpgScan = JpgScan
+    { jpgScanHeader :: JpgScanHeader
+    , jpgScanData   :: B.ByteString
+    }
     deriving Show
 
 data JpgScanSpecification = JpgScanSpecification 
@@ -87,13 +97,14 @@ data JpgScanHeader = JpgScanHeader
       -- | Encoded as 4 bits
     , successiveApproxLow :: Word8
     }
+    deriving Show
 
 {-data JpgQuantTable = JpgQuantTable-}
     {-{ quantTableSize :: Word16-}
     {-, -}
     {-}-}
 
-data JpgHuffmanTable = JpgHuffmanTable
+data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     { huffmanTableSize :: Word16
       -- | 0 : DC, 1 : AC, stored on 4 bits
     , huffmanTableClass       :: Word8
@@ -152,6 +163,7 @@ takeCurrentFrame = do
     size <- getWord16be
     trace ("taking : " ++ show size) $ getBytes (fromIntegral size - 2)
 
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -162,7 +174,11 @@ parseFrames = do
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgQuantizationTable -> 
             (\frm lst -> JpgQuantTable frm : lst) <$> takeCurrentFrame <*> parseFrames
-        _ -> (\hdr -> [JpgScans kind hdr []]) <$> get
+        JpgHuffmanTableMarker ->
+            (\frm lst -> JpgHuffmanTable frm : lst) <$> takeCurrentFrame <*> parseFrames
+        JpgStartOfScan -> 
+            (\frm lst -> JpgScanBlob frm : lst) <$> takeCurrentFrame <*> parseFrames
+        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
 secondStartOfFrameByteOfKind JpgBaselineDCT_Huffman = 0xC0
@@ -175,10 +191,12 @@ secondStartOfFrameByteOfKind JpgDifferentialLossless_Huffman = 0xC7
 secondStartOfFrameByteOfKind JpgExtendedSequential_Arithmetic = 0xC9
 secondStartOfFrameByteOfKind JpgProgressiveDCT_Arithmetic = 0xCA
 secondStartOfFrameByteOfKind JpgLossless_Arithmetic = 0xCB
+secondStartOfFrameByteOfKind JpgHuffmanTableMarker = 0xC4
 secondStartOfFrameByteOfKind JpgDifferentialSequentialDCT_Arithmetic = 0xCD
 secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCT_Arithmetic = 0xCE
 secondStartOfFrameByteOfKind JpgDifferentialLossless_Arithmetic = 0xCF
 secondStartOfFrameByteOfKind JpgQuantizationTable = 0xDB
+secondStartOfFrameByteOfKind JpgStartOfScan = 0xDA
 secondStartOfFrameByteOfKind (JpgAppSegment a) = a
 secondStartOfFrameByteOfKind (JpgExtensionSegment a) = a
 
@@ -193,6 +211,7 @@ instance Serialize JpgFrameKind where
             0xC1 -> JpgExtendedSequentialDCT_Huffman
             0xC2 -> JpgProgressiveDCT_Huffman
             0xC3 -> JpgLossless_Huffman
+            0xC4 -> JpgHuffmanTableMarker
             0xC5 -> JpgDifferentialSequentialDCT_Huffman
             0xC6 -> JpgDifferentialProgressiveDCT_Huffman
             0xC7 -> JpgDifferentialLossless_Huffman
@@ -202,6 +221,7 @@ instance Serialize JpgFrameKind where
             0xCD -> JpgDifferentialSequentialDCT_Arithmetic
             0xCE -> JpgDifferentialProgressiveDCT_Arithmetic
             0xCF -> JpgDifferentialLossless_Arithmetic
+            0xDA -> JpgStartOfScan
             0xDB -> JpgQuantizationTable
             a -> if a >= 0xF0 then JpgExtensionSegment a
                  else if a >= 0xE0 then JpgAppSegment a
