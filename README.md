@@ -1,5 +1,5 @@
-Codec.Pictures
-==============
+Juicy.Pixels
+============
 
 This library provide saving & loading of different picture formats for
 the Haskell language. The aim of the library is to be as lightweight as
@@ -10,8 +10,16 @@ as they're unboxed.
 Status
 ------
 
- - PNG    (.png) loading, fully compliant with the standard, tested against png suite.
- - Bitmap (.bmp) Writing of 32bits per pixel images, mainly used as a debug output format.
+ - PNG    (.png) 
+    * Reading : 1,2,4,8 bits loading, Grayscale, 24bits, 24 bits with alpha,
+                interleaved & filtered (fully compliant with the standard,
+                tested against png suite).
+    * Writing : none yet.
+
+ - Bitmap (.bmp) (mainly used as a debug output format)
+    * Reading : none yet
+    * Writing : 32bits (RGBA) per pixel images,
+
  - Jpeg   (.jpg, .jpeg) work in progress.
 
 _I love juicy pixels_
