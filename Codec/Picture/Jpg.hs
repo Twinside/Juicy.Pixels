@@ -1,7 +1,9 @@
+{-# LANGUAGE TupleSections #-}
 module Codec.Picture.Jpg where
 
 import Control.Applicative( (<$>), (<*>) )
 import Control.Monad( when, replicateM, forM )
+import Data.List( foldl' )
 import Data.Bits
 import Data.Word
 import Data.Serialize
@@ -39,8 +41,8 @@ data JpgFrame =
       JpgAppFrame     Word8 B.ByteString
     | JpgExtension    Word8 B.ByteString
     | JpgQuantTable   JpgQuantTableSpec
-    | JpgHuffmanTable JpgHuffmanTableSpec
-    | JpgScanBlob     B.ByteString
+    | JpgHuffmanTable JpgHuffmanTableSpec !HuffmanTree
+    | JpgScanBlob     JpgScanHeader
     | JpgScans        JpgFrameKind JpgFrameHeader
     deriving Show
 
@@ -138,6 +140,28 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     }
     deriving Show
 
+data HuffmanTree = Branch HuffmanTree HuffmanTree 
+                 | Leaf Word8
+                 | Empty
+                 deriving (Eq, Show)
+
+type PackedTree = UArray Word16 Word16
+
+buildHuffmanTree :: JpgHuffmanTableSpec -> HuffmanTree
+buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty 
+                       . concatMap (\(i, t) -> map (i + 1,) $ elems t) 
+                       . assocs $ huffCodes table
+  where isTreeFullyDefined Empty = False
+        isTreeFullyDefined (Leaf _) = True
+        isTreeFullyDefined (Branch l r) = isTreeFullyDefined l && isTreeFullyDefined r
+
+        insertHuffmanVal Empty (0, val) = Leaf val
+        insertHuffmanVal Empty (d, val) = Branch (insertHuffmanVal Empty (d - 1, val)) Empty
+        insertHuffmanVal (Branch l r) (d, val)  
+            | isTreeFullyDefined l = Branch l (insertHuffmanVal r (d - 1, val))
+            | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
+        insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
+
 --------------------------------------------------
 ----            Serialization instances
 --------------------------------------------------
@@ -211,9 +235,9 @@ parseFrames = do
         JpgQuantizationTable -> 
             (\quant lst -> JpgQuantTable quant : lst) <$> get <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\huffTable lst -> JpgHuffmanTable huffTable : lst) <$> get <*> parseFrames
+            (\huffTable lst -> JpgHuffmanTable huffTable (buildHuffmanTree huffTable): lst) <$> get <*> parseFrames
         JpgStartOfScan -> 
-            (\frm lst -> JpgScanBlob frm : lst) <$> takeCurrentFrame <*> return [] -- parseFrames
+            (\frm lst -> JpgScanBlob frm : lst) <$> get <*> return [] -- parseFrames
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
