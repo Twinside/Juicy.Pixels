@@ -6,12 +6,13 @@
 -- looking deeply about it and the low level, allowing access to data chunks contained
 -- in the PNG image.
 --
--- For general use, please use 'encodePng' function.
+-- For general use, please use 'decodePng' function.
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
                           PngLoadable( .. )
                         , loadPng
+                        , pngDecode
 
                           -- * Low level types
                         , ChunkSignature 
@@ -229,6 +230,8 @@ instance Serialize PngIHdr where
             interlaceMethod = interlace
         }
 
+-- | Implementation of the get method for the PngRawImage,
+-- unpack raw data, without decompressing it.
 parseRawPngImage :: Get PngRawImage
 parseRawPngImage = do
     sig <- getByteString (B.length pngSignature)
@@ -240,6 +243,7 @@ parseRawPngImage = do
     chunkList <- parseChunks
     return $ PngRawImage { header = ihdr, chunks = chunkList }
 
+-- | Parse method for a png chunk, without decompression.
 parseChunks :: Get [PngRawChunk]
 parseChunks = do
     chunk <- get
@@ -311,13 +315,18 @@ breakLines size times wholestr = inner times [] wholestr
             where (piece, rest) = B.splitAt (fromIntegral size) str
 
 -- | Apply a filtering method on a reduced image. Apply the filter
--- on each line.
-pngFiltering :: Word32 -> B.ByteString -> (Word32, Word32) 
+-- on each line, using the previous line (the one above it) to perform
+-- some prediction on the value.
+pngFiltering :: Word32 
+             -> B.ByteString        -- ^ The real image
+             -> (Word32, Word32)    -- ^ Image size
              -> Either String (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
 pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest)) <$> filteredBytes 
-    where (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
+    where -- create lines of the subimage and the rest of picture
+          (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
           nullLine = repeat 0
 
+          -- Iterate over lines keeping track of previous line
           filteredBytes = concat <$> imageLines nullLine filterLines
             where imageLines        _ [] = return []
                   imageLines prevLine (line:newLine) = 
@@ -327,9 +336,11 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
                                  lineRest <- imageLines ll newLine
                                  return $ ll : lineRest
 
+          -- Fake 0 used for beginning of line prediction (the a pixel)
           stride = fromIntegral beginZeroes
           zeroes = replicate stride 0
 
+          -- Parse the filtering method for the line and launch the line processing
           methodRead (prev, B.uncons -> Just (rawMeth, rest)) = case unparsePngFilter rawMeth of
                 Left err -> Left err
                 Right method -> Right $ drop stride thisLine
@@ -337,11 +348,15 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
                           prevLine = zeroes ++ prev
           methodRead _ = Right []
 
-          step method (prevLineByte:prevLinerest, (prevByte:restLine)) (b : restPrev, B.uncons -> Just (x, rest)) =
+          -- Process all the pixels keeping track all the context for prediction.
+          step method (prevLineByte:prevLinerest, (prevByte:restLine)) 
+                      (b : restPrev, B.uncons -> Just (x, rest)) =
               thisByte : step method (prevLinerest, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
           step _ _ _ = []
 
+          -- Really apply the filter, the pixel order is the one in the comment
+          -- of 'PngFilter'
           inner :: PngFilter 
                 -> (Word8, Word8, Word8, Word8)  -- (c, b, a, x)
                 -> Word8
@@ -354,7 +369,8 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
                   b' = fromIntegral b
           inner FilterPaeth   (c,b,a,x) = x + paeth a b c
 
--- | Directly stolen from the definition in the standard (on W3C page)
+-- | Directly stolen from the definition in the standard (on W3C page),
+-- pixel predictor.
 paeth :: Word8 -> Word8 -> Word8 -> Word8
 paeth a b c
   | pa <= pb && pa <= pc = a
@@ -368,8 +384,13 @@ paeth a b c
           pb = abs $ p - b'
           pc = abs $ p - c'
 
--- | Transform a scanline to real data
-unpackScanline :: Word32 -> Word32 -> Word32 -> Word32 -> Get [Word8]
+-- | Transform a scanline to a bunch of bytes. Bytes are then packed
+-- into pixels at a further step.
+unpackScanline :: Word32  -- ^ Bitdepth
+               -> Word32  -- ^ Sample count
+               -> Word32  -- ^ image Width
+               -> Word32  -- ^ image Height
+               -> Get [Word8]
 unpackScanline 1 1 imgWidth imgHeight = 
    concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting
@@ -427,13 +448,20 @@ unpackScanline _ _ _ _ = fail "Impossible bit depth"
 
 type Unpacker a = B.ByteString -> Either String (Image a)
 
+-- | Chuck a list of bytes into a pixel, typically called after
+-- unpackScanline
 pixelizeRawData :: (ColorConvertible a b) => [a] -> [Maybe b]
 pixelizeRawData [] = []
 pixelizeRawData lst = px : pixelizeRawData rest
     where (px, rest) = fromRawData lst
 
+-- | Given a decompressed stream of data, break it into lines and
+-- apply the required filtering on it.
 scanLineFilterUnpack :: (ColorConvertible Word8 a) 
-                     => Word32 -> Word32 -> B.ByteString -> (Word32, Word32)
+                     => Word32       -- ^ bitdepth
+                     -> Word32       -- ^ Sample count per pixel
+                     -> B.ByteString -- ^ the real data
+                     -> (Word32, Word32) -- ^ Image size
                      -> Either String ([a], B.ByteString)
 scanLineFilterUnpack     _           _ bytes (0       ,         _) = Right ([], bytes)
 scanLineFilterUnpack     _           _ bytes (_       ,         0) = Right ([], bytes)
@@ -654,6 +682,47 @@ instance PngLoadable PixelRGBA8 where
 loadPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
 loadPng f = decodePng <$> B.readFile f
 
+
+-- | Transform a raw png image to an image, without modifying the
+-- underlying pixel type. If the image is greyscale and < 8 bits,
+-- a transformation to RGBA8 is performed. This should change
+-- in the future.
+-- The resulting image let you manage the pixel types.
+pngDecode :: B.ByteString -> Either String DynamicImage
+pngDecode byte = do
+    rawImg <- runGet get byte
+    let ihdr = header rawImg
+        compressedImageData = 
+              B.concat [chunkData chunk | chunk <- chunks rawImg
+                                        , chunkType chunk == iDATSignature]
+        zlibHeaderSize = 1 {- compression method/flags code -}  
+                       + 1 {- Additional flags/check bits -} 
+                       + 4 {-CRC-}
+
+        unparse _ PngGreyscale bytes 
+            | bitDepth ihdr == 1 = unparse (Just paletteRGBA_1) PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGBA_2) PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGBA_4) PngIndexedColor bytes
+            | otherwise = ImageY8 <$> deinterlacer ihdr bytes
+        unparse (Just plte) PngIndexedColor bytes = 
+            ImageRGBA8 <$> amap (promotePixel . (plte !) . fromIntegral) <$> img
+                where img = deinterlacer ihdr bytes :: ErrImage Pixel8
+        unparse Nothing PngIndexedColor _ = Left "no valid palette found"
+        unparse _ PngTrueColour bytes = ImageRGB8 <$> deinterlacer ihdr bytes
+        unparse _ PngGreyscaleWithAlpha bytes = ImageYA8 <$> deinterlacer ihdr bytes
+        unparse _ PngTrueColourWithAlpha bytes = ImageRGBA8 <$> deinterlacer ihdr bytes
+
+    if B.length compressedImageData <= zlibHeaderSize
+       then Left "Invalid data size"
+       else let imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
+                palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
+                    Nothing -> Nothing
+                    Just p -> case parsePalette p of
+                            Left _ -> Nothing
+                            Right plte -> Just plte
+            in unparse palette (colourType ihdr) . B.concat $ Lb.toChunks imgData
+
+
 -- | Generic function used to launch the png parsing, the first
 -- parameter is actually a continuation in charge of converting
 -- the pixels to the desired output format.
@@ -677,6 +746,4 @@ pngUnparser unparser byte = do
                             Left _ -> Nothing
                             Right plte -> Just plte
             in unparser palette (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
-
-
 
