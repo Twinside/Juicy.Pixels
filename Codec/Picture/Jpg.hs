@@ -3,6 +3,8 @@ module Codec.Picture.Jpg where
 
 import Control.Applicative( (<$>), (<*>) )
 import Control.Monad( when, replicateM, forM )
+import qualified Control.Monad.State as S
+{-import Control.Monad.State-}
 import Data.List( foldl' )
 import Data.Bits
 import Data.Word
@@ -146,6 +148,83 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree
                  deriving (Eq, Show)
 
 type PackedTree = UArray Word16 Word16
+
+
+-- | Decode a list of huffman values, not optimized for speed, but it 
+-- should work.
+huffmanDecode :: HuffmanTree -> BoolReader Word8
+huffmanDecode originalTree = S.get >>= huffDecode originalTree
+  where huffDecode _     [] = fail "Meh"
+        huffDecode Empty _  = fail "Meh"
+        huffDecode (Branch l _) (False : rest) = huffDecode l rest
+        huffDecode (Branch _ r) (True  : rest) = huffDecode r rest
+        huffDecode (Leaf v) boolList = S.put boolList >> return v
+
+unpackInt :: Int -> BoolReader Int
+unpackInt n = do
+    bits <- S.get
+    let (toUnpack, rest) = n `splitAt` bits  
+        bitStep acc True = acc `shiftL` 1 + 1
+        bitStep acc False = acc `shiftL` 1
+    S.put rest
+    return $ foldl' bitStep 0 toUnpack
+
+decodeInt :: Int -> BoolReader Int
+decodeInt ssss = do
+    bits <- S.get
+    let dataRange = 1 `shiftL` (ssss - 1)
+    case bits of
+      []     -> fail "Not engouh bits"
+      (True : rest) -> do
+          S.put rest
+          (dataRange +) <$> unpackInt ssss
+      (False : rest) -> do
+          S.put rest
+          (1 - dataRange * 2 +) <$> unpackInt ssss
+
+dcCoefficientDecode :: HuffmanTree -> BoolReader Int
+dcCoefficientDecode dcTree = do
+    ssss <- huffmanDecode dcTree
+    if ssss == 0 
+       then return 0
+       else decodeInt $ fromIntegral ssss
+
+-- | Use an array of integer?
+acCoefficientsDecode :: HuffmanTree -> BoolReader [Int]
+acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
+  where parseAcCoefficient 0 = return []
+        parseAcCoefficient n = do
+            rrrrssss <- huffmanDecode acTree
+            let rrrr = (rrrrssss `shiftR` 4) .&. 0xF
+                ssss =  rrrrssss .&. 0xF
+            case (rrrr, ssss) of
+              (0,   0) -> return [replicate n 0] 
+              (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
+              _        -> do
+                  decoded <- decodeInt $ fromIntegral ssss
+                  ([decoded]:) <$> parseAcCoefficient (n - 1)
+
+
+bitifyString :: B.ByteString -> [Bool]
+bitifyString = concatMap bitify . B.unpack
+  where bitify v = [ testBit v 7 , testBit v 6 , testBit v 5 , testBit v 4
+                   , testBit v 3 , testBit v 2 , testBit v 1 , testBit v 0 ]
+
+exportHuffmanTree :: JpgFrame -> Maybe String
+exportHuffmanTree (JpgHuffmanTable _ t) = Just $ "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
+  where stringify (Branch left right) i = (fl . fr . thisNode . linka . linkb, i3 + 1)
+            where lnode = "n" ++ show (i + 1)
+                  rnode = "n" ++ show i2
+                  thisNode = str $ "n" ++ show i ++ "[label=\"\", shape=\"box\"];\n"
+                  linka = str $ "n" ++ show i ++ " -> " ++ lnode ++ " [label=\"0\"];\n"
+                  linkb = str $ "n" ++ show i ++ " -> " ++ rnode ++ " [label=\"1\"];\n"
+                  (fl, i2) = stringify left (i + 1)
+                  (fr, i3) = stringify right i2
+        stringify (Leaf v) i = (str $ "n" ++ show i ++ " [label=\"" ++ show v ++ "\"];\n", i + 1)
+        stringify Empty i = (str $ "n" ++ show i ++ " [label=\"Empty\"];\n", i + 1)
+
+        str a = (a ++)
+exportHuffmanTree _ = Nothing
 
 buildHuffmanTree :: JpgHuffmanTableSpec -> HuffmanTree
 buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty 
@@ -383,8 +462,15 @@ jpegTest path = do
     file <- B.readFile path
     case decode file of
          Left err -> print err
-         Right img -> mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
+         Right img -> do
+             mapM_ (\a ->
+                 case exportHuffmanTree a of
+                    Nothing -> return ()
+                    Just str -> putStrLn str
+                 ) $ jpgFrame img
+             mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
 
+type BoolReader a = S.State [Bool] a
 {- 
 -- | Extract a 8x8 block in the picture.
 extractBlock :: UArray Word32 PixelRGB -> Word32 -> Word32 -> UArray Word32 PixelRGB
