@@ -1,14 +1,16 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Codec.Picture.Jpg where
 
 import Control.Applicative( (<$>), (<*>) )
 import Control.Monad( when, replicateM, forM )
 import qualified Control.Monad.State as S
 {-import Control.Monad.State-}
-import Data.List( foldl' )
+import Data.List( find, foldl' )
 import Data.Bits
 import Data.Word
 import Data.Serialize
+import Data.Maybe( fromJust )
 import Data.Array.Unboxed
 import qualified Data.ByteString as B
 {-import qualified Data.ByteString.Lazy as Lb-}
@@ -40,31 +42,31 @@ data JpgFrameKind =
 
 
 data JpgFrame = 
-      JpgAppFrame     Word8 B.ByteString
-    | JpgExtension    Word8 B.ByteString
-    | JpgQuantTable   JpgQuantTableSpec
-    | JpgHuffmanTable JpgHuffmanTableSpec !HuffmanTree
-    | JpgScanBlob     JpgScanHeader
-    | JpgScans        JpgFrameKind JpgFrameHeader
+      JpgAppFrame     !Word8 B.ByteString
+    | JpgExtension    !Word8 B.ByteString
+    | JpgQuantTable   !JpgQuantTableSpec
+    | JpgHuffmanTable !JpgHuffmanTableSpec !HuffmanTree
+    | JpgScanBlob     !JpgScanHeader
+    | JpgScans        !JpgFrameKind !JpgFrameHeader
     deriving Show
 
 data JpgFrameHeader = JpgFrameHeader
-    { jpgFrameHeaderLength   :: Word16
-    , jpgSamplePrecision     :: Word8
-    , jpgHeight              :: Word16
-    , jpgWidth               :: Word16
-    , jpgImageComponentCount :: Word8
+    { jpgFrameHeaderLength   :: !Word16
+    , jpgSamplePrecision     :: !Word8
+    , jpgHeight              :: !Word16
+    , jpgWidth               :: !Word16
+    , jpgImageComponentCount :: !Word8
     , jpgComponents          :: [JpgComponent]
     }
     deriving Show
 
 data JpgComponent = JpgComponent
-    { componentIdentifier       :: Word8
+    { componentIdentifier       :: !Word8
       -- | Stored with 4 bits
-    , horizontalSamplingFactor  :: Word8
+    , horizontalSamplingFactor  :: !Word8
       -- | Stored with 4 bits
-    , verticalSamplingFactor    :: Word8
-    , quantizationTableDest     :: Word8
+    , verticalSamplingFactor    :: !Word8
+    , quantizationTableDest     :: !Word8
     }
     deriving Show
 
@@ -72,8 +74,8 @@ data JpgImage = JpgImage { jpgFrame :: [JpgFrame]}
     deriving Show
 
 data JpgScan = JpgScan
-    { jpgScanHeader :: JpgScanHeader
-    , jpgScanData   :: B.ByteString
+    { jpgScanHeader :: !JpgScanHeader
+    , jpgScanData   :: !B.ByteString
     }
     deriving Show
 
@@ -88,28 +90,28 @@ data JpgScanSpecification = JpgScanSpecification
     deriving Show
 
 data JpgScanHeader = JpgScanHeader
-    { scanLength :: Word16
-    , componentCount :: Word8
+    { scanLength :: !Word16
+    , componentCount :: !Word8
     , scans :: [JpgScanSpecification]
 
       -- | (begin, end)
     , spectralSelection    :: (Word8, Word8)
 
       -- | Encoded as 4 bits
-    , successiveApproxHigh :: Word8
+    , successiveApproxHigh :: !Word8
 
       -- | Encoded as 4 bits
-    , successiveApproxLow :: Word8
+    , successiveApproxLow :: !Word8
     }
     deriving Show
 
 data JpgQuantTableSpec = JpgQuantTableSpec
-    { quantTableSize :: Word16
+    { quantTableSize :: !Word16
       -- | Stored on 4 bits
-    , quantPrecision     :: Word8
+    , quantPrecision     :: !Word8
 
       -- | Stored on 4 bits
-    , quantDestination   :: Word8
+    , quantDestination   :: !Word8
 
     , quantTable         :: UArray Word32 Word16
     }
@@ -123,6 +125,10 @@ instance Serialize JpgQuantTableSpec where
         coeffs <- replicateM 64 $ if precision == 0 
                 then fromIntegral <$> getWord8
                 else getWord16be
+        let sizeWordSize = 2
+            precDestSize = 1
+            readed = (if precision == 0 then 1 else 2) * 64 + sizeWordSize + precDestSize
+        when (readed < size) (skip $ fromIntegral size - fromIntegral readed)
         return $ JpgQuantTableSpec
             { quantTableSize = size
             , quantPrecision = precision
@@ -160,56 +166,24 @@ huffmanDecode originalTree = S.get >>= huffDecode originalTree
         huffDecode (Branch _ r) (True  : rest) = huffDecode r rest
         huffDecode (Leaf v) boolList = S.put boolList >> return v
 
-unpackInt :: Int -> BoolReader Int
-unpackInt n = do
-    bits <- S.get
-    let (toUnpack, rest) = n `splitAt` bits  
-        bitStep acc True = acc `shiftL` 1 + 1
-        bitStep acc False = acc `shiftL` 1
-    S.put rest
-    return $ foldl' bitStep 0 toUnpack
+-- | Convert a bytestring to a list of word8, removing restart
+-- markers.
+{-# INLINE markerRemoval #-}
+markerRemoval :: B.ByteString -> [Word8]
+markerRemoval = markerRemover . B.unpack
+  where markerRemover (0xFF:0x00:rest) = 0xFF : markerRemover rest
+        markerRemover (0xFF:   _:rest) = markerRemover rest
+        markerRemover (x   :rest)      = x : markerRemover rest
+        markerRemover []               = []
 
-decodeInt :: Int -> BoolReader Int
-decodeInt ssss = do
-    bits <- S.get
-    let dataRange = 1 `shiftL` (ssss - 1)
-    case bits of
-      []     -> fail "Not engouh bits"
-      (True : rest) -> do
-          S.put rest
-          (dataRange +) <$> unpackInt ssss
-      (False : rest) -> do
-          S.put rest
-          (1 - dataRange * 2 +) <$> unpackInt ssss
-
-dcCoefficientDecode :: HuffmanTree -> BoolReader Int
-dcCoefficientDecode dcTree = do
-    ssss <- huffmanDecode dcTree
-    if ssss == 0 
-       then return 0
-       else decodeInt $ fromIntegral ssss
-
--- | Use an array of integer?
-acCoefficientsDecode :: HuffmanTree -> BoolReader [Int]
-acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
-  where parseAcCoefficient 0 = return []
-        parseAcCoefficient n = do
-            rrrrssss <- huffmanDecode acTree
-            let rrrr = (rrrrssss `shiftR` 4) .&. 0xF
-                ssss =  rrrrssss .&. 0xF
-            case (rrrr, ssss) of
-              (0,   0) -> return [replicate n 0] 
-              (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
-              _        -> do
-                  decoded <- decodeInt $ fromIntegral ssss
-                  ([decoded]:) <$> parseAcCoefficient (n - 1)
-
-
-bitifyString :: B.ByteString -> [Bool]
-bitifyString = concatMap bitify . B.unpack
+-- | Bitify a list of things to decode.
+{-# INLINE bitifyString #-}
+bitifyString :: [Word8] -> [Bool]
+bitifyString = concatMap bitify
   where bitify v = [ testBit v 7 , testBit v 6 , testBit v 5 , testBit v 4
                    , testBit v 3 , testBit v 2 , testBit v 1 , testBit v 0 ]
 
+-- | Transform an huffman table to it's graphviz representation.
 exportHuffmanTree :: JpgFrame -> Maybe String
 exportHuffmanTree (JpgHuffmanTable _ t) = Just $ "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
   where stringify (Branch left right) i = (fl . fr . thisNode . linka . linkb, i3 + 1)
@@ -265,12 +239,16 @@ eatUntilCode = do
 instance Serialize JpgHuffmanTableSpec where
     put = error "Unimplemented"
     get = do
+        offsetBegin <- remaining
         size <- getWord16be
         (huffClass, huffDest) <- get4BitOfEach
         sizes <- replicateM 16 getWord8
         codes <- forM sizes $ \s -> do
             let si = fromIntegral s
             listArray (0, si - 1) <$> replicateM (fromIntegral s) getWord8
+        offsetEnd <- remaining
+        when (offsetBegin - offsetEnd < fromIntegral size)
+             (skip $ fromIntegral size - (offsetBegin - offsetEnd))
         return $ JpgHuffmanTableSpec 
             { huffmanTableSize = size
             , huffmanTableClass = huffClass
@@ -344,7 +322,9 @@ instance Serialize JpgFrameKind where
     get = do
         word <- getWord8
         word2 <- getWord8
-        when (word /= 0xFF) (fail "Invalid Frame marker")
+        when (word /= 0xFF) (do leftData <- remaining
+                                fail $ "Invalid Frame marker (" ++ show word 
+                                    ++ ", remaining : " ++ show leftData ++ ")")
         return $ case word2 of
             0xC0 -> JpgBaselineDCT_Huffman
             0xC1 -> JpgExtendedSequentialDCT_Huffman
@@ -457,20 +437,143 @@ instance Serialize JpgScanHeader where
         put $ successiveApproxHigh v
         put $ successiveApproxLow v
 
-jpegTest :: FilePath -> IO ()
-jpegTest path = do
-    file <- B.readFile path
-    case decode file of
-         Left err -> print err
-         Right img -> do
-             mapM_ (\a ->
-                 case exportHuffmanTree a of
-                    Nothing -> return ()
-                    Just str -> putStrLn str
-                 ) $ jpgFrame img
-             mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
-
 type BoolReader a = S.State [Bool] a
+
+dcValueOfMacroBlock :: (IArray UArray a) => MacroBlock a -> a
+dcValueOfMacroBlock block = block ! 0
+
+-- | Apply a quantization matrix to a macroblock
+{-# INLINE deQuantize #-}
+deQuantize :: (IArray UArray a, Num a, Integral a)
+           => MacroBlock a -> MacroBlock a -> MacroBlock a
+deQuantize table block = makeMacroBlock . map dequant $ indices table
+    where dequant i = fromIntegral $ r * l
+            where r = fromIntegral (table ! i) :: Int
+                  l = fromIntegral (block ! i)
+
+idctCoefficientMatrix :: MacroBlock Float
+idctCoefficientMatrix = 
+  makeMacroBlock [idctCoefficient x u | x <- [1, 3 .. 15], u <- [0 .. 7 :: Int]]
+    where idctCoefficient _ 0 = 0.5 / sqrt 2.0
+          idctCoefficient x u = 0.5 * cos(pi / 16.0 * xu)
+            where xu = fromIntegral $ x * u
+
+inverseDirectCosineTransform :: MacroBlock Word8 -> MacroBlock Word8
+inverseDirectCosineTransform block =
+  makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
+    where dotProduct lst = sum $ (\(a,b) -> a * b) <$> lst
+          line i = map (idctCoefficientMatrix !) [ i * 8 .. i * 8 + 7 ]
+          column j = map (\i -> fromIntegral $ block ! i) [ j, j + 8 .. 63     ]
+          coeff i j = truncate . dotProduct $ zip (line i) (column j)
+
+zigZagReorder :: (IArray UArray a) => MacroBlock a -> MacroBlock a
+zigZagReorder block = ixmap (0,63) reorder block
+    where reorder i = fromIntegral $ zigZagOrder ! i
+
+          zigZagOrder :: MacroBlock Word8
+          zigZagOrder = makeMacroBlock $ concat
+              [[ 0, 1, 5, 6,14,15,27,28]
+              ,[ 2, 4, 7,13,16,26,29,42]
+              ,[ 3, 8,12,17,25,30,41,43]
+              ,[ 9,11,18,24,31,40,44,53]
+              ,[10,19,23,32,39,45,52,54]
+              ,[20,22,33,38,46,51,55,60]
+              ,[21,34,37,47,50,56,59,61]
+              ,[35,36,48,49,57,58,62,63]
+              ]
+
+-- | This is one of the most important function of the decoding,
+-- it form the barebone decoding pipeline for macroblock. It's all
+-- there is to know for macro block transformation
+decodeMacroBlock :: MacroBlock Word8 -> MacroBlock Word8 -> MacroBlock Word8
+decodeMacroBlock quantizationTable =
+    inverseDirectCosineTransform . zigZagReorder . deQuantize quantizationTable
+
+unpackInt :: Int -> BoolReader Word8
+unpackInt n = do
+    bits <- S.get
+    let (toUnpack, rest) = n `splitAt` bits  
+        bitStep acc True = acc `shiftL` 1 + 1
+        bitStep acc False = acc `shiftL` 1
+    S.put rest
+    return $ foldl' bitStep 0 toUnpack
+
+decodeInt :: Int -> BoolReader Word8
+decodeInt ssss = do
+    bits <- S.get
+    let dataRange = 1 `shiftL` (ssss - 1)
+    case bits of
+      []     -> fail "Not engouh bits"
+      (True : rest) -> do
+          S.put rest
+          (dataRange +) <$> unpackInt ssss
+      (False : rest) -> do
+          S.put rest
+          (1 - dataRange * 2 +) <$> unpackInt ssss
+
+dcCoefficientDecode :: HuffmanTree -> BoolReader Word8
+dcCoefficientDecode dcTree = do
+    ssss <- huffmanDecode dcTree
+    if ssss == 0 
+       then return 0
+       else decodeInt $ fromIntegral ssss
+
+-- | Use an array of integer?
+acCoefficientsDecode :: HuffmanTree -> BoolReader [Word8]
+acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
+  where parseAcCoefficient 0 = return []
+        parseAcCoefficient n = do
+            rrrrssss <- huffmanDecode acTree
+            let rrrr = (rrrrssss `shiftR` 4) .&. 0xF
+                ssss =  rrrrssss .&. 0xF
+            case (rrrr, ssss) of
+              (0,   0) -> return [replicate n 0] 
+              (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
+              _        -> do
+                  decoded <- decodeInt $ fromIntegral ssss
+                  ([decoded]:) <$> parseAcCoefficient (n - 1)
+
+-- | Represent a compact array of 8 * 8 values. The size
+-- is not guarenteed by type system, but if makeMacroBlock is
+-- used, everything should be fine size-wise
+type MacroBlock a = UArray Word32 a
+
+makeMacroBlock :: (IArray UArray a) => [a] -> MacroBlock a
+makeMacroBlock = listArray (0, 63)
+
+-- | Decompress a macroblock from a bitstream given the current configuration
+-- from the frame.
+decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
+                     -> HuffmanTree         -- ^ Tree used for Ac coefficient
+                     -> MacroBlock Word8    -- ^ Current quantization table
+                     -> Word8               -- ^ Previous dc value
+                     -> BoolReader (MacroBlock Word8)
+decompressMacroBlock dcTree acTree quantizationTable previousDc = do
+    dcDeltaCoefficient <- dcCoefficientDecode dcTree
+    acCoefficients <- acCoefficientsDecode acTree
+    let block = makeMacroBlock $ 
+                    previousDc + dcDeltaCoefficient : acCoefficients
+    return $ decodeMacroBlock quantizationTable block
+
+gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
+gatherQuantTables img = [t | JpgQuantTable t <- jpgFrame img]
+
+gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTree)]
+gatherHuffmanTables img = [(ta, t) | JpgHuffmanTable ta t <- jpgFrame img]
+
+gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
+gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
+    where scanDesc (JpgScans _ _) = True
+          scanDesc _ = False
+
+          unScan (JpgScans a b) = (a,b)
+          unScan _ = error "If this can happen, the JPEG image is ill-formed"
+
+-- | An MCU (Minimal coded unit) is an unit of data for all components
+-- (Y, Cb & Cr), taking into account downsampling.
+buildMcuDecoder :: JpgImage -> BoolReader ()
+buildMcuDecoder img = return ()
+
 {- 
 -- | Extract a 8x8 block in the picture.
 extractBlock :: UArray Word32 PixelRGB -> Word32 -> Word32 -> UArray Word32 PixelRGB
@@ -485,4 +588,17 @@ extractBlock arr x y
           blockLeft = blockSize * x
           blockTop = blockSize * y
 -}
+
+jpegTest :: FilePath -> IO ()
+jpegTest path = do
+    file <- B.readFile path
+    case decode file of
+         Left err -> print err
+         Right img -> do
+             mapM_ (\a ->
+                 case exportHuffmanTree a of
+                    Nothing -> return ()
+                    Just str -> putStrLn str
+                 ) $ jpgFrame img
+             mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
 
