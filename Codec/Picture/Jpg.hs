@@ -38,6 +38,8 @@ data JpgFrameKind =
     | JpgStartOfScan
     | JpgAppSegment Word8
     | JpgExtensionSegment Word8
+
+    | JpgRestartInterval
     deriving (Eq, Show)
 
 
@@ -48,6 +50,7 @@ data JpgFrame =
     | JpgHuffmanTable !JpgHuffmanTableSpec !HuffmanTree
     | JpgScanBlob     !JpgScanHeader
     | JpgScans        !JpgFrameKind !JpgFrameHeader
+    | JpgIntervalRestart B.ByteString
     deriving Show
 
 data JpgFrameHeader = JpgFrameHeader
@@ -291,6 +294,8 @@ parseFrames = do
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgQuantizationTable -> 
             (\quant lst -> JpgQuantTable quant : lst) <$> get <*> parseFrames
+        JpgRestartInterval ->
+            (\frm lst -> JpgIntervalRestart frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgHuffmanTableMarker ->
             (\huffTable lst -> JpgHuffmanTable huffTable (buildHuffmanTree huffTable): lst) <$> get <*> parseFrames
         JpgStartOfScan -> 
@@ -314,6 +319,7 @@ secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCT_Arithmetic = 0xCE
 secondStartOfFrameByteOfKind JpgDifferentialLossless_Arithmetic = 0xCF
 secondStartOfFrameByteOfKind JpgQuantizationTable = 0xDB
 secondStartOfFrameByteOfKind JpgStartOfScan = 0xDA
+secondStartOfFrameByteOfKind JpgRestartInterval = 0xDD
 secondStartOfFrameByteOfKind (JpgAppSegment a) = a
 secondStartOfFrameByteOfKind (JpgExtensionSegment a) = a
 
@@ -342,6 +348,7 @@ instance Serialize JpgFrameKind where
             0xCF -> JpgDifferentialLossless_Arithmetic
             0xDA -> JpgStartOfScan
             0xDB -> JpgQuantizationTable
+            0xDD -> JpgRestartInterval
             a -> if a >= 0xF0 then JpgExtensionSegment a
                  else if a >= 0xE0 then JpgAppSegment a
                  else error ("Invalid frame marker (" ++ show a ++ ")")
@@ -372,12 +379,16 @@ instance Serialize JpgComponent where
 
 instance Serialize JpgFrameHeader where
     get = do
+        beginOffset <- remaining
         frmHLength <- getWord16be
         samplePrec <- getWord8
         h <- getWord16be
         w <- getWord16be
         compCount <- getWord8
         components <- replicateM (fromIntegral compCount) get
+        endOffset <- remaining
+        when (beginOffset - endOffset < fromIntegral frmHLength) 
+             (skip $ fromIntegral frmHLength - (beginOffset - endOffset))
         return $ JpgFrameHeader
             { jpgFrameHeaderLength = frmHLength
             , jpgSamplePrecision = samplePrec
@@ -572,7 +583,7 @@ gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
 buildMcuDecoder :: JpgImage -> BoolReader ()
-buildMcuDecoder img = return ()
+buildMcuDecoder _img = return ()
 
 {- 
 -- | Extract a 8x8 block in the picture.
