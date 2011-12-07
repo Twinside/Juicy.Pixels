@@ -3,11 +3,12 @@
 module Codec.Picture.Jpg where
 
 import Control.Applicative( (<$>), (<*>) )
-import Control.Monad( when, replicateM, forM )
+import Control.Monad( when, replicateM, forM, (<=<) )
 import qualified Control.Monad.State as S
 {-import Control.Monad.State-}
 import Data.List( find, foldl' )
 import Data.Bits
+import Data.Int
 import Data.Word
 import Data.Serialize
 import Data.Maybe( fromJust )
@@ -116,7 +117,7 @@ data JpgQuantTableSpec = JpgQuantTableSpec
       -- | Stored on 4 bits
     , quantDestination   :: !Word8
 
-    , quantTable         :: UArray Word32 Word16
+    , quantTable         :: MacroBlock Int16
     }
     deriving Show
 
@@ -127,7 +128,7 @@ instance Serialize JpgQuantTableSpec where
         (precision, dest) <- get4BitOfEach
         coeffs <- replicateM 64 $ if precision == 0 
                 then fromIntegral <$> getWord8
-                else getWord16be
+                else fromIntegral <$> getWord16be
         let sizeWordSize = 2
             precDestSize = 1
             readed = (if precision == 0 then 1 else 2) * 64 + sizeWordSize + precDestSize
@@ -139,10 +140,13 @@ instance Serialize JpgQuantTableSpec where
             , quantTable = listArray (0, 63) coeffs
             }
 
+data DctComponent = DcComponent | AcComponent
+    deriving (Eq, Show)
+
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     { huffmanTableSize        :: !Word16
       -- | 0 : DC, 1 : AC, stored on 4 bits
-    , huffmanTableClass       :: !Word8
+    , huffmanTableClass       :: !DctComponent
       -- | Stored on 4 bits
     , huffmanTableDest        :: !Word8
     
@@ -254,7 +258,8 @@ instance Serialize JpgHuffmanTableSpec where
              (skip $ fromIntegral size - (offsetBegin - offsetEnd))
         return $ JpgHuffmanTableSpec 
             { huffmanTableSize = size
-            , huffmanTableClass = huffClass
+            , huffmanTableClass = 
+                (if huffClass == 0 then DcComponent else AcComponent)
             , huffmanTableDest = huffDest
             , huffSizes = listArray (0, 15) sizes
             , huffCodes = listArray (0, 15) codes
@@ -456,7 +461,7 @@ dcValueOfMacroBlock block = block ! 0
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
 deQuantize :: (IArray UArray a, Num a, Integral a)
-           => MacroBlock a -> MacroBlock a -> MacroBlock a
+           => MacroBlock Int16 -> MacroBlock a -> MacroBlock a
 deQuantize table block = makeMacroBlock . map dequant $ indices table
     where dequant i = fromIntegral $ r * l
             where r = fromIntegral (table ! i) :: Int
@@ -469,7 +474,7 @@ idctCoefficientMatrix =
           idctCoefficient x u = 0.5 * cos(pi / 16.0 * xu)
             where xu = fromIntegral $ x * u
 
-inverseDirectCosineTransform :: MacroBlock Word8 -> MacroBlock Word8
+inverseDirectCosineTransform :: (Integral a, IArray UArray a) => MacroBlock a -> MacroBlock a
 inverseDirectCosineTransform block =
   makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
     where dotProduct lst = sum $ (\(a,b) -> a * b) <$> lst
@@ -493,12 +498,18 @@ zigZagReorder block = ixmap (0,63) reorder block
               ,[35,36,48,49,57,58,62,63]
               ]
 
+promoteMacroBlock :: (Integral a, Num b, IArray UArray a, IArray UArray b)
+                  => MacroBlock a -> MacroBlock b
+promoteMacroBlock = amap fromIntegral
+
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
 -- there is to know for macro block transformation
-decodeMacroBlock :: MacroBlock Word8 -> MacroBlock Word8 -> MacroBlock Word8
+decodeMacroBlock :: MacroBlock Int16 -> MacroBlock Word8 -> MacroBlock Word8
 decodeMacroBlock quantizationTable =
-    inverseDirectCosineTransform . zigZagReorder . deQuantize quantizationTable
+    inverseDirectCosineTransform . zigZagReorder 
+                                 . deQuantize quantizationTable
+                                 . promoteMacroBlock
 
 unpackInt :: Int -> BoolReader Word8
 unpackInt n = do
@@ -556,7 +567,7 @@ makeMacroBlock = listArray (0, 63)
 -- from the frame.
 decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> HuffmanTree         -- ^ Tree used for Ac coefficient
-                     -> MacroBlock Word8    -- ^ Current quantization table
+                     -> MacroBlock Int16    -- ^ Current quantization table
                      -> Word8               -- ^ Previous dc value
                      -> BoolReader (MacroBlock Word8)
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
@@ -580,10 +591,63 @@ gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
           unScan (JpgScans a b) = (a,b)
           unScan _ = error "If this can happen, the JPEG image is ill-formed"
 
+unpackMacroBlock :: (IArray UArray a)
+                 => Word32 -- ^ Width coefficient
+                 -> Word32 -- ^ Height coefficient
+                 -> MacroBlock a
+                 -> Word32 -- ^ x
+                 -> Word32 -- ^ y
+                 -> [((Word32, Word32), a)]
+unpackMacroBlock      1      1 block x y =
+    [((i + x * 8, j + y * 8), block ! (i + j * 8)) 
+                                | i <- [0 .. 7], j <- [0 .. 7] ]
+
+unpackMacroBlock wCoeff hCoeff block x y =
+    [(((i + x * 8) * wCoeff + wDup,
+       (j + y * 8) * hCoeff + hDup), block ! (i + j * 8)) 
+                    | i <- [0 .. 7], j <- [0 .. 7] 
+                    -- Repetition to spread macro block
+                    , wDup <- [0 .. wCoeff - 1]
+                    , hDup <- [0 .. hCoeff - 1]
+                    ]
+
+type DcCoefficient = Word8
+
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
-buildMcuDecoder :: JpgImage -> BoolReader ()
-buildMcuDecoder _img = return ()
+buildMcuDecoder :: JpgImage 
+                -> [[DcCoefficient 
+                        -> BoolReader (Word32 -> Word32 -> [((Word32, Word32), Word8)])]]
+buildMcuDecoder img = rez
+    where macroBlockCount component = fromIntegral $
+                horizontalSamplingFactor component * 
+                  verticalSamplingFactor component
+
+          huffmans = gatherHuffmanTables img
+          huffmanForComponent dcOrAc comp = head
+              [t | (h,t) <- huffmans
+                 , huffmanTableClass h == dcOrAc
+                 , let isY = componentIdentifier comp == 1
+                 , huffmanTableDest h == (if isY then 0 else 1)]
+
+          quants = gatherQuantTables img
+          quantForComponent comp = head
+              [quantTable q | q <- quants
+                            , let isY = componentIdentifier comp == 1
+                            , quantDestination q == (if isY then 0 else 1)]
+
+          (_, scanInfo) = gatherScanInfo img
+          rez = 
+            [replicate (macroBlockCount component)
+                    $ (return . unpacker) <=< decompressMacroBlock dcTree acTree qTable
+                    | component <- jpgComponents scanInfo
+                    , let acTree = huffmanForComponent AcComponent component
+                          dcTree = huffmanForComponent DcComponent component
+                          qTable = quantForComponent  component
+                          unpacker = unpackMacroBlock 
+                                       (fromIntegral $ horizontalSamplingFactor component)
+                                       (fromIntegral $ verticalSamplingFactor component)
+                    ]
 
 {- 
 -- | Extract a 8x8 block in the picture.
