@@ -1,9 +1,12 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codec.Picture.Jpg where
 
-import Control.Applicative( (<$>), (<*>) )
-import Control.Monad( when, replicateM, forM, (<=<) )
+import Control.Applicative( (<$>), (<*>))
+import Control.Monad( when, replicateM, forM )
+import Control.Monad.ST( ST, runST )
+import Control.Monad.Trans( lift )
 import qualified Control.Monad.State as S
 {-import Control.Monad.State-}
 import Data.List( find, foldl' )
@@ -13,6 +16,7 @@ import Data.Word
 import Data.Serialize
 import Data.Maybe( fromJust )
 import Data.Array.Unboxed
+import Data.Array.ST
 import qualified Data.ByteString as B
 {-import qualified Data.ByteString.Lazy as Lb-}
 
@@ -165,7 +169,7 @@ type PackedTree = UArray Word16 Word16
 
 -- | Decode a list of huffman values, not optimized for speed, but it 
 -- should work.
-huffmanDecode :: HuffmanTree -> BoolReader Word8
+huffmanDecode :: HuffmanTree -> BoolReader s Word8
 huffmanDecode originalTree = S.get >>= huffDecode originalTree
   where huffDecode _     [] = fail "Meh"
         huffDecode Empty _  = fail "Meh"
@@ -453,7 +457,7 @@ instance Serialize JpgScanHeader where
         put $ successiveApproxHigh v
         put $ successiveApproxLow v
 
-type BoolReader a = S.State [Bool] a
+type BoolReader s a = S.StateT [Bool] (ST s) a
 
 dcValueOfMacroBlock :: (IArray UArray a) => MacroBlock a -> a
 dcValueOfMacroBlock block = block ! 0
@@ -511,7 +515,7 @@ decodeMacroBlock quantizationTable =
                                  . deQuantize quantizationTable
                                  . promoteMacroBlock
 
-unpackInt :: Int -> BoolReader Word8
+unpackInt :: Int -> BoolReader s Word8
 unpackInt n = do
     bits <- S.get
     let (toUnpack, rest) = n `splitAt` bits  
@@ -520,7 +524,7 @@ unpackInt n = do
     S.put rest
     return $ foldl' bitStep 0 toUnpack
 
-decodeInt :: Int -> BoolReader Word8
+decodeInt :: Int -> BoolReader s Word8
 decodeInt ssss = do
     bits <- S.get
     let dataRange = 1 `shiftL` (ssss - 1)
@@ -533,7 +537,7 @@ decodeInt ssss = do
           S.put rest
           (1 - dataRange * 2 +) <$> unpackInt ssss
 
-dcCoefficientDecode :: HuffmanTree -> BoolReader Word8
+dcCoefficientDecode :: HuffmanTree -> BoolReader s Word8
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
     if ssss == 0 
@@ -541,7 +545,7 @@ dcCoefficientDecode dcTree = do
        else decodeInt $ fromIntegral ssss
 
 -- | Use an array of integer?
-acCoefficientsDecode :: HuffmanTree -> BoolReader [Word8]
+acCoefficientsDecode :: HuffmanTree -> BoolReader s [Word8]
 acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
   where parseAcCoefficient 0 = return []
         parseAcCoefficient n = do
@@ -569,7 +573,7 @@ decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> HuffmanTree         -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
                      -> Word8               -- ^ Previous dc value
-                     -> BoolReader (MacroBlock Word8)
+                     -> BoolReader s (MacroBlock Word8)
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
     acCoefficients <- acCoefficientsDecode acTree
@@ -594,15 +598,15 @@ gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
 unpackMacroBlock :: (IArray UArray a)
                  => Word32 -- ^ Width coefficient
                  -> Word32 -- ^ Height coefficient
-                 -> MacroBlock a
                  -> Word32 -- ^ x
                  -> Word32 -- ^ y
+                 -> MacroBlock a
                  -> [((Word32, Word32), a)]
-unpackMacroBlock      1      1 block x y =
+unpackMacroBlock      1      1 x y block =
     [((i + x * 8, j + y * 8), block ! (i + j * 8)) 
                                 | i <- [0 .. 7], j <- [0 .. 7] ]
 
-unpackMacroBlock wCoeff hCoeff block x y =
+unpackMacroBlock wCoeff hCoeff x y block =
     [(((i + x * 8) * wCoeff + wDup,
        (j + y * 8) * hCoeff + hDup), block ! (i + j * 8)) 
                     | i <- [0 .. 7], j <- [0 .. 7] 
@@ -613,41 +617,70 @@ unpackMacroBlock wCoeff hCoeff block x y =
 
 type DcCoefficient = Word8
 
+
+decodeImage :: Int -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)])]
+            -> BoolReader s [((Word32, Word32), (Int, Word8))]
+decodeImage compCount lst = concat <$> do
+    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Word8))
+    forM lst $ \(comp, f) -> do
+        dc <- lift $ dcArray `readArray` comp
+        block@((_,dcCoeff):_) <- f dc
+        lift $ (dcArray `writeArray` comp) dcCoeff
+        return [(idx, (comp, val)) | (idx, val) <- block]
+
+
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
-buildMcuDecoder :: JpgImage 
-                -> [[DcCoefficient 
-                        -> BoolReader (Word32 -> Word32 -> [((Word32, Word32), Word8)])]]
-buildMcuDecoder img = rez
-    where macroBlockCount component = fromIntegral $
-                horizontalSamplingFactor component * 
-                  verticalSamplingFactor component
+buildJpegImageDecoder :: JpgImage -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]
+buildJpegImageDecoder img = allBlockToDecode
+  where huffmans = gatherHuffmanTables img
+        huffmanForComponent dcOrAc comp = head
+            [t | (h,t) <- huffmans
+               , huffmanTableClass h == dcOrAc
+               , let isY = componentIdentifier comp == 1
+               , huffmanTableDest h == (if isY then 0 else 1)]
 
-          huffmans = gatherHuffmanTables img
-          huffmanForComponent dcOrAc comp = head
-              [t | (h,t) <- huffmans
-                 , huffmanTableClass h == dcOrAc
-                 , let isY = componentIdentifier comp == 1
-                 , huffmanTableDest h == (if isY then 0 else 1)]
+        quants = gatherQuantTables img
+        quantForComponent comp = head
+            [quantTable q | q <- quants
+                          , let isY = componentIdentifier comp == 1
+                          , quantDestination q == (if isY then 0 else 1)]
 
-          quants = gatherQuantTables img
-          quantForComponent comp = head
-              [quantTable q | q <- quants
-                            , let isY = componentIdentifier comp == 1
-                            , quantDestination q == (if isY then 0 else 1)]
+        (_, scanInfo) = gatherScanInfo img
+        imgWidth = fromIntegral $ jpgWidth scanInfo
+        imgHeight = fromIntegral $ jpgHeight scanInfo
 
-          (_, scanInfo) = gatherScanInfo img
-          rez = 
-            [replicate (macroBlockCount component)
-                    $ (return . unpacker) <=< decompressMacroBlock dcTree acTree qTable
-                    | component <- jpgComponents scanInfo
-                    , let acTree = huffmanForComponent AcComponent component
-                          dcTree = huffmanForComponent DcComponent component
-                          qTable = quantForComponent  component
-                          unpacker = unpackMacroBlock 
-                                       (fromIntegral $ horizontalSamplingFactor component)
-                                       (fromIntegral $ verticalSamplingFactor component)
-                    ]
+
+        horizontalBlockCount =
+          imgWidth `div` fromIntegral (maximum [horizontalSamplingFactor c | 
+                                                    c <- jpgComponents scanInfo] * 8)
+
+        verticalBlockCount =
+          imgHeight `div` fromIntegral (maximum [horizontalSamplingFactor c | 
+                                                    c <- jpgComponents scanInfo] * 8)
+
+        -- This monstrous list comprehension build a list of function
+        -- for all macroblcoks at once, all that remains is to fold
+        -- over it to decode
+        allBlockToDecode = 
+          [(compIdx, \dc -> (return . unpacker) =<< decompressMacroBlock dcTree acTree qTable dc)
+                  | x <- [0 .. horizontalBlockCount - 1]
+                  , y <- [0 ..  verticalBlockCount - 1]
+                  , (compIdx, component) <- zip [0..] $ jpgComponents scanInfo
+                  , let acTree = huffmanForComponent AcComponent component
+                        dcTree = huffmanForComponent DcComponent component
+                        qTable = quantForComponent  component
+                        horizCount = horizontalSamplingFactor component
+                        vertCount = verticalSamplingFactor component
+
+                  , xd <- [0 .. horizCount - 1]
+                  , yd <- [0 .. vertCount - 1]
+                  , let unpacker = unpackMacroBlock (fromIntegral horizCount)
+                                                    (fromIntegral vertCount)
+                                                    (x + fromIntegral xd) (y + fromIntegral yd)
+                  ]
+
+
 
 {- 
 -- | Extract a 8x8 block in the picture.
@@ -663,6 +696,21 @@ extractBlock arr x y
           blockLeft = blockSize * x
           blockTop = blockSize * y
 -}
+
+jpegDecode :: B.ByteString -> Either String (Image PixelYCbCr)
+jpegDecode sr = case decode file of
+  Left err -> Left err
+  Right img ->
+      let bitList = [] -- bitifyString $ markerRemoval
+          decoder = buildJpegImageDecoder img >>= decodeImage 3
+          imgWidth = 0
+          imgHeight = 0
+          imageSize = ((0, 0), (imgWidth - 1, imgHeight - 1))        
+          setter (PixelYCbCr _ cb cr) (0, v) = PixelYCbCr v cb cr
+          setter (PixelYCbCr y  _ cr) (1, v) = PixelYCbCr y  v cr
+          setter (PixelYCbCr y cb  _) (2, v) = PixelYCbCr y cb  v
+          setter _ _ = error "Impossible jpeg decoding can happen"
+      in accumArray setter (PixelYCbCr 0 0 0) imageSize . runST $ evalStateT bitList decoder
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do
