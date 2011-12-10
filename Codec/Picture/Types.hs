@@ -74,6 +74,19 @@ data PixelRGB8 = PixelRGB8 !Word8 -- Red
                            !Word8 -- Green
                            !Word8 -- Blue
 
+-- | Pixel storing data in the YCbCr colorspace,
+-- value are stored in teh following order :
+--
+--  * Y (luminance)
+--
+--  * Cr
+--
+--  * Cb
+--
+data PixelYCbCr = PixelYCbCr !Word8 -- Y luminance
+                             !Word8 -- Cr red difference
+                             !Word8 -- Cb blue difference
+
 -- | Pixel type storing a classic pixel, with an alpha component.
 -- Values are stored in the following order
 --
@@ -96,6 +109,10 @@ instance Serialize PixelYA8 where
 instance Serialize PixelRGB8 where
     put (PixelRGB8 r g b) = put r >> put g >> put b
     get = PixelRGB8 <$> get <*> get <*> get
+
+instance Serialize PixelYCbCr where
+    put (PixelYCbCr y cb cr) = put y >> put cb >> put cr
+    get = PixelYCbCr <$> get <*> get <*> get
 
 -- | Helper function to let put color in the "windows" order
 -- used in the Bitmap file format.
@@ -134,6 +151,58 @@ instance MArray (STUArray s) PixelRGBA8 (ST s) where
         case writeWord8Array# marr# (idx# +# 2#) b s3# of { s4# ->
         case writeWord8Array# marr# (idx# +# 3#) a s4# of { s5# ->
         (# s5#, () #) } } } } }
+
+
+instance MArray (STUArray s) PixelYCbCr (ST s) where
+    {-# INLINE getBounds #-}
+    getBounds (STUArray l u _ _) = return (l,u)
+    {-# INLINE getNumElements #-}
+    getNumElements (STUArray _ _ n _) = return n
+    {-# INLINE unsafeNewArray_ #-}
+    unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 3#)
+    {-# INLINE newArray_ #-}
+    newArray_ arrBounds = newArray arrBounds (PixelYCbCr 0 0 0)
+    {-# INLINE unsafeRead #-}
+    unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
+        case i# *# 3# of { idx# ->
+        case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
+        case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
+        case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->
+            (# s4#, PixelYCbCr (W8# r#) (W8# g#) (W8# b#) #)
+        } } } }
+
+    {-# INLINE unsafeWrite #-}
+    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelYCbCr (W8# y) (W8# cb) (W8# cr)) = ST $ \s1# ->
+        case i# *# 3# of { idx# ->
+        case writeWord8Array# marr# idx# y s1# of { s2# ->
+        case writeWord8Array# marr# (idx# +# 1#) cb s2# of { s3# ->
+        case writeWord8Array# marr# (idx# +# 2#) cr s3# of { s4# ->
+        (# s4#, () #) } } } }
+
+instance IArray UArray PixelYCbCr where
+    {-# INLINE bounds #-}
+    bounds (UArray l u _ _) = (l,u)
+    {-# INLINE numElements #-}
+    numElements (UArray _ _ n _) = n
+    {-# INLINE unsafeArray #-}
+    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelYCbCr 0 0 0)
+#ifdef __GLASGOW_HASKELL__
+    {-# INLINE unsafeAt #-}
+    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
+        case i# *# 3# of { idx# ->
+            PixelYCbCr (W8# (indexWord8Array# arr# idx#))
+                       (W8# (indexWord8Array# arr# (idx# +# 1#)))
+                       (W8# (indexWord8Array# arr# (idx# +# 2#))) }
+#endif
+#ifdef __HUGS__
+    unsafeAt = unsafeAtBArray
+#endif
+    {-# INLINE unsafeReplace #-}
+    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
+    {-# INLINE unsafeAccum #-}
+    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
+    {-# INLINE unsafeAccumArray #-}
+    unsafeAccumArray f initialValue lu ies = runST (unsafeAccumArrayUArray f initialValue lu ies)
 
 instance MArray (STUArray s) PixelRGB8 (ST s) where
     {-# INLINE getBounds #-}
