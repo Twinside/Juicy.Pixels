@@ -4,11 +4,24 @@ import Codec.Picture.Bitmap
 import Codec.Picture.Png
 import Codec.Picture.Types
 import Codec.Picture.Jpg
+import System.Environment
+
 
 -- import System.Environment
-import System.FilePath
+{-import System.FilePath-}
 import qualified Data.ByteString as B
+import Codec.Picture.ColorConversion
 {-import qualified Data.ByteString.Lazy as Lb-}
+
+convertJpegToBmp :: FilePath -> IO ()
+convertJpegToBmp filePath = do
+    file <- B.readFile filePath
+    putStr "."
+    rez <- catch (return $ decodeJpeg file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
+        Right img -> writeBitmapFile (filePath ++ ".bmp") $ promotePixels img
 
 convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
@@ -76,7 +89,11 @@ exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
           pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
 
 main :: IO ()
-main = do jpegTest "tests/jpeg/sheep.jpg"
+main = do 
+    (fname: args) <- getArgs
+    {-jpegTest fname-}
+    huffTest
+    convertJpegToBmp fname
     {-exportBmpWitness-}
     {-putStrLn ">>>> Valid instances"-}
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
