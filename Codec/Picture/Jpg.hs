@@ -1,14 +1,18 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Codec.Picture.Jpg where
+module Codec.Picture.Jpg( loadJpeg
+                        , decodeJpeg
+                        , jpegTest
+                        , huffTest
+                        ) where
 
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
-import qualified Control.Monad.State as S
-{-import Control.Monad.State-}
+import qualified Control.Monad.Trans.State as S
+
 import Data.List( find, foldl' )
 import Data.Bits
 import Data.Int
@@ -18,9 +22,9 @@ import Data.Maybe( fromJust )
 import Data.Array.Unboxed
 import Data.Array.ST
 import qualified Data.ByteString as B
-{-import qualified Data.ByteString.Lazy as Lb-}
 
-import Debug.Trace
+import Codec.Picture.Types
+
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -48,12 +52,12 @@ data JpgFrameKind =
     deriving (Eq, Show)
 
 
-data JpgFrame = 
+data JpgFrame =
       JpgAppFrame     !Word8 B.ByteString
     | JpgExtension    !Word8 B.ByteString
     | JpgQuantTable   !JpgQuantTableSpec
     | JpgHuffmanTable !JpgHuffmanTableSpec !HuffmanTree
-    | JpgScanBlob     !JpgScanHeader
+    | JpgScanBlob     !JpgScanHeader !B.ByteString
     | JpgScans        !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart B.ByteString
     deriving Show
@@ -81,19 +85,13 @@ data JpgComponent = JpgComponent
 data JpgImage = JpgImage { jpgFrame :: [JpgFrame]}
     deriving Show
 
-data JpgScan = JpgScan
-    { jpgScanHeader :: !JpgScanHeader
-    , jpgScanData   :: !B.ByteString
-    }
-    deriving Show
-
-data JpgScanSpecification = JpgScanSpecification 
+data JpgScanSpecification = JpgScanSpecification
     { componentSelector :: !Word8
       -- | Encoded as 4 bits
     , dcEntropyCodingTable :: !Word8
       -- | Encoded as 4 bits
     , acEntropyCodingTable :: !Word8
-    
+
     }
     deriving Show
 
@@ -130,7 +128,7 @@ instance Serialize JpgQuantTableSpec where
     get = do
         size <- getWord16be
         (precision, dest) <- get4BitOfEach
-        coeffs <- replicateM 64 $ if precision == 0 
+        coeffs <- replicateM 64 $ if precision == 0
                 then fromIntegral <$> getWord8
                 else fromIntegral <$> getWord16be
         let sizeWordSize = 2
@@ -153,21 +151,18 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     , huffmanTableClass       :: !DctComponent
       -- | Stored on 4 bits
     , huffmanTableDest        :: !Word8
-    
+
     , huffSizes :: !(UArray Word32 Word8)
     , huffCodes :: !(Array Word32 (UArray Int Word8))
     }
     deriving Show
 
-data HuffmanTree = Branch HuffmanTree HuffmanTree 
+data HuffmanTree = Branch HuffmanTree HuffmanTree
                  | Leaf Word8
                  | Empty
                  deriving (Eq, Show)
 
-type PackedTree = UArray Word16 Word16
-
-
--- | Decode a list of huffman values, not optimized for speed, but it 
+-- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
 huffmanDecode originalTree = S.get >>= huffDecode originalTree
@@ -195,8 +190,8 @@ bitifyString = concatMap bitify
                    , testBit v 3 , testBit v 2 , testBit v 1 , testBit v 0 ]
 
 -- | Transform an huffman table to it's graphviz representation.
-exportHuffmanTree :: JpgFrame -> Maybe String
-exportHuffmanTree (JpgHuffmanTable _ t) = Just $ "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
+exportHuffmanTree :: HuffmanTree -> String
+exportHuffmanTree t = "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
   where stringify (Branch left right) i = (fl . fr . thisNode . linka . linkb, i3 + 1)
             where lnode = "n" ++ show (i + 1)
                   rnode = "n" ++ show i2
@@ -209,11 +204,10 @@ exportHuffmanTree (JpgHuffmanTable _ t) = Just $ "digraph a {\n" ++ fst (stringi
         stringify Empty i = (str $ "n" ++ show i ++ " [label=\"Empty\"];\n", i + 1)
 
         str a = (a ++)
-exportHuffmanTree _ = Nothing
 
 buildHuffmanTree :: JpgHuffmanTableSpec -> HuffmanTree
-buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty 
-                       . concatMap (\(i, t) -> map (i + 1,) $ elems t) 
+buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
+                       . concatMap (\(i, t) -> map (i + 1,) $ elems t)
                        . assocs $ huffCodes table
   where isTreeFullyDefined Empty = False
         isTreeFullyDefined (Leaf _) = True
@@ -221,7 +215,7 @@ buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
 
         insertHuffmanVal Empty (0, val) = Leaf val
         insertHuffmanVal Empty (d, val) = Branch (insertHuffmanVal Empty (d - 1, val)) Empty
-        insertHuffmanVal (Branch l r) (d, val)  
+        insertHuffmanVal (Branch l r) (d, val)
             | isTreeFullyDefined l = Branch l (insertHuffmanVal r (d - 1, val))
             | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
         insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
@@ -260,9 +254,9 @@ instance Serialize JpgHuffmanTableSpec where
         offsetEnd <- remaining
         when (offsetBegin - offsetEnd < fromIntegral size)
              (skip $ fromIntegral size - (offsetBegin - offsetEnd))
-        return $ JpgHuffmanTableSpec 
+        return $ JpgHuffmanTableSpec
             { huffmanTableSize = size
-            , huffmanTableClass = 
+            , huffmanTableClass =
                 (if huffClass == 0 then DcComponent else AcComponent)
             , huffmanTableDest = huffDest
             , huffSizes = listArray (0, 15) sizes
@@ -275,40 +269,34 @@ instance Serialize JpgImage where
         let startOfImageMarker = 0xD8
             -- endOfImageMarker = 0xD9
         checkMarker commonMarkerFirstByte startOfImageMarker
-        eatUntilCode 
+        eatUntilCode
         frames <- parseFrames
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return $ JpgImage { jpgFrame = frames }
 
-dropCurrentFrame :: Get ()
-dropCurrentFrame = do
-    size <- getWord16be
-    trace ("Skipping : " ++ show size) $ skip (fromIntegral size - 2)
-
 takeCurrentFrame :: Get B.ByteString
 takeCurrentFrame = do
     size <- getWord16be
-    trace ("taking : " ++ show size) $ getBytes (fromIntegral size - 2)
-
-traShow :: (Show a) => a -> a
-traShow a = trace (show a) a
+    getBytes (fromIntegral size - 2)
 
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    trace (show kind) $ case kind of
+    case kind of
         JpgAppSegment c ->
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgExtensionSegment c ->
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
-        JpgQuantizationTable -> 
+        JpgQuantizationTable ->
             (\quant lst -> JpgQuantTable quant : lst) <$> get <*> parseFrames
         JpgRestartInterval ->
             (\frm lst -> JpgIntervalRestart frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgHuffmanTableMarker ->
             (\huffTable lst -> JpgHuffmanTable huffTable (buildHuffmanTree huffTable): lst) <$> get <*> parseFrames
-        JpgStartOfScan -> 
-            (\frm lst -> JpgScanBlob frm : lst) <$> get <*> return [] -- parseFrames
+        JpgStartOfScan ->
+            (\frm imgData -> [JpgScanBlob frm imgData])
+                            <$> get <*> (remaining >>= getBytes)
+
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
@@ -338,7 +326,7 @@ instance Serialize JpgFrameKind where
         word <- getWord8
         word2 <- getWord8
         when (word /= 0xFF) (do leftData <- remaining
-                                fail $ "Invalid Frame marker (" ++ show word 
+                                fail $ "Invalid Frame marker (" ++ show word
                                     ++ ", remaining : " ++ show leftData ++ ")")
         return $ case word2 of
             0xC0 -> JpgBaselineDCT_Huffman
@@ -396,7 +384,7 @@ instance Serialize JpgFrameHeader where
         compCount <- getWord8
         components <- replicateM (fromIntegral compCount) get
         endOffset <- remaining
-        when (beginOffset - endOffset < fromIntegral frmHLength) 
+        when (beginOffset - endOffset < fromIntegral frmHLength)
              (skip $ fromIntegral frmHLength - (beginOffset - endOffset))
         return $ JpgFrameHeader
             { jpgFrameHeaderLength = frmHLength
@@ -459,9 +447,6 @@ instance Serialize JpgScanHeader where
 
 type BoolReader s a = S.StateT [Bool] (ST s) a
 
-dcValueOfMacroBlock :: (IArray UArray a) => MacroBlock a -> a
-dcValueOfMacroBlock block = block ! 0
-
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
 deQuantize :: (IArray UArray a, Num a, Integral a)
@@ -472,7 +457,7 @@ deQuantize table block = makeMacroBlock . map dequant $ indices table
                   l = fromIntegral (block ! i)
 
 idctCoefficientMatrix :: MacroBlock Float
-idctCoefficientMatrix = 
+idctCoefficientMatrix =
   makeMacroBlock [idctCoefficient x u | x <- [1, 3 .. 15], u <- [0 .. 7 :: Int]]
     where idctCoefficient _ 0 = 0.5 / sqrt 2.0
           idctCoefficient x u = 0.5 * cos(pi / 16.0 * xu)
@@ -511,14 +496,14 @@ promoteMacroBlock = amap fromIntegral
 -- there is to know for macro block transformation
 decodeMacroBlock :: MacroBlock Int16 -> MacroBlock Word8 -> MacroBlock Word8
 decodeMacroBlock quantizationTable =
-    inverseDirectCosineTransform . zigZagReorder 
+    inverseDirectCosineTransform . zigZagReorder
                                  . deQuantize quantizationTable
                                  . promoteMacroBlock
 
 unpackInt :: Int -> BoolReader s Word8
 unpackInt n = do
     bits <- S.get
-    let (toUnpack, rest) = n `splitAt` bits  
+    let (toUnpack, rest) = n `splitAt` bits
         bitStep acc True = acc `shiftL` 1 + 1
         bitStep acc False = acc `shiftL` 1
     S.put rest
@@ -540,7 +525,7 @@ decodeInt ssss = do
 dcCoefficientDecode :: HuffmanTree -> BoolReader s Word8
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
-    if ssss == 0 
+    if ssss == 0
        then return 0
        else decodeInt $ fromIntegral ssss
 
@@ -553,7 +538,7 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
             let rrrr = (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
-              (0,   0) -> return [replicate n 0] 
+              (0,   0) -> return [replicate n 0]
               (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
               _        -> do
                   decoded <- decodeInt $ fromIntegral ssss
@@ -577,7 +562,7 @@ decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
     acCoefficients <- acCoefficientsDecode acTree
-    let block = makeMacroBlock $ 
+    let block = makeMacroBlock $
                     previousDc + dcDeltaCoefficient : acCoefficients
     return $ decodeMacroBlock quantizationTable block
 
@@ -603,13 +588,13 @@ unpackMacroBlock :: (IArray UArray a)
                  -> MacroBlock a
                  -> [((Word32, Word32), a)]
 unpackMacroBlock      1      1 x y block =
-    [((i + x * 8, j + y * 8), block ! (i + j * 8)) 
+    [((i + x * 8, j + y * 8), block ! (i + j * 8))
                                 | i <- [0 .. 7], j <- [0 .. 7] ]
 
 unpackMacroBlock wCoeff hCoeff x y block =
     [(((i + x * 8) * wCoeff + wDup,
-       (j + y * 8) * hCoeff + hDup), block ! (i + j * 8)) 
-                    | i <- [0 .. 7], j <- [0 .. 7] 
+       (j + y * 8) * hCoeff + hDup), block ! (i + j * 8))
+                    | i <- [0 .. 7], j <- [0 .. 7]
                     -- Repetition to spread macro block
                     , wDup <- [0 .. wCoeff - 1]
                     , hDup <- [0 .. hCoeff - 1]
@@ -628,6 +613,121 @@ decodeImage compCount lst = concat <$> do
         lift $ (dcArray `writeArray` comp) dcCoeff
         return [(idx, (comp, val)) | (idx, val) <- block]
 
+buildDefaultHuffmanTree :: DctComponent -> [[Word8]] -> HuffmanTree
+buildDefaultHuffmanTree comp huffmans = buildHuffmanTree desc
+    where codes = listArray (0, 15)
+                [listArray (0, length lst - 1) lst | lst <- huffmans]
+          sizes = listArray (0, 15) [fromIntegral $ length lst | lst <- huffmans]
+          desc = JpgHuffmanTableSpec {
+              huffmanTableSize = 0,
+              huffmanTableClass = comp,
+              huffmanTableDest = 0,
+              huffSizes = sizes,
+              huffCodes = codes
+          }
+
+-- | From the Table K.3 of ITU-81 (p153)
+defaultDcLumaHuffmanTable :: HuffmanTree
+defaultDcLumaHuffmanTable = buildDefaultHuffmanTree DcComponent
+    [ []
+    , [0]
+    , [1, 2, 3, 4, 5]
+    , [6]
+    , [7]
+    , [8]
+    , [9]
+    , [10]
+    , [11]
+    , []
+    , []
+    , []
+    , []
+    , []
+    , []
+    , []
+    ]
+
+-- | From the Table K.4 of ITU-81 (p153)
+defaultDcChromaHuffmanTable :: HuffmanTree
+defaultDcChromaHuffmanTable = buildDefaultHuffmanTree DcComponent
+    [ []
+    , [0, 1, 2]
+    , [3]
+    , [4]
+    , [5]
+    , [6]
+    , [7]
+    , [8]
+    , [9]
+    , [10]
+    , [11]
+    , []
+    , []
+    , []
+    , []
+    , []
+    ]
+
+-- | From the Table K.5 of ITU-81 (p154)
+defaultAcLumaHuffmanTable :: HuffmanTree
+defaultAcLumaHuffmanTable = buildDefaultHuffmanTree DcComponent
+    [ []
+    , [0x01, 0x02]
+    , [0x03]
+    , [0x00, 0x04, 0x11]
+    , [0x05, 0x12, 0x21]
+    , [0x31, 0x41]
+    , [0x06, 0x13, 0x51, 0x61]
+    , [0x07, 0x22, 0x71]
+    , [0x14, 0x32, 0x81, 0x91, 0xA1]
+    , [0x08, 0x23, 0x42, 0xB1, 0xC1]
+    , [0x15, 0x52, 0xD1, 0xF0]
+    , [0x24, 0x33, 0x62, 0x72]
+    , []
+    , []
+    , [0x82]
+    , [0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35
+      ,0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54
+      ,0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73
+      ,0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A
+      ,0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7
+      ,0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4
+      ,0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA
+      ,0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5
+      ,0xF6, 0xF7, 0xF8, 0xF9, 0xFA]
+    ]
+
+defaultAcChromaHuffmanTable :: HuffmanTree
+defaultAcChromaHuffmanTable = buildDefaultHuffmanTree DcComponent
+    [ []
+    , [0x00, 0x01]
+    , [0x02]
+    , [0x03, 0x11]
+    , [0x04, 0x05, 0x21, 0x31]
+    , [0x06, 0x12, 0x41, 0x51]
+    , [0x07, 0x61, 0x71]
+    , [0x13, 0x22, 0x32, 0x81]
+    , [0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1]
+    , [0x09, 0x23, 0x33, 0x52, 0xF0]
+    , [0x15, 0x62, 0x72, 0xD1]
+    , [0x0A, 0x16, 0x24, 0x34]
+    , []
+    , [0xE1]
+    , [0x25, 0xF1]
+    , [ 0x17, 0x18, 0x19, 0x1A, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x35
+      , 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47
+      , 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59
+      , 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73
+      , 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84
+      , 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95
+      , 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6
+      , 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7
+      , 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8
+      , 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9
+      , 0xDA, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA
+      , 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA
+      ]
+    ]
 
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
@@ -652,17 +752,17 @@ buildJpegImageDecoder img = allBlockToDecode
 
 
         horizontalBlockCount =
-          imgWidth `div` fromIntegral (maximum [horizontalSamplingFactor c | 
+          imgWidth `div` fromIntegral (maximum [horizontalSamplingFactor c |
                                                     c <- jpgComponents scanInfo] * 8)
 
         verticalBlockCount =
-          imgHeight `div` fromIntegral (maximum [horizontalSamplingFactor c | 
+          imgHeight `div` fromIntegral (maximum [horizontalSamplingFactor c |
                                                     c <- jpgComponents scanInfo] * 8)
 
         -- This monstrous list comprehension build a list of function
         -- for all macroblcoks at once, all that remains is to fold
         -- over it to decode
-        allBlockToDecode = 
+        allBlockToDecode =
           [(compIdx, \dc -> (return . unpacker) =<< decompressMacroBlock dcTree acTree qTable dc)
                   | x <- [0 .. horizontalBlockCount - 1]
                   , y <- [0 ..  verticalBlockCount - 1]
@@ -682,10 +782,10 @@ buildJpegImageDecoder img = allBlockToDecode
 
 
 
-{- 
+{-
 -- | Extract a 8x8 block in the picture.
 extractBlock :: UArray Word32 PixelRGB -> Word32 -> Word32 -> UArray Word32 PixelRGB
-extractBlock arr x y 
+extractBlock arr x y
   | (x + 1) * blockSize < width && (y + 1) * blockSize < height = array (0, blockElemCount)
     [arr ! (left, top) | left <- [blockLeft .. blockLeft + 8], top <- [blockTop .. blockTop + 8]]
   | (x + 1) * blockSize < width =
@@ -697,31 +797,67 @@ extractBlock arr x y
           blockTop = blockSize * y
 -}
 
-jpegDecode :: B.ByteString -> Either String (Image PixelYCbCr)
-jpegDecode sr = case decode file of
+loadJpeg :: FilePath -> IO (Either String (Image PixelYCbCr))
+loadJpeg f = decodeJpeg <$> B.readFile f
+
+decodeJpeg :: B.ByteString -> Either String (Image PixelYCbCr)
+decodeJpeg file = case decode file of
   Left err -> Left err
-  Right img ->
-      let bitList = [] -- bitifyString $ markerRemoval
-          decoder = buildJpegImageDecoder img >>= decodeImage 3
-          imgWidth = 0
-          imgHeight = 0
-          imageSize = ((0, 0), (imgWidth - 1, imgHeight - 1))        
+  Right img -> Right $
+      let (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
+          bitList = bitifyString $ markerRemoval imgData
+          (_, scanInfo) = gatherScanInfo img
+          compCount = length $ jpgComponents scanInfo
+
+          decoder :: BoolReader s [((Word32, Word32), (Int, Word8))]
+          decoder = decodeImage compCount $ buildJpegImageDecoder img
+
+          imgWidth = fromIntegral $ jpgWidth scanInfo
+          imgHeight = fromIntegral $ jpgHeight scanInfo
+
+          imageSize = ((0, 0), (imgWidth - 1, imgHeight - 1))
           setter (PixelYCbCr _ cb cr) (0, v) = PixelYCbCr v cb cr
           setter (PixelYCbCr y  _ cr) (1, v) = PixelYCbCr y  v cr
           setter (PixelYCbCr y cb  _) (2, v) = PixelYCbCr y cb  v
           setter _ _ = error "Impossible jpeg decoding can happen"
-      in accumArray setter (PixelYCbCr 0 0 0) imageSize . runST $ evalStateT bitList decoder
+
+          pixelList :: [((Word32, Word32), (Int, Word8))]
+          pixelList = runST $ S.evalStateT decoder bitList
+
+      in accumArray setter (PixelYCbCr 0 0 0) imageSize pixelList
+
+defaultLumaQuantizationTable :: MacroBlock Word8
+defaultLumaQuantizationTable = makeMacroBlock
+    [16, 11, 10, 16,  24,  40,  51,  61
+    ,12, 12, 14, 19,  26,  58,  60,  55
+    ,14, 13, 16, 24,  40,  57,  69,  56
+    ,14, 17, 22, 29,  51,  87,  80,  62
+    ,18, 22, 37, 56,  68, 109, 103,  77
+    ,24, 35, 55, 64,  81, 104, 113,  92
+    ,49, 64, 78, 87, 103, 121, 120, 101
+    ,72, 92, 95, 98, 112, 100, 103,  99
+    ]
+
+defaultChromaQuantizationTable :: MacroBlock Word8
+defaultChromaQuantizationTable = makeMacroBlock
+    [17, 18, 24, 47, 99, 99, 99, 99
+    ,18, 21, 26, 66, 99, 99, 99, 99
+    ,24, 26, 56, 99, 99, 99, 99, 99
+    ,47, 66, 99, 99, 99, 99, 99, 99
+    ,99, 99, 99, 99, 99, 99, 99, 99
+    ,99, 99, 99, 99, 99, 99, 99, 99
+    ,99, 99, 99, 99, 99, 99, 99, 99
+    ,99, 99, 99, 99, 99, 99, 99, 99
+    ]
+
+huffTest :: IO ()
+huffTest = do
+    putStrLn $ exportHuffmanTree defaultDcLumaHuffmanTable
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do
     file <- B.readFile path
     case decode file of
          Left err -> print err
-         Right img -> do
-             mapM_ (\a ->
-                 case exportHuffmanTree a of
-                    Nothing -> return ()
-                    Just str -> putStrLn str
-                 ) $ jpgFrame img
-             mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
+         Right img -> mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
 
