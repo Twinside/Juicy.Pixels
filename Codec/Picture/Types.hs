@@ -14,6 +14,7 @@ module Codec.Picture.Types( -- * Types
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
                           , PixelRGBA8( .. )
+                          , PixelYCbCr( .. )
                             -- * Helper functions
                           , swapBlueRed 
                           ) where

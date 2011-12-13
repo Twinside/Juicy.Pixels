@@ -20,6 +20,7 @@ data PixelTypes = PixelMonochromatic
                 | PixelGreyscaleAlpha
                 | PixelRedGreenBlue8
                 | PixelRedGreenBlueAlpha8
+                | PixelYChromaRChromaB8
                 deriving Eq
 
 -- | Typeclass used to query a type about it's properties
@@ -160,4 +161,18 @@ instance ColorConvertionQuery PixelRGBA8 where
     canPromoteTo _ _ = False
 
     promotionType _ = PixelRedGreenBlueAlpha8
+
+--------------------------------------------------
+----            PixelYCbCr8 instances
+--------------------------------------------------
+instance ColorConvertionQuery PixelYCbCr where
+    canPromoteTo _ PixelRedGreenBlueAlpha8 = True
+    {-canPromoteTo _ PixelRedGreenBlue8 = True-}
+    canPromoteTo _ _ = False
+
+    promotionType _ = PixelYChromaRChromaB8
+
+instance ColorConvertible PixelYCbCr PixelRGBA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYCbCr y _cb _cr) = PixelRGBA8 y y y 255
 
