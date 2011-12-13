@@ -734,17 +734,25 @@ defaultAcChromaHuffmanTable = buildDefaultHuffmanTree DcComponent
 buildJpegImageDecoder :: JpgImage -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]
 buildJpegImageDecoder img = allBlockToDecode
   where huffmans = gatherHuffmanTables img
-        huffmanForComponent dcOrAc comp = head
-            [t | (h,t) <- huffmans
-               , huffmanTableClass h == dcOrAc
-               , let isY = componentIdentifier comp == 1
-               , huffmanTableDest h == (if isY then 0 else 1)]
+        huffmanForComponent dcOrAc isLuma comp = if null searchRez then defaultTable else head searchRez
+            where defaultTable = case (dcOrAc, isLuma) of
+                    (DcComponent,  True) -> defaultDcLumaHuffmanTable
+                    (AcComponent,  True) -> defaultAcLumaHuffmanTable 
+                    (DcComponent, False) -> defaultDcChromaHuffmanTable
+                    (AcComponent, False) -> defaultAcChromaHuffmanTable
+
+                  searchRez =
+                      [t | (h,t) <- huffmans
+                         , huffmanTableClass h == dcOrAc
+                         , let isY = componentIdentifier comp == 1
+                         , huffmanTableDest h == (if isY then 0 else 1)]
 
         quants = gatherQuantTables img
-        quantForComponent comp = head
-            [quantTable q | q <- quants
-                          , let isY = componentIdentifier comp == 1
-                          , quantDestination q == (if isY then 0 else 1)]
+        quantForComponent isLuma = if null searchRez then defaultQuant else head searchRez
+           where defaultQuant = if isLuma then defaultLumaQuantizationTable 
+                                          else defaultChromaQuantizationTable 
+                 searchRez = [quantTable q | q <- quants
+                                           , quantDestination q == (if isLuma then 0 else 1)]
 
         (_, scanInfo) = gatherScanInfo img
         imgWidth = fromIntegral $ jpgWidth scanInfo
@@ -767,9 +775,10 @@ buildJpegImageDecoder img = allBlockToDecode
                   | x <- [0 .. horizontalBlockCount - 1]
                   , y <- [0 ..  verticalBlockCount - 1]
                   , (compIdx, component) <- zip [0..] $ jpgComponents scanInfo
-                  , let acTree = huffmanForComponent AcComponent component
-                        dcTree = huffmanForComponent DcComponent component
-                        qTable = quantForComponent  component
+                  , let isLuma = compIdx == 0
+                        acTree = huffmanForComponent AcComponent isLuma component
+                        dcTree = huffmanForComponent DcComponent isLuma component
+                        qTable = quantForComponent isLuma
                         horizCount = horizontalSamplingFactor component
                         vertCount = verticalSamplingFactor component
 
@@ -826,7 +835,7 @@ decodeJpeg file = case decode file of
 
       in accumArray setter (PixelYCbCr 0 0 0) imageSize pixelList
 
-defaultLumaQuantizationTable :: MacroBlock Word8
+defaultLumaQuantizationTable :: MacroBlock Int16
 defaultLumaQuantizationTable = makeMacroBlock
     [16, 11, 10, 16,  24,  40,  51,  61
     ,12, 12, 14, 19,  26,  58,  60,  55
@@ -838,7 +847,7 @@ defaultLumaQuantizationTable = makeMacroBlock
     ,72, 92, 95, 98, 112, 100, 103,  99
     ]
 
-defaultChromaQuantizationTable :: MacroBlock Word8
+defaultChromaQuantizationTable :: MacroBlock Int16
 defaultChromaQuantizationTable = makeMacroBlock
     [17, 18, 24, 47, 99, 99, 99, 99
     ,18, 21, 26, 66, 99, 99, 99, 99
