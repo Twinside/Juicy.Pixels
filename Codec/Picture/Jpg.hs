@@ -1,14 +1,21 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Codec.Picture.Jpg( loadJpeg
                         , decodeJpeg
                         , jpegTest
                         , huffTest
+                        , defaultChromaQuantizationTable
+                        , defaultLumaQuantizationTable
+                        , defaultAcChromaHuffmanTable
+                        , defaultAcLumaHuffmanTable 
+                        , defaultDcChromaHuffmanTable
+                        , defaultDcLumaHuffmanTable
                         ) where
 
 import Control.Applicative( (<$>), (<*>))
-import Control.Monad( when, replicateM, forM )
+import Control.Monad( when, replicateM, forM, forM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State as S
@@ -24,6 +31,10 @@ import Data.Array.ST
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types
+
+import Numeric
+import System.IO (withFile, hPutStrLn, IOMode(..) )
+import Debug.Trace
 
 --------------------------------------------------
 ----            Types
@@ -55,8 +66,8 @@ data JpgFrameKind =
 data JpgFrame =
       JpgAppFrame     !Word8 B.ByteString
     | JpgExtension    !Word8 B.ByteString
-    | JpgQuantTable   !JpgQuantTableSpec
-    | JpgHuffmanTable !JpgHuffmanTableSpec !HuffmanTree
+    | JpgQuantTable   ![JpgQuantTableSpec]
+    | JpgHuffmanTable ![(JpgHuffmanTableSpec, HuffmanTree)]
     | JpgScanBlob     !JpgScanHeader !B.ByteString
     | JpgScans        !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart B.ByteString
@@ -112,9 +123,8 @@ data JpgScanHeader = JpgScanHeader
     deriving Show
 
 data JpgQuantTableSpec = JpgQuantTableSpec
-    { quantTableSize :: !Word16
-      -- | Stored on 4 bits
-    , quantPrecision     :: !Word8
+    { -- | Stored on 4 bits
+      quantPrecision     :: !Word8
 
       -- | Stored on 4 bits
     , quantDestination   :: !Word8
@@ -123,21 +133,46 @@ data JpgQuantTableSpec = JpgQuantTableSpec
     }
     deriving Show
 
+-- | Type introduced only to avoid some typeclass overlapping
+-- problem
+newtype TableList a = TableList [a]
+
+class SizeCalculable a where
+    calculateSize :: a -> Int
+
+instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
+    put (TableList lst) = do
+        putWord16be . fromIntegral $ sum [calculateSize table | table <- lst]
+        mapM_ put lst
+
+    get = TableList <$> (getWord16be >>= \s -> innerParse (fromIntegral s - 2))
+      where innerParse :: Int -> Get [a]
+            innerParse 0    = return []
+            innerParse size = trace (show size) $ do
+                onStart <- fromIntegral <$> remaining
+                table <- get
+                onEnd <- fromIntegral <$> remaining
+                (table :) <$> innerParse (size - (onStart - onEnd))
+
+instance SizeCalculable JpgQuantTableSpec where
+    calculateSize table =
+        1 + (fromIntegral (quantPrecision table) + 1) * 64
+
 instance Serialize JpgQuantTableSpec where
-    put _ = fail "Error unimplemented"
+    put table = do
+        let precision = quantPrecision table
+        put4BitsOfEach precision $ quantDestination table
+        forM_ (elems $ quantTable table) $ \coeff ->
+            if precision == 0 then putWord8 $ fromIntegral coeff
+                             else putWord16be $ fromIntegral coeff
+
     get = do
-        size <- getWord16be
         (precision, dest) <- get4BitOfEach
         coeffs <- replicateM 64 $ if precision == 0
                 then fromIntegral <$> getWord8
                 else fromIntegral <$> getWord16be
-        let sizeWordSize = 2
-            precDestSize = 1
-            readed = (if precision == 0 then 1 else 2) * 64 + sizeWordSize + precDestSize
-        when (readed < size) (skip $ fromIntegral size - fromIntegral readed)
         return $ JpgQuantTableSpec
-            { quantTableSize = size
-            , quantPrecision = precision
+            { quantPrecision = precision
             , quantDestination = dest
             , quantTable = listArray (0, 63) coeffs
             }
@@ -146,9 +181,8 @@ data DctComponent = DcComponent | AcComponent
     deriving (Eq, Show)
 
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
-    { huffmanTableSize        :: !Word16
-      -- | 0 : DC, 1 : AC, stored on 4 bits
-    , huffmanTableClass       :: !DctComponent
+    { -- | 0 : DC, 1 : AC, stored on 4 bits
+      huffmanTableClass       :: !DctComponent
       -- | Stored on 4 bits
     , huffmanTableDest        :: !Word8
 
@@ -166,8 +200,8 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
 huffmanDecode originalTree = S.get >>= huffDecode originalTree
-  where huffDecode _     [] = fail "Meh"
-        huffDecode Empty _  = fail "Meh"
+  where huffDecode _     [] = fail "huffmanDecode - No more bits (shouldn't happen)"
+        huffDecode Empty _  = fail "huffmanDecode - Empty leaf (shouldn't happen)"
         huffDecode (Branch l _) (False : rest) = huffDecode l rest
         huffDecode (Branch _ r) (True  : rest) = huffDecode r rest
         huffDecode (Leaf v) boolList = S.put boolList >> return v
@@ -200,7 +234,7 @@ exportHuffmanTree t = "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
                   linkb = str $ "n" ++ show i ++ " -> " ++ rnode ++ " [label=\"1\"];\n"
                   (fl, i2) = stringify left (i + 1)
                   (fr, i3) = stringify right i2
-        stringify (Leaf v) i = (str $ "n" ++ show i ++ " [label=\"" ++ show v ++ "\"];\n", i + 1)
+        stringify (Leaf v) i = (str $ "n" ++ show i ++ " [label=\"" ++ showHex v "" ++ "\"];\n", i + 1)
         stringify Empty i = (str $ "n" ++ show i ++ " [label=\"Empty\"];\n", i + 1)
 
         str a = (a ++)
@@ -241,22 +275,19 @@ eatUntilCode = do
        then return ()
        else skip 1 >> eatUntilCode
 
+instance SizeCalculable JpgHuffmanTableSpec where
+    calculateSize table = 1 + 16 + sum [fromIntegral e | e <- elems $ huffSizes table]
+
 instance Serialize JpgHuffmanTableSpec where
     put = error "Unimplemented"
     get = do
-        offsetBegin <- remaining
-        size <- getWord16be
         (huffClass, huffDest) <- get4BitOfEach
         sizes <- replicateM 16 getWord8
         codes <- forM sizes $ \s -> do
             let si = fromIntegral s
             listArray (0, si - 1) <$> replicateM (fromIntegral s) getWord8
-        offsetEnd <- remaining
-        when (offsetBegin - offsetEnd < fromIntegral size)
-             (skip $ fromIntegral size - (offsetBegin - offsetEnd))
         return $ JpgHuffmanTableSpec
-            { huffmanTableSize = size
-            , huffmanTableClass =
+            { huffmanTableClass =
                 (if huffClass == 0 then DcComponent else AcComponent)
             , huffmanTableDest = huffDest
             , huffSizes = listArray (0, 15) sizes
@@ -288,11 +319,12 @@ parseFrames = do
         JpgExtensionSegment c ->
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgQuantizationTable ->
-            (\quant lst -> JpgQuantTable quant : lst) <$> get <*> parseFrames
+            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseFrames
         JpgRestartInterval ->
             (\frm lst -> JpgIntervalRestart frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\huffTable lst -> JpgHuffmanTable huffTable (buildHuffmanTree huffTable): lst) <$> get <*> parseFrames
+            (\(TableList huffTables) lst -> JpgHuffmanTable [(t, buildHuffmanTree t) | t <- huffTables] : lst) 
+                    <$> get <*> parseFrames
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
                             <$> get <*> (remaining >>= getBytes)
@@ -567,10 +599,10 @@ decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     return $ decodeMacroBlock quantizationTable block
 
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
-gatherQuantTables img = [t | JpgQuantTable t <- jpgFrame img]
+gatherQuantTables img = head [t | JpgQuantTable t <- jpgFrame img]
 
 gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTree)]
-gatherHuffmanTables img = [(ta, t) | JpgHuffmanTable ta t <- jpgFrame img]
+gatherHuffmanTables img = head [lst | JpgHuffmanTable lst <- jpgFrame img]
 
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
 gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
@@ -619,7 +651,6 @@ buildDefaultHuffmanTree comp huffmans = buildHuffmanTree desc
                 [listArray (0, length lst - 1) lst | lst <- huffmans]
           sizes = listArray (0, 15) [fromIntegral $ length lst | lst <- huffmans]
           desc = JpgHuffmanTableSpec {
-              huffmanTableSize = 0,
               huffmanTableClass = comp,
               huffmanTableDest = 0,
               huffSizes = sizes,
@@ -861,7 +892,15 @@ defaultChromaQuantizationTable = makeMacroBlock
 
 huffTest :: IO ()
 huffTest = do
-    putStrLn $ exportHuffmanTree defaultDcLumaHuffmanTable
+    withFile "defaultDcLumaHuffmanTable.dot" WriteMode $ \h ->
+        hPutStrLn h $ exportHuffmanTree defaultDcLumaHuffmanTable
+    withFile "defaultDcChromHuffmanTable.dot" WriteMode $ \h ->
+        hPutStrLn h $ exportHuffmanTree defaultDcChromaHuffmanTable
+
+    withFile "defaultAcLumaHuffmanTable.dot" WriteMode $ \h ->
+        hPutStrLn h $ exportHuffmanTree defaultAcLumaHuffmanTable
+    withFile "defaultAcChromHuffmanTable.dot" WriteMode $ \h ->
+        hPutStrLn h $ exportHuffmanTree defaultAcChromaHuffmanTable
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do
