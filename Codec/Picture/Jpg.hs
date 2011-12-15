@@ -5,7 +5,6 @@
 module Codec.Picture.Jpg( loadJpeg
                         , decodeJpeg
                         , jpegTest
-                        , huffTest
                         ) where
 
 import Control.Applicative( (<$>), (<*>))
@@ -27,8 +26,6 @@ import qualified Data.ByteString as B
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 
-import Numeric
-import System.IO (withFile, hPutStrLn, IOMode(..) )
 import Debug.Trace
 
 --------------------------------------------------
@@ -212,22 +209,6 @@ bitifyString :: [Word8] -> [Bool]
 bitifyString = concatMap bitify
   where bitify v = [ testBit v 7 , testBit v 6 , testBit v 5 , testBit v 4
                    , testBit v 3 , testBit v 2 , testBit v 1 , testBit v 0 ]
-
--- | Transform an huffman table to it's graphviz representation.
-exportHuffmanTree :: HuffmanTree -> String
-exportHuffmanTree t = "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
-  where stringify (Branch left right) i = (fl . fr . thisNode . linka . linkb, i3 + 1)
-            where lnode = "n" ++ show (i + 1)
-                  rnode = "n" ++ show i2
-                  thisNode = str $ "n" ++ show i ++ "[label=\"\", shape=\"box\"];\n"
-                  linka = str $ "n" ++ show i ++ " -> " ++ lnode ++ " [label=\"0\"];\n"
-                  linkb = str $ "n" ++ show i ++ " -> " ++ rnode ++ " [label=\"1\"];\n"
-                  (fl, i2) = stringify left (i + 1)
-                  (fr, i3) = stringify right i2
-        stringify (Leaf v) i = (str $ "n" ++ show i ++ " [label=\"" ++ showHex v "" ++ "\"];\n", i + 1)
-        stringify Empty i = (str $ "n" ++ show i ++ " [label=\"Empty\"];\n", i + 1)
-
-        str a = (a ++)
 
 --------------------------------------------------
 ----            Serialization instances
@@ -567,10 +548,10 @@ decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     return $ decodeMacroBlock quantizationTable block
 
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
-gatherQuantTables img = head [t | JpgQuantTable t <- jpgFrame img]
+gatherQuantTables img = concat [t | JpgQuantTable t <- jpgFrame img]
 
 gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTree)]
-gatherHuffmanTables img = head [lst | JpgHuffmanTable lst <- jpgFrame img]
+gatherHuffmanTables img = concat [lst | JpgHuffmanTable lst <- jpgFrame img]
 
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
 gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
@@ -603,12 +584,12 @@ unpackMacroBlock wCoeff hCoeff x y block =
 type DcCoefficient = Word8
 
 
-decodeImage :: Int -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)])]
-            -> BoolReader s [((Word32, Word32), (Int, Word8))]
+{-decodeImage :: Int -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)])]-}
+            {--> BoolReader s [((Word32, Word32), (Int, Word8))]-}
 decodeImage compCount lst = concat <$> do
     dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Word8))
-    forM lst $ \(comp, f) -> do
-        dc <- lift $ dcArray `readArray` comp
+    forM lst $ \((comp, x, dx,y , dy), f) -> do
+        dc <- trace ("x:" ++ show x ++ " dx:" ++ show dx ++ " y:" ++ show y ++ " dy:" ++ show dy) . lift $ dcArray `readArray` comp
         block@((_,dcCoeff):_) <- f dc
         lift $ (dcArray `writeArray` comp) dcCoeff
         return [(idx, (comp, val)) | (idx, val) <- block]
@@ -616,8 +597,8 @@ decodeImage compCount lst = concat <$> do
 
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
-buildJpegImageDecoder :: JpgImage 
-                      -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]
+{-buildJpegImageDecoder :: JpgImage -}
+                      {--> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]-}
 buildJpegImageDecoder img = allBlockToDecode
   where huffmans = gatherHuffmanTables img
         huffmanForComponent dcOrAc isLuma =
@@ -633,39 +614,43 @@ buildJpegImageDecoder img = allBlockToDecode
         imgWidth = fromIntegral $ jpgWidth scanInfo
         imgHeight = fromIntegral $ jpgHeight scanInfo
 
+        blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
+                where (block, rest) = fullDim `divMod` maxBlockSize
 
-        horizontalBlockCount =
-          imgWidth `div` fromIntegral (maximum [horizontalSamplingFactor c |
-                                                    c <- jpgComponents scanInfo] * 8)
+        horizontalBlockCount = (\t -> trace ("horizontalBlockCount : " ++ show t) t) $
+           (blockSizeOfDim imgWidth $ fromIntegral (maximum [horizontalSamplingFactor c |
+                                                                    c <- jpgComponents scanInfo] * 8))
 
-        verticalBlockCount =
-          imgHeight `div` fromIntegral (maximum [horizontalSamplingFactor c |
-                                                    c <- jpgComponents scanInfo] * 8)
+        verticalBlockCount = (\t -> trace ("verticalBlockCount : " ++ show t) t) $
+           (blockSizeOfDim imgHeight $ fromIntegral (maximum [horizontalSamplingFactor c |
+                                                                c <- jpgComponents scanInfo] * 8))
 
         fetchTablesForComponent component = (horizCount, vertCount, acTree, dcTree, qTable)
             where isLuma = componentIdentifier component == 0
                   acTree = huffmanForComponent AcComponent isLuma
                   dcTree = huffmanForComponent DcComponent isLuma
                   qTable = quantForComponent isLuma
-                  horizCount = horizontalSamplingFactor component
-                  vertCount = verticalSamplingFactor component
+                  horizCount = fromIntegral $ horizontalSamplingFactor component
+                  vertCount = fromIntegral $ verticalSamplingFactor component
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
+        maxHorizFactor = maximum [horiz | (horiz, _, _, _, _) <- componentsInfo]
+        maxVertFactor = maximum [vert | (_, vert, _, _, _) <- componentsInfo]
 
         -- This monstrous list comprehension build a list of function
         -- for all macroblcoks at once, all that remains is to fold
         -- over it to decode
         allBlockToDecode =
-          [(compIdx, \dc -> (return . unpacker) =<< decompressMacroBlock dcTree acTree qTable dc)
-                  | x <- [0 .. horizontalBlockCount - 1]
-                  , y <- [0 ..  verticalBlockCount - 1]
+          [((compIdx, x, xd, y, yd), \dc -> (return . unpacker) =<< decompressMacroBlock dcTree acTree qTable dc)
+                  | y <- [0 ..  verticalBlockCount - 1]
+                  , x <- [0 .. horizontalBlockCount - 1]
                   , (compIdx, (horizCount, vertCount, acTree, dcTree, qTable)) 
                                 <- zip [0..] componentsInfo
-                  , xd <- [0 .. horizCount - 1]
+                  , let xScalingFactor = maxHorizFactor - horizCount + 1
+                        yScalingFactor = maxVertFactor - vertCount + 1
                   , yd <- [0 .. vertCount - 1]
-                  , let unpacker = unpackMacroBlock (fromIntegral horizCount)
-                                                    (fromIntegral vertCount)
-                                                    (x + fromIntegral xd) (y + fromIntegral yd)
+                  , xd <- [0 .. horizCount - 1]
+                  , let unpacker = unpackMacroBlock xScalingFactor yScalingFactor (x + xd) (y + yd)
                   ]
 
 
@@ -712,19 +697,9 @@ decodeJpeg file = case decode file of
           pixelList :: [((Word32, Word32), (Int, Word8))]
           pixelList = runST $ S.evalStateT decoder bitList
 
-      in accumArray setter (PixelYCbCr 0 0 0) imageSize pixelList
+          shower whole = trace (show whole) whole
 
-huffTest :: IO ()
-huffTest = do
-    withFile "defaultDcLumaHuffmanTable.dot" WriteMode $ \h ->
-        hPutStrLn h $ exportHuffmanTree defaultDcLumaHuffmanTable
-    withFile "defaultDcChromHuffmanTable.dot" WriteMode $ \h ->
-        hPutStrLn h $ exportHuffmanTree defaultDcChromaHuffmanTable
-
-    withFile "defaultAcLumaHuffmanTable.dot" WriteMode $ \h ->
-        hPutStrLn h $ exportHuffmanTree defaultAcLumaHuffmanTable
-    withFile "defaultAcChromHuffmanTable.dot" WriteMode $ \h ->
-        hPutStrLn h $ exportHuffmanTree defaultAcChromaHuffmanTable
+      in accumArray setter (PixelYCbCr 0 0 0) imageSize $ map shower pixelList
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do
