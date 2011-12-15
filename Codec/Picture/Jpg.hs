@@ -6,12 +6,6 @@ module Codec.Picture.Jpg( loadJpeg
                         , decodeJpeg
                         , jpegTest
                         , huffTest
-                        , defaultChromaQuantizationTable
-                        , defaultLumaQuantizationTable
-                        , defaultAcChromaHuffmanTable
-                        , defaultAcLumaHuffmanTable 
-                        , defaultDcChromaHuffmanTable
-                        , defaultDcLumaHuffmanTable
                         ) where
 
 import Control.Applicative( (<$>), (<*>))
@@ -31,6 +25,7 @@ import Data.Array.ST
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types
+import Codec.Picture.Jpg.DefaultTable
 
 import Numeric
 import System.IO (withFile, hPutStrLn, IOMode(..) )
@@ -148,7 +143,7 @@ instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
     get = TableList <$> (getWord16be >>= \s -> innerParse (fromIntegral s - 2))
       where innerParse :: Int -> Get [a]
             innerParse 0    = return []
-            innerParse size = trace (show size) $ do
+            innerParse size = do
                 onStart <- fromIntegral <$> remaining
                 table <- get
                 onEnd <- fromIntegral <$> remaining
@@ -177,9 +172,6 @@ instance Serialize JpgQuantTableSpec where
             , quantTable = listArray (0, 63) coeffs
             }
 
-data DctComponent = DcComponent | AcComponent
-    deriving (Eq, Show)
-
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     { -- | 0 : DC, 1 : AC, stored on 4 bits
       huffmanTableClass       :: !DctComponent
@@ -191,10 +183,8 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     }
     deriving Show
 
-data HuffmanTree = Branch HuffmanTree HuffmanTree
-                 | Leaf Word8
-                 | Empty
-                 deriving (Eq, Show)
+buildPackedHuffmanTree :: Array Word32 (UArray Int Word8) -> HuffmanTree
+buildPackedHuffmanTree = buildHuffmanTree . map elems . elems
 
 -- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
@@ -238,21 +228,6 @@ exportHuffmanTree t = "digraph a {\n" ++ fst (stringify t (0 :: Int)) "}\n"
         stringify Empty i = (str $ "n" ++ show i ++ " [label=\"Empty\"];\n", i + 1)
 
         str a = (a ++)
-
-buildHuffmanTree :: JpgHuffmanTableSpec -> HuffmanTree
-buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
-                       . concatMap (\(i, t) -> map (i + 1,) $ elems t)
-                       . assocs $ huffCodes table
-  where isTreeFullyDefined Empty = False
-        isTreeFullyDefined (Leaf _) = True
-        isTreeFullyDefined (Branch l r) = isTreeFullyDefined l && isTreeFullyDefined r
-
-        insertHuffmanVal Empty (0, val) = Leaf val
-        insertHuffmanVal Empty (d, val) = Branch (insertHuffmanVal Empty (d - 1, val)) Empty
-        insertHuffmanVal (Branch l r) (d, val)
-            | isTreeFullyDefined l = Branch l (insertHuffmanVal r (d - 1, val))
-            | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
-        insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
 
 --------------------------------------------------
 ----            Serialization instances
@@ -323,7 +298,8 @@ parseFrames = do
         JpgRestartInterval ->
             (\frm lst -> JpgIntervalRestart frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\(TableList huffTables) lst -> JpgHuffmanTable [(t, buildHuffmanTree t) | t <- huffTables] : lst) 
+            (\(TableList huffTables) lst -> 
+                    JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst) 
                     <$> get <*> parseFrames
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
@@ -576,14 +552,6 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
                   decoded <- decodeInt $ fromIntegral ssss
                   ([decoded]:) <$> parseAcCoefficient (n - 1)
 
--- | Represent a compact array of 8 * 8 values. The size
--- is not guarenteed by type system, but if makeMacroBlock is
--- used, everything should be fine size-wise
-type MacroBlock a = UArray Word32 a
-
-makeMacroBlock :: (IArray UArray a) => [a] -> MacroBlock a
-makeMacroBlock = listArray (0, 63)
-
 -- | Decompress a macroblock from a bitstream given the current configuration
 -- from the frame.
 decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
@@ -645,145 +613,21 @@ decodeImage compCount lst = concat <$> do
         lift $ (dcArray `writeArray` comp) dcCoeff
         return [(idx, (comp, val)) | (idx, val) <- block]
 
-buildDefaultHuffmanTree :: DctComponent -> [[Word8]] -> HuffmanTree
-buildDefaultHuffmanTree comp huffmans = buildHuffmanTree desc
-    where codes = listArray (0, 15)
-                [listArray (0, length lst - 1) lst | lst <- huffmans]
-          sizes = listArray (0, 15) [fromIntegral $ length lst | lst <- huffmans]
-          desc = JpgHuffmanTableSpec {
-              huffmanTableClass = comp,
-              huffmanTableDest = 0,
-              huffSizes = sizes,
-              huffCodes = codes
-          }
-
--- | From the Table K.3 of ITU-81 (p153)
-defaultDcLumaHuffmanTable :: HuffmanTree
-defaultDcLumaHuffmanTable = buildDefaultHuffmanTree DcComponent
-    [ []
-    , [0]
-    , [1, 2, 3, 4, 5]
-    , [6]
-    , [7]
-    , [8]
-    , [9]
-    , [10]
-    , [11]
-    , []
-    , []
-    , []
-    , []
-    , []
-    , []
-    , []
-    ]
-
--- | From the Table K.4 of ITU-81 (p153)
-defaultDcChromaHuffmanTable :: HuffmanTree
-defaultDcChromaHuffmanTable = buildDefaultHuffmanTree DcComponent
-    [ []
-    , [0, 1, 2]
-    , [3]
-    , [4]
-    , [5]
-    , [6]
-    , [7]
-    , [8]
-    , [9]
-    , [10]
-    , [11]
-    , []
-    , []
-    , []
-    , []
-    , []
-    ]
-
--- | From the Table K.5 of ITU-81 (p154)
-defaultAcLumaHuffmanTable :: HuffmanTree
-defaultAcLumaHuffmanTable = buildDefaultHuffmanTree DcComponent
-    [ []
-    , [0x01, 0x02]
-    , [0x03]
-    , [0x00, 0x04, 0x11]
-    , [0x05, 0x12, 0x21]
-    , [0x31, 0x41]
-    , [0x06, 0x13, 0x51, 0x61]
-    , [0x07, 0x22, 0x71]
-    , [0x14, 0x32, 0x81, 0x91, 0xA1]
-    , [0x08, 0x23, 0x42, 0xB1, 0xC1]
-    , [0x15, 0x52, 0xD1, 0xF0]
-    , [0x24, 0x33, 0x62, 0x72]
-    , []
-    , []
-    , [0x82]
-    , [0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35
-      ,0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54
-      ,0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73
-      ,0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A
-      ,0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7
-      ,0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4
-      ,0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA
-      ,0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5
-      ,0xF6, 0xF7, 0xF8, 0xF9, 0xFA]
-    ]
-
-defaultAcChromaHuffmanTable :: HuffmanTree
-defaultAcChromaHuffmanTable = buildDefaultHuffmanTree DcComponent
-    [ []
-    , [0x00, 0x01]
-    , [0x02]
-    , [0x03, 0x11]
-    , [0x04, 0x05, 0x21, 0x31]
-    , [0x06, 0x12, 0x41, 0x51]
-    , [0x07, 0x61, 0x71]
-    , [0x13, 0x22, 0x32, 0x81]
-    , [0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1]
-    , [0x09, 0x23, 0x33, 0x52, 0xF0]
-    , [0x15, 0x62, 0x72, 0xD1]
-    , [0x0A, 0x16, 0x24, 0x34]
-    , []
-    , [0xE1]
-    , [0x25, 0xF1]
-    , [ 0x17, 0x18, 0x19, 0x1A, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x35
-      , 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47
-      , 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59
-      , 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73
-      , 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84
-      , 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95
-      , 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6
-      , 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7
-      , 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8
-      , 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9
-      , 0xDA, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA
-      , 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA
-      ]
-    ]
 
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
-buildJpegImageDecoder :: JpgImage -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]
+buildJpegImageDecoder :: JpgImage 
+                      -> [(Int, DcCoefficient -> BoolReader s [((Word32, Word32), Word8)] )]
 buildJpegImageDecoder img = allBlockToDecode
   where huffmans = gatherHuffmanTables img
-        huffmanForComponent dcOrAc isLuma comp = if null searchRez then defaultTable else head searchRez
-            where defaultTable = case (dcOrAc, isLuma) of
-                    (DcComponent,  True) -> defaultDcLumaHuffmanTable
-                    (AcComponent,  True) -> defaultAcLumaHuffmanTable 
-                    (DcComponent, False) -> defaultDcChromaHuffmanTable
-                    (AcComponent, False) -> defaultAcChromaHuffmanTable
-
-                  searchRez =
-                      [t | (h,t) <- huffmans
-                         , huffmanTableClass h == dcOrAc
-                         , let isY = componentIdentifier comp == 1
-                         , huffmanTableDest h == (if isY then 0 else 1)]
+        huffmanForComponent dcOrAc isLuma =
+            head [t | (h,t) <- huffmans
+                    , huffmanTableClass h == dcOrAc
+                    , huffmanTableDest h == (if isLuma then 0 else 1)]
 
         quants = gatherQuantTables img
-        quantForComponent isLuma = if null searchRez then defaultQuant else head searchRez
-           where defaultQuant = if isLuma then defaultLumaQuantizationTable 
-                                          else defaultChromaQuantizationTable 
-                 searchRez = [quantTable q | q <- quants
-                                           , quantDestination q == (if isLuma then 0 else 1)]
+        quantForComponent isLuma =
+            head [quantTable q | q <- quants, quantDestination q == (if isLuma then 0 else 1)]
 
         (_, scanInfo) = gatherScanInfo img
         imgWidth = fromIntegral $ jpgWidth scanInfo
@@ -798,6 +642,16 @@ buildJpegImageDecoder img = allBlockToDecode
           imgHeight `div` fromIntegral (maximum [horizontalSamplingFactor c |
                                                     c <- jpgComponents scanInfo] * 8)
 
+        fetchTablesForComponent component = (horizCount, vertCount, acTree, dcTree, qTable)
+            where isLuma = componentIdentifier component == 0
+                  acTree = huffmanForComponent AcComponent isLuma
+                  dcTree = huffmanForComponent DcComponent isLuma
+                  qTable = quantForComponent isLuma
+                  horizCount = horizontalSamplingFactor component
+                  vertCount = verticalSamplingFactor component
+
+        componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
+
         -- This monstrous list comprehension build a list of function
         -- for all macroblcoks at once, all that remains is to fold
         -- over it to decode
@@ -805,14 +659,8 @@ buildJpegImageDecoder img = allBlockToDecode
           [(compIdx, \dc -> (return . unpacker) =<< decompressMacroBlock dcTree acTree qTable dc)
                   | x <- [0 .. horizontalBlockCount - 1]
                   , y <- [0 ..  verticalBlockCount - 1]
-                  , (compIdx, component) <- zip [0..] $ jpgComponents scanInfo
-                  , let isLuma = compIdx == 0
-                        acTree = huffmanForComponent AcComponent isLuma component
-                        dcTree = huffmanForComponent DcComponent isLuma component
-                        qTable = quantForComponent isLuma
-                        horizCount = horizontalSamplingFactor component
-                        vertCount = verticalSamplingFactor component
-
+                  , (compIdx, (horizCount, vertCount, acTree, dcTree, qTable)) 
+                                <- zip [0..] componentsInfo
                   , xd <- [0 .. horizCount - 1]
                   , yd <- [0 .. vertCount - 1]
                   , let unpacker = unpackMacroBlock (fromIntegral horizCount)
@@ -865,30 +713,6 @@ decodeJpeg file = case decode file of
           pixelList = runST $ S.evalStateT decoder bitList
 
       in accumArray setter (PixelYCbCr 0 0 0) imageSize pixelList
-
-defaultLumaQuantizationTable :: MacroBlock Int16
-defaultLumaQuantizationTable = makeMacroBlock
-    [16, 11, 10, 16,  24,  40,  51,  61
-    ,12, 12, 14, 19,  26,  58,  60,  55
-    ,14, 13, 16, 24,  40,  57,  69,  56
-    ,14, 17, 22, 29,  51,  87,  80,  62
-    ,18, 22, 37, 56,  68, 109, 103,  77
-    ,24, 35, 55, 64,  81, 104, 113,  92
-    ,49, 64, 78, 87, 103, 121, 120, 101
-    ,72, 92, 95, 98, 112, 100, 103,  99
-    ]
-
-defaultChromaQuantizationTable :: MacroBlock Int16
-defaultChromaQuantizationTable = makeMacroBlock
-    [17, 18, 24, 47, 99, 99, 99, 99
-    ,18, 21, 26, 66, 99, 99, 99, 99
-    ,24, 26, 56, 99, 99, 99, 99, 99
-    ,47, 66, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ]
 
 huffTest :: IO ()
 huffTest = do

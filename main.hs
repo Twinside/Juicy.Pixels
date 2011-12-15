@@ -92,7 +92,7 @@ main :: IO ()
 main = do 
     (fname: args) <- getArgs
     {-jpegTest fname-}
-    huffTest
+    {-huffTest-}
     convertJpegToBmp fname
     {-exportBmpWitness-}
     {-putStrLn ">>>> Valid instances"-}
