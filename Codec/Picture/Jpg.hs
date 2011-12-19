@@ -446,6 +446,7 @@ deQuantize table block = makeMacroBlock . map dequant $ indices table
             where r = fromIntegral (table ! i) :: Int
                   l = fromIntegral (block ! i)
 
+
 idctCoefficientMatrix :: MacroBlock Float
 idctCoefficientMatrix =
   makeMacroBlock [idctCoefficient x u | x <- [1, 3 .. 15], u <- [0 .. 7 :: Int]]
@@ -453,13 +454,40 @@ idctCoefficientMatrix =
           idctCoefficient x u = 0.5 * cos(pi / 16.0 * xu)
             where xu = fromIntegral $ x * u
 
+levelScaling :: (Integral a, IArray UArray a, Num a) => MacroBlock a -> MacroBlock Word8
+levelScaling = amap (\c -> fromIntegral $ 128 + c)
+
+macroBlockTranspose :: (IArray UArray a) => MacroBlock a -> MacroBlock a
+macroBlockTranspose = ixmap (0, 63) transposer
+    where transposer i = let (y,x) =  i `divMod` 8 in x * 8 + y
+             
+
+-- | Cast a macroblock from an integer one to a floating point one.
+fromIntegralMacroblock :: (IArray UArray a, IArray UArray b, Integral a, Num b) 
+                       => MacroBlock a -> MacroBlock b
+fromIntegralMacroblock = amap fromIntegral
+
+-- | Drop the fractional part of a macroblock to retrieve an integer
+-- macroblock.
+truncateMacroblock :: (IArray UArray a, IArray UArray b, RealFrac a, Integral b) 
+                   => MacroBlock a -> MacroBlock b
+truncateMacroblock = amap truncate
+
+-- | Implement an R^8*8 matrix multiplication between floating points
+matrixMultiplication :: MacroBlock Float -> MacroBlock Float -> MacroBlock Float
+matrixMultiplication a b = makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
+    where dotProduct lst = sum $ (\(n,m) -> n * m) <$> lst
+          line i = map (a !) [ i * 8 .. i * 8 + 7 ]
+          column j = map (b !) [j, j + 8 .. 63]
+          coeff i j = dotProduct $ zip (line i) (column j)
+
 inverseDirectCosineTransform :: (Integral a, IArray UArray a) => MacroBlock a -> MacroBlock a
-inverseDirectCosineTransform block =
-  makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
-    where dotProduct lst = sum $ (\(a,b) -> a * b) <$> lst
-          line i = map (idctCoefficientMatrix !) [ i * 8 .. i * 8 + 7 ]
-          column j = map (\i -> fromIntegral $ block ! i) [ j, j + 8 .. 63     ]
-          coeff i j = truncate . dotProduct $ zip (line i) (column j)
+inverseDirectCosineTransform = truncateMacroblock 
+                             . macroBlockTranspose
+                             . matrixMultiplication idctCoefficientMatrix
+                             . macroBlockTranspose
+                             . matrixMultiplication idctCoefficientMatrix
+                             . fromIntegralMacroblock
 
 zigZagReorder :: (IArray UArray a) => MacroBlock a -> MacroBlock a
 zigZagReorder block = ixmap (0,63) reorder block
@@ -495,6 +523,8 @@ macroShow block = unlines blockLines
 decodeMacroBlock :: MacroBlock Int16 
                  -> MacroBlock DctCoefficients -> MacroBlock Word8
 decodeMacroBlock quantizationTable =  promoteMacroBlock
+                                 . (\a -> trace ("Scaled\n" ++ macroShow a ++ "\n") a) 
+                                 . levelScaling
                                  . (\a -> trace ("Uncosed \n" ++ macroShow a ++ "\n") a) 
                                  . inverseDirectCosineTransform 
                                  . (\a -> trace ("Reorganized\n" ++ macroShow a ++ "\n") a)
@@ -529,7 +559,7 @@ decodeInt ssss = do
           (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
       (False : rest) -> do
           S.put rest
-          (\w -> fromIntegral w - dataRange - 1) <$> unpackInt leftBitCount
+          (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
