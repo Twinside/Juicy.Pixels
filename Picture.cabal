@@ -28,7 +28,8 @@ Executable imageTest
                  cereal >= 0.3.3.0 && < 0.4,
                  zlib >= 0.5.3.1,
                  filepath >= 1.2,
-                 transformers >= 0.2.2 && < 0.3
+                 transformers >= 0.2.2 && < 0.3,
+                 groom
 
 Library
   -- Modules exported by the library.
@@ -45,7 +46,8 @@ Library
                  mtl >= 1.1,
                  cereal >= 0.3.3.0 && < 0.4,
                  zlib >= 0.5.3.1,
-                 transformers >= 0.2.2 && < 0.3
+                 transformers >= 0.2.2 && < 0.3,
+                 groom
   
   -- Modules not exported by this package.
   -- Other-modules:       

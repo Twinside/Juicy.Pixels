@@ -28,6 +28,7 @@ import Codec.Picture.Jpg.DefaultTable
 
 import Debug.Trace
 import Text.Printf
+import Text.Groom
 
 --------------------------------------------------
 ----            Types
@@ -676,13 +677,20 @@ buildJpegImageDecoder img = allBlockToDecode
         blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
                 where (block, rest) = fullDim `divMod` maxBlockSize
 
+        isImageLumanOnly = length componentsInfo == 1
+        maxHorizFactor = if not isImageLumanOnly
+            then maximum [horiz | (horiz, _, _, _, _) <- componentsInfo]
+            else 1
+
+        maxVertFactor = if not isImageLumanOnly
+            then maximum [vert | (_, vert, _, _, _) <- componentsInfo]
+            else 1
+
         horizontalBlockCount = (\t -> trace ("horizontalBlockCount : " ++ show t) t) $
-           (blockSizeOfDim imgWidth $ fromIntegral (maximum [horizontalSamplingFactor c |
-                                                                    c <- jpgComponents scanInfo] * 8))
+           (blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8))
 
         verticalBlockCount = (\t -> trace ("verticalBlockCount : " ++ show t) t) $
-           (blockSizeOfDim imgHeight $ fromIntegral (maximum [horizontalSamplingFactor c |
-                                                                c <- jpgComponents scanInfo] * 8))
+           (blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8))
 
         fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
             where idx = componentIdentifier component
@@ -690,12 +698,14 @@ buildJpegImageDecoder img = allBlockToDecode
                   dcTree = huffmanForComponent DcComponent $ dcEntropyCodingTable descr
                   acTree = huffmanForComponent AcComponent $ acEntropyCodingTable descr
                   qTable = quantForComponent $ if idx == 1 then 0 else 1
-                  horizCount = fromIntegral $ horizontalSamplingFactor component
-                  vertCount = fromIntegral $ verticalSamplingFactor component
+                  horizCount = if not isImageLumanOnly
+                        then fromIntegral $ horizontalSamplingFactor component
+                        else 1
+                  vertCount = if not isImageLumanOnly
+                        then fromIntegral $ verticalSamplingFactor component
+                        else 1
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
-        maxHorizFactor = maximum [horiz | (horiz, _, _, _, _) <- componentsInfo]
-        maxVertFactor = maximum [vert | (_, vert, _, _, _) <- componentsInfo]
 
         -- This monstrous list comprehension build a list of function
         -- for all macroblcoks at once, all that remains is to fold
@@ -743,12 +753,12 @@ decodeJpeg file = case decode file of
 
           inImageBound ((x, y), _) = x < imgWidth && y < imgHeight
 
-      in accumArray setter (PixelYCbCr8 0 0 0) imageSize $ filter inImageBound pixelList
+      in accumArray setter (PixelYCbCr8 0 128 128) imageSize $ filter inImageBound pixelList
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do
     file <- B.readFile path
     case decode file of
          Left err -> print err
-         Right img -> mapM_ (\a -> print a >> putStrLn "\n\n") $ jpgFrame img
+         Right img -> mapM_ (\a -> putStrLn (groom a) >> putStrLn "\n\n") $ jpgFrame img
 
