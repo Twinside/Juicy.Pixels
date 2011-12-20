@@ -14,7 +14,7 @@ module Codec.Picture.Types( -- * Types
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
                           , PixelRGBA8( .. )
-                          , PixelYCbCr( .. )
+                          , PixelYCbCr8( .. )
                             -- * Helper functions
                           , swapBlueRed 
                           ) where
@@ -59,8 +59,8 @@ type Pixel8 = Word8
 --
 --  * Alpha
 --
-data PixelYA8 = PixelYA8 !Word8  -- Luminance
-                         !Word8  -- Alpha value
+data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
+                         {-# UNPACK #-} !Word8  -- Alpha value
 
 -- | Pixel type storing classic pixel on 8 bits
 -- Value are stored in the following order :
@@ -71,9 +71,9 @@ data PixelYA8 = PixelYA8 !Word8  -- Luminance
 --
 --  * Blue
 --
-data PixelRGB8 = PixelRGB8 !Word8 -- Red
-                           !Word8 -- Green
-                           !Word8 -- Blue
+data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
+                           {-# UNPACK #-} !Word8 -- Green
+                           {-# UNPACK #-} !Word8 -- Blue
 
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in teh following order :
@@ -84,9 +84,9 @@ data PixelRGB8 = PixelRGB8 !Word8 -- Red
 --
 --  * Cb
 --
-data PixelYCbCr = PixelYCbCr !Word8 -- Y luminance
-                             !Word8 -- Cr red difference
-                             !Word8 -- Cb blue difference
+data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
+                               {-# UNPACK #-} !Word8 -- Cr red difference
+                               {-# UNPACK #-} !Word8 -- Cb blue difference
 
 -- | Pixel type storing a classic pixel, with an alpha component.
 -- Values are stored in the following order
@@ -98,10 +98,10 @@ data PixelYCbCr = PixelYCbCr !Word8 -- Y luminance
 --  * Blue
 --
 -- * Alpha
-data PixelRGBA8 = PixelRGBA8 !Word8 -- Red
-                             !Word8 -- Green
-                             !Word8 -- Blue
-                             !Word8 -- Alpha
+data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
+                             {-# UNPACK #-} !Word8 -- Green
+                             {-# UNPACK #-} !Word8 -- Blue
+                             {-# UNPACK #-} !Word8 -- Alpha
 
 instance Serialize PixelYA8 where
     put (PixelYA8 y a) = put y >> put a
@@ -111,9 +111,9 @@ instance Serialize PixelRGB8 where
     put (PixelRGB8 r g b) = put r >> put g >> put b
     get = PixelRGB8 <$> get <*> get <*> get
 
-instance Serialize PixelYCbCr where
-    put (PixelYCbCr y cb cr) = put y >> put cb >> put cr
-    get = PixelYCbCr <$> get <*> get <*> get
+instance Serialize PixelYCbCr8 where
+    put (PixelYCbCr8 y cb cr) = put y >> put cb >> put cr
+    get = PixelYCbCr8 <$> get <*> get <*> get
 
 -- | Helper function to let put color in the "windows" order
 -- used in the Bitmap file format.
@@ -154,7 +154,7 @@ instance MArray (STUArray s) PixelRGBA8 (ST s) where
         (# s5#, () #) } } } } }
 
 
-instance MArray (STUArray s) PixelYCbCr (ST s) where
+instance MArray (STUArray s) PixelYCbCr8 (ST s) where
     {-# INLINE getBounds #-}
     getBounds (STUArray l u _ _) = return (l,u)
     {-# INLINE getNumElements #-}
@@ -162,38 +162,38 @@ instance MArray (STUArray s) PixelYCbCr (ST s) where
     {-# INLINE unsafeNewArray_ #-}
     unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 3#)
     {-# INLINE newArray_ #-}
-    newArray_ arrBounds = newArray arrBounds (PixelYCbCr 0 0 0)
+    newArray_ arrBounds = newArray arrBounds (PixelYCbCr8 0 0 0)
     {-# INLINE unsafeRead #-}
     unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
         case i# *# 3# of { idx# ->
         case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
         case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
         case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->
-            (# s4#, PixelYCbCr (W8# r#) (W8# g#) (W8# b#) #)
+            (# s4#, PixelYCbCr8 (W8# r#) (W8# g#) (W8# b#) #)
         } } } }
 
     {-# INLINE unsafeWrite #-}
-    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelYCbCr (W8# y) (W8# cb) (W8# cr)) = ST $ \s1# ->
+    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelYCbCr8 (W8# y) (W8# cb) (W8# cr)) = ST $ \s1# ->
         case i# *# 3# of { idx# ->
         case writeWord8Array# marr# idx# y s1# of { s2# ->
         case writeWord8Array# marr# (idx# +# 1#) cb s2# of { s3# ->
         case writeWord8Array# marr# (idx# +# 2#) cr s3# of { s4# ->
         (# s4#, () #) } } } }
 
-instance IArray UArray PixelYCbCr where
+instance IArray UArray PixelYCbCr8 where
     {-# INLINE bounds #-}
     bounds (UArray l u _ _) = (l,u)
     {-# INLINE numElements #-}
     numElements (UArray _ _ n _) = n
     {-# INLINE unsafeArray #-}
-    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelYCbCr 0 0 0)
+    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelYCbCr8 0 0 0)
 #ifdef __GLASGOW_HASKELL__
     {-# INLINE unsafeAt #-}
     unsafeAt (UArray _ _ _ arr#) (I# i#) = 
         case i# *# 3# of { idx# ->
-            PixelYCbCr (W8# (indexWord8Array# arr# idx#))
-                       (W8# (indexWord8Array# arr# (idx# +# 1#)))
-                       (W8# (indexWord8Array# arr# (idx# +# 2#))) }
+            PixelYCbCr8 (W8# (indexWord8Array# arr# idx#))
+                        (W8# (indexWord8Array# arr# (idx# +# 1#)))
+                        (W8# (indexWord8Array# arr# (idx# +# 2#))) }
 #endif
 #ifdef __HUGS__
     unsafeAt = unsafeAtBArray

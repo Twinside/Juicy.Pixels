@@ -7,9 +7,11 @@
 module Codec.Picture.ColorConversion( -- * Type classes
                                       ColorConvertible( .. )
                                     , ColorConvertionQuery
+                                    , ColorSpaceConvertible( .. )
                                       -- * Helper functions
                                     , canConvertTo
                                     , promotePixels
+                                    , changeImageColorSpace
                                     ) where
 
 import Codec.Picture.Types
@@ -54,6 +56,18 @@ class (ColorConvertionQuery a) => ColorConvertible a b where
     fromRawData   :: [a] -> (Maybe b, [a])
     fromRawData [] = (Nothing, [])
     fromRawData (x:xs) = (Just $ promotePixel x, xs)
+
+-- | This class abstract colorspace conversion. This
+-- conversion can be lossy, which ColorConvertible cannot
+class ColorSpaceConvertible a b where
+    colorSpaceConversion :: a -> b
+
+{-# INLINE changeImageColorSpace #-}
+-- | Convert an image between different colorspace, this operation can result
+-- in a loss of precision.
+changeImageColorSpace :: (IArray UArray a, IArray UArray b, ColorSpaceConvertible a b)
+                      => Image a -> Image b
+changeImageColorSpace = amap colorSpaceConversion
 
 {-# INLINE promotePixels #-}
 -- | Convert a whole image to a new pixel type.
@@ -165,14 +179,21 @@ instance ColorConvertionQuery PixelRGBA8 where
 --------------------------------------------------
 ----            PixelYCbCr8 instances
 --------------------------------------------------
-instance ColorConvertionQuery PixelYCbCr where
-    canPromoteTo _ PixelRedGreenBlueAlpha8 = True
-    {-canPromoteTo _ PixelRedGreenBlue8 = True-}
+instance ColorConvertionQuery PixelYCbCr8 where
     canPromoteTo _ _ = False
-
     promotionType _ = PixelYChromaRChromaB8
 
-instance ColorConvertible PixelYCbCr PixelRGBA8 where
-    {-# INLINE promotePixel #-}
-    promotePixel (PixelYCbCr y _cb _cr) = PixelRGBA8 y y y 255
+instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
+    {-# INLINE colorSpaceConversion #-}
+    colorSpaceConversion (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 r g b
+        where y :: Float
+              y  = fromIntegral y_w8
+              cb = fromIntegral cb_w8
+              cr = fromIntegral cr_w8
+
+              clampWord8 = truncate . max 0 . min 255
+
+              r = clampWord8 $ (298.082 * y) / 256 + (408.583 * cr) / 256 + 222.921
+              g = clampWord8 $ (298.082 * y) / 256 - (100.291 * cb) / 256 - (208.120 * cr) / 256 + 135.576
+              b = clampWord8 $ (298.082 * y) / 256 + (516.412 * cb) / 256 - 276.836
 

@@ -21,7 +21,8 @@ convertJpegToBmp filePath = do
                  (\err -> return $ Left (show err))
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmapFile (filePath ++ ".bmp") $ promotePixels img
+        Right img -> writeBitmapFile (filePath ++ ".bmp") $ promotePixels rgbImage
+                  where rgbImage = changeImageColorSpace img :: Image PixelRGB8
 
 convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
