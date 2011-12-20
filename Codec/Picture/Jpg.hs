@@ -452,7 +452,7 @@ idctCoefficientMatrix =
             where xu = fromIntegral $ x * u
 
 levelScaling :: (Integral a, IArray UArray a, Num a) => MacroBlock a -> MacroBlock Word8
-levelScaling = amap (\c -> fromIntegral $ 128 + c)
+levelScaling = amap (\c -> fromIntegral . max 0 . min 255 $ 128 + c)
 
 macroBlockTranspose :: (IArray UArray a) => MacroBlock a -> MacroBlock a
 macroBlockTranspose = ixmap (0, 63) transposer
@@ -553,7 +553,7 @@ decodeInt ssss = do
       []     -> fail "Not engouh bits"
       (True : rest) -> do
           S.put rest
-          (\w -> {-trace (printf "dataRange: %d w: %d" dataRange w)$ -} dataRange + fromIntegral w) <$> unpackInt leftBitCount
+          (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
       (False : rest) -> do
           S.put rest
           (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
@@ -561,7 +561,7 @@ decodeInt ssss = do
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
-    trace ("DC ssss " ++ show ssss) $ if ssss == 0
+    if ssss == 0
        then return 0
        else fromIntegral <$> (decodeInt $ fromIntegral ssss)
 
@@ -573,7 +573,7 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
             rrrrssss <- huffmanDecode acTree
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
-            (trace ("rrrrssss " ++ show (rrrr, ssss))) $ case (rrrr, ssss) of
+            case (rrrr, ssss) of
                 (  0, 0) -> return $ [replicate n 0]
                 (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
                 _        -> do
@@ -660,9 +660,8 @@ buildJpegImageDecoder :: JpgImage
 buildJpegImageDecoder img = allBlockToDecode
   where huffmans = gatherHuffmanTables img
         huffmanForComponent dcOrAc dest = 
-            head [(\a -> trace (printf "%s %d %s" (show dcOrAc) dest $ show h) a) $t | (h,t) <- huffmans
-                    , huffmanTableClass h == dcOrAc
-                    , huffmanTableDest h == dest]
+            head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
+                                       , huffmanTableDest h == dest]
 
         quants = gatherQuantTables img
         quantForComponent dest =
@@ -740,11 +739,11 @@ decodeJpeg file = case decode file of
           setter (PixelYCbCr8 y cb  _) (2, v) = PixelYCbCr8 y cb  v
           setter _ _ = error "Impossible jpeg decoding can happen"
 
-          pixelList = runST $ S.evalStateT decoder bitList
+          pixelList =  runST $ S.evalStateT decoder bitList
 
-          shower whole = trace (show whole) whole
+          inImageBound ((x, y), _) = x < imgWidth && y < imgHeight
 
-      in accumArray setter (PixelYCbCr8 0 0 0) imageSize $ map shower pixelList
+      in accumArray setter (PixelYCbCr8 0 0 0) imageSize $ filter inImageBound pixelList
 
 jpegTest :: FilePath -> IO ()
 jpegTest path = do

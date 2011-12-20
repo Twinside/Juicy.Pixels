@@ -185,15 +185,19 @@ instance ColorConvertionQuery PixelYCbCr8 where
 
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE colorSpaceConversion #-}
-    colorSpaceConversion (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 r g b
+    colorSpaceConversion (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
         where y :: Float
-              y  = fromIntegral y_w8
-              cb = fromIntegral cb_w8
-              cr = fromIntegral cr_w8
+              y  = fromIntegral y_w8 - 128.0
+              cb = fromIntegral cb_w8 - 128.0
+              cr = fromIntegral cr_w8 - 128.0
 
-              clampWord8 = truncate . max 0 . min 255
+              clampWord8 = truncate . max 0.0 . min 255.0 . (128 +)
 
-              r = clampWord8 $ (298.082 * y) / 256 + (408.583 * cr) / 256 + 222.921
-              g = clampWord8 $ (298.082 * y) / 256 - (100.291 * cb) / 256 - (208.120 * cr) / 256 + 135.576
-              b = clampWord8 $ (298.082 * y) / 256 + (516.412 * cb) / 256 - 276.836
+              cred = 0.299
+              cgreen = 0.587
+              cblue = 0.114
+
+              r = cr * (2 - 2 * cred) + y
+              b = cb * (2 - 2 * cblue) + y
+              g = (y - cblue * b - cred * r) / cgreen
 
