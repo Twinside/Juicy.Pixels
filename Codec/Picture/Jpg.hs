@@ -189,8 +189,10 @@ buildPackedHuffmanTree = buildHuffmanTree . map elems . elems
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
 huffmanDecode originalTree = S.get >>= huffDecode originalTree
-  where huffDecode _     [] = fail "huffmanDecode - No more bits (shouldn't happen)"
-        huffDecode Empty _  = fail "huffmanDecode - Empty leaf (shouldn't happen)"
+  where huffDecode _       [] = return 0
+                        -- fail "huffmanDecode - No more bits (shouldn't happen)"
+        huffDecode Empty rest = S.put rest >> return 0
+                        -- fail "huffmanDecode - Empty leaf (shouldn't happen)"
         huffDecode (Branch l _) (False : rest) = huffDecode l rest
         huffDecode (Branch _ r) (True  : rest) = huffDecode r rest
         huffDecode (Leaf v) boolList = S.put boolList >> return v
@@ -201,6 +203,10 @@ huffmanDecode originalTree = S.get >>= huffDecode originalTree
 markerRemoval :: B.ByteString -> [Word8]
 markerRemoval = markerRemover . B.unpack
   where markerRemover (0xFF:0x00:rest) = 0xFF : markerRemover rest
+        -- restart marker
+        markerRemover (0xFF:0xDD:highWord:lowWord:rest) = markerRemover $ drop size rest
+            where size = fromIntegral $ (highWord `shiftL` 8) .|. lowWord
+        markerRemover (0xFF:0xD9:_   ) = []
         markerRemover (0xFF:   _:rest) = markerRemover rest
         markerRemover (x   :rest)      = x : markerRemover rest
         markerRemover []               = []
@@ -677,19 +683,20 @@ buildJpegImageDecoder img = allBlockToDecode
         blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
                 where (block, rest) = fullDim `divMod` maxBlockSize
 
-        isImageLumanOnly = length componentsInfo == 1
-        maxHorizFactor = if not isImageLumanOnly
-            then maximum [horiz | (horiz, _, _, _, _) <- componentsInfo]
-            else 1
+        horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
 
-        maxVertFactor = if not isImageLumanOnly
-            then maximum [vert | (_, vert, _, _, _) <- componentsInfo]
-            else 1
+        isImageLumanOnly = jpgImageComponentCount scanInfo == 1
+        maxHorizFactor | not isImageLumanOnly = maximum horizontalSamplings 
+                       | otherwise = 1
 
-        horizontalBlockCount = (\t -> trace ("horizontalBlockCount : " ++ show t) t) $
+        verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
+        maxVertFactor | not isImageLumanOnly = maximum verticalSamplings 
+                      | otherwise = 1
+
+        horizontalBlockCount = (\t -> trace (printf "horizontalBlockCount:%d maxHorizFactor:%d " t maxHorizFactor) t) $
            (blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8))
 
-        verticalBlockCount = (\t -> trace ("verticalBlockCount : " ++ show t) t) $
+        verticalBlockCount = (\t -> trace (printf "verticalBlockCount:%d maxVert:%d\n" t maxVertFactor) t) $
            (blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8))
 
         fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
