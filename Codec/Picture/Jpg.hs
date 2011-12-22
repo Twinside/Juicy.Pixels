@@ -58,13 +58,13 @@ data JpgFrameKind =
 
 
 data JpgFrame =
-      JpgAppFrame     !Word8 B.ByteString
-    | JpgExtension    !Word8 B.ByteString
-    | JpgQuantTable   ![JpgQuantTableSpec]
-    | JpgHuffmanTable ![(JpgHuffmanTableSpec, HuffmanTree)]
-    | JpgScanBlob     !JpgScanHeader !B.ByteString
-    | JpgScans        !JpgFrameKind !JpgFrameHeader
-    | JpgIntervalRestart B.ByteString
+      JpgAppFrame        !Word8 B.ByteString
+    | JpgExtension       !Word8 B.ByteString
+    | JpgQuantTable      ![JpgQuantTableSpec]
+    | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanTree)]
+    | JpgScanBlob        !JpgScanHeader !B.ByteString
+    | JpgScans           !JpgFrameKind !JpgFrameHeader
+    | JpgIntervalRestart !Word16
     deriving Show
 
 data JpgFrameHeader = JpgFrameHeader
@@ -193,9 +193,15 @@ huffmanDecode originalTree = S.get >>= huffDecode originalTree
                         -- fail "huffmanDecode - No more bits (shouldn't happen)"
         huffDecode Empty rest = S.put rest >> return 0
                         -- fail "huffmanDecode - Empty leaf (shouldn't happen)"
-        huffDecode (Branch l _) (False : rest) = huffDecode l rest
-        huffDecode (Branch _ r) (True  : rest) = huffDecode r rest
+        huffDecode (Branch l _) ((_, False) : rest) = huffDecode l rest
+        huffDecode (Branch _ r) ((_, True ) : rest) = huffDecode r rest
         huffDecode (Leaf v) boolList = S.put boolList >> return v
+
+-- |  Drop all bit until the bit of indice 0, usefull to parse restart
+-- marker, as they are byte aligned, but Huffman might not.
+byteAlign :: BoolReader s ()
+byteAlign = S.get >>= S.put . firstBit
+    where firstBit bits = snd $ break (\(bitIdx,_) -> bitIdx == 0) bits
 
 -- | Convert a bytestring to a list of word8, removing restart
 -- markers.
@@ -203,20 +209,18 @@ huffmanDecode originalTree = S.get >>= huffDecode originalTree
 markerRemoval :: B.ByteString -> [Word8]
 markerRemoval = markerRemover . B.unpack
   where markerRemover (0xFF:0x00:rest) = 0xFF : markerRemover rest
-        -- restart marker
-        markerRemover (0xFF:0xDD:highWord:lowWord:rest) = markerRemover $ drop size rest
-            where size = fromIntegral $ (highWord `shiftL` 8) .|. lowWord
-        markerRemover (0xFF:0xD9:_   ) = []
-        markerRemover (0xFF:   _:rest) = markerRemover rest
+        markerRemover (0xFF:   _:rest) = markerRemover rest -- restart marker
         markerRemover (x   :rest)      = x : markerRemover rest
         markerRemover []               = []
 
+-- | Position of a bit in the initial word
+type BitIndex = Word8
+
 -- | Bitify a list of things to decode.
 {-# INLINE bitifyString #-}
-bitifyString :: [Word8] -> [Bool]
+bitifyString :: [Word8] -> [(BitIndex, Bool)]
 bitifyString = concatMap bitify
-  where bitify v = [ testBit v 7 , testBit v 6 , testBit v 5 , testBit v 4
-                   , testBit v 3 , testBit v 2 , testBit v 1 , testBit v 0 ]
+  where bitify v = [(7 - i, testBit v $ fromIntegral i) | i <- [7, 6 .. 0]]
 
 --------------------------------------------------
 ----            Serialization instances
@@ -285,7 +289,7 @@ parseFrames = do
         JpgQuantizationTable ->
             (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseFrames
         JpgRestartInterval ->
-            (\frm lst -> JpgIntervalRestart frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseFrames
         JpgHuffmanTableMarker ->
             (\(TableList huffTables) lst -> 
                     JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst) 
@@ -354,6 +358,15 @@ get4BitOfEach :: Get (Word8, Word8)
 get4BitOfEach = do
     val <- get
     return ((val `shiftR` 4) .&. 0xF, val .&. 0xF)
+
+newtype RestartInterval = RestartInterval Word16
+
+instance Serialize RestartInterval where
+    put (RestartInterval i) = putWord16be 4 >> putWord16be i
+    get = do
+        size <- getWord16be
+        when (size /= 4) (fail "Invalid jpeg restart interval size")
+        RestartInterval <$> getWord16be
 
 instance Serialize JpgComponent where
     get = do
@@ -439,7 +452,7 @@ instance Serialize JpgScanHeader where
         put . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
-type BoolReader s a = S.StateT [Bool] (ST s) a
+type BoolReader s a = S.StateT [(BitIndex, Bool)] (ST s) a
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -513,13 +526,13 @@ promoteMacroBlock :: (Integral a, Num b, IArray UArray a, IArray UArray b)
                   => MacroBlock a -> MacroBlock b
 promoteMacroBlock = amap fromIntegral
 
-macroShow :: (PrintfArg a, IArray UArray a, Show a) => MacroBlock a -> String
-macroShow block = unlines blockLines
-    where blockLines = [line_of j | j <- [0..7]]
-          cell_of :: Word32 -> Word32 -> String
-          cell_of i j = printf "%8d" $ block ! (i + 8 * j)
-          line_of :: Word32 -> String
-          line_of j = concat $ intersperse " " [cell_of i j | i <- [0 .. 7]]
+{-macroShow :: (PrintfArg a, IArray UArray a, Show a) => MacroBlock a -> String-}
+{-macroShow block = unlines blockLines-}
+    {-where blockLines = [line_of j | j <- [0..7]]-}
+          {-cell_of :: Word32 -> Word32 -> String-}
+          {-cell_of i j = printf "%8d" $ block ! (i + 8 * j)-}
+          {-line_of :: Word32 -> String-}
+          {-line_of j = concat $ intersperse " " [cell_of i j | i <- [0 .. 7]]-}
 
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
@@ -527,27 +540,30 @@ macroShow block = unlines blockLines
 decodeMacroBlock :: MacroBlock Int16 
                  -> MacroBlock DctCoefficients -> MacroBlock Word8
 decodeMacroBlock quantizationTable =  promoteMacroBlock
-                                 . (\a -> trace ("Scaled\n" ++ macroShow a ++ "\n") a) 
+                                 {-. (\a -> trace ("Scaled\n" ++ macroShow a ++ "\n") a) -}
                                  . levelScaling
-                                 . (\a -> trace ("Uncosed \n" ++ macroShow a ++ "\n") a) 
+                                 {-. (\a -> trace ("Uncosed \n" ++ macroShow a ++ "\n") a) -}
                                  . inverseDirectCosineTransform 
-                                 . (\a -> trace ("Reorganized\n" ++ macroShow a ++ "\n") a)
+                                 {-. (\a -> trace ("Reorganized\n" ++ macroShow a ++ "\n") a)-}
                                  . zigZagReorder
-                                 . (\a -> trace ("Dequantized\n" ++ macroShow a ++ "\n") a)
-                                 . (\a -> trace ("QuantTable\n" ++ macroShow quantizationTable ++ "\n") a)
+                                 {-. (\a -> trace ("Dequantized\n" ++ macroShow a ++ "\n") a)-}
+                                 {-. (\a -> trace ("QuantTable\n" ++ macroShow quantizationTable ++ "\n") a)-}
                                  . deQuantize quantizationTable
-                                 . (\a -> trace ("Promoted\n" ++ macroShow a ++ "\n") a)
+                                 {-. (\a -> trace ("Promoted\n" ++ macroShow a ++ "\n") a)-}
                                  {-. promoteMacroBlock-}
+
+packInt :: [Bool] -> Int32
+packInt = foldl' bitStep 0
+    where bitStep acc True = (acc `shiftL` 1) + 1
+          bitStep acc False = acc `shiftL` 1
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int32 -> BoolReader s Int32
 unpackInt bitCount = do
     bits <- S.get
     let (toUnpack, rest) = fromIntegral bitCount `splitAt` bits
-        bitStep acc True = (acc `shiftL` 1) + 1
-        bitStep acc False = acc `shiftL` 1
     S.put rest
-    return $ foldl' bitStep 0 toUnpack
+    return . packInt $ map snd toUnpack
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
@@ -558,16 +574,17 @@ decodeInt ssss = do
     -- SSSS, so the bit count for the int, is ssss - 1
     case bits of
       []     -> fail "Not engouh bits"
-      (True : rest) -> do
+      ((_, True) : rest) -> do
           S.put rest
           (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
-      (False : rest) -> do
+      ((_, False) : rest) -> do
           S.put rest
           (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
+    {- trace (printf "dc ssss %d" ssss) $  -}
     if ssss == 0
        then return 0
        else fromIntegral <$> (decodeInt $ fromIntegral ssss)
@@ -580,6 +597,7 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
             rrrrssss <- huffmanDecode acTree
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
+            {- trace (printf "ac rrrrssss %2X" rrrrssss) $-} 
             case (rrrr, ssss) of
                 (  0, 0) -> return $ [replicate n 0]
                 (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
@@ -649,26 +667,85 @@ type DcCoefficient = Int32
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient 
 
-decodeImage :: Int
-            -> [(Int, DcCoefficient -> BoolReader s (DcCoefficient, [((Word32, Word32), Word8)]))]
+mapAccumLM :: Monad m => (acc -> x -> m (acc, y)) -> acc -> [x] -> m (acc, [y])
+mapAccumLM _ acc []     = return (acc, [])
+mapAccumLM f acc (x:xs) = do
+    (acc', y)      <- f acc x
+    (acc'', yList) <- mapAccumLM f acc' xs
+    return (acc'', y : yList)
+
+decodeRestartInterval :: BoolReader s Int32
+decodeRestartInterval = S.get >>= \bits ->
+    case bits of
+        ( (_,True) : (_,True) : (_,True) : (_,True)
+            : (_,True) : (_,True) : (_,True) : (_,True) : markerString) ->
+            let (marker, rest) = splitAt 8 markerString
+                intBits = map snd marker
+            in S.put rest >> return (packInt intBits)
+        _ -> return (-1)
+
+
+decodeImage :: Int              -- ^ Component count
+            -> JpegDecoder s
             -> BoolReader s [((Word32, Word32), (Int, Word8))]
-decodeImage compCount lst = concat <$> do
+decodeImage compCount decoder = concat <$> do
     dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Int32))
-    forM lst $ \(comp, f) -> do
-        dc <- lift $ dcArray `readArray` comp
-        (dcCoeff, block) <- f $ fromIntegral dc
-        lift $ (dcArray `writeArray` comp) dcCoeff
-        return [(idx, (comp, val)) | (idx, val) <- block]
+    let blockIndices = [(x,y) | y <- [0 ..   verticalMcuCount decoder - 1]
+                              , x <- [0 .. horizontalMcuCount decoder - 1] ]
+        mcuDecode = mcuDecoder decoder
+        blockBeforeRestart = restartInterval decoder
+
+        mapAccumM f = mapAccumLM f blockBeforeRestart mcuDecode >>= \(_, lst) -> return lst
+
+    concat <$> forM blockIndices (\(x,y) ->
+        mapAccumM $ \resetCounter (comp, dataUnitDecoder) -> do
+            when (resetCounter == 0)
+                 (do forM_ [0.. compCount - 1] $ 
+                           \c -> lift $ (dcArray `writeArray` c) 0
+                     byteAlign
+                     restartCode <- decodeRestartInterval
+                     if 0xD0 <= restartCode && restartCode <= 0xD7
+                     	then return ()
+                     	else trace ("Wrong error marker") $ return ())
+
+            dc <- lift $ dcArray `readArray` comp
+            (dcCoeff, block) <- dataUnitDecoder x y $ fromIntegral dc
+            lift $ (dcArray `writeArray` comp) dcCoeff
+            return (resetCounter - 1, [(idx, (comp, val)) | (idx, val) <- block]))
+
+-- | Type used to write into an array
+type PixelWriteOrders   = [((Word32, Word32), Word8)]
+
+-- | Type of a data unit (as in the ITU 81) standard
+type DataUnitDecoder s  =
+    (Int, Word32 -> Word32 -> DcCoefficient -> BoolReader s (DcCoefficient, PixelWriteOrders))
+
+data JpegDecoder s = JpegDecoder
+    { restartInterval    :: Int
+    , horizontalMcuCount :: Word32
+    , verticalMcuCount   :: Word32
+    , mcuDecoder         :: [DataUnitDecoder s]
+    }
+
+allElementsEqual :: (Eq a) => [a] -> Bool
+allElementsEqual []     = True
+allElementsEqual (x:xs) = all (== x) xs
 
 -- | An MCU (Minimal coded unit) is an unit of data for all components
 -- (Y, Cb & Cr), taking into account downsampling.
-buildJpegImageDecoder :: JpgImage 
-                      -> [(Int, DcCoefficient -> BoolReader s (DcCoefficient, [((Word32, Word32), Word8)]))]
-buildJpegImageDecoder img = allBlockToDecode
+buildJpegImageDecoder :: JpgImage -> JpegDecoder s
+buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
+                                        , horizontalMcuCount = horizontalBlockCount
+                                        , verticalMcuCount = verticalBlockCount
+                                        , mcuDecoder = mcus }
   where huffmans = gatherHuffmanTables img
         huffmanForComponent dcOrAc dest = 
             head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
                                        , huffmanTableDest h == dest]
+
+        mcuBeforeRestart = case [i | JpgIntervalRestart i <- jpgFrame img] of
+            []    -> maxBound -- HUUUUUUGE value (enough to parse all MCU)
+            (x:_) -> fromIntegral x
 
         quants = gatherQuantTables img
         quantForComponent dest =
@@ -686,18 +763,20 @@ buildJpegImageDecoder img = allBlockToDecode
         horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
 
         isImageLumanOnly = jpgImageComponentCount scanInfo == 1
-        maxHorizFactor | not isImageLumanOnly = maximum horizontalSamplings 
+        maxHorizFactor | not isImageLumanOnly && 
+                            not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings 
                        | otherwise = 1
 
         verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
-        maxVertFactor | not isImageLumanOnly = maximum verticalSamplings 
+        maxVertFactor | not isImageLumanOnly &&
+                            not (allElementsEqual verticalSamplings) = maximum verticalSamplings 
                       | otherwise = 1
 
         horizontalBlockCount = (\t -> trace (printf "horizontalBlockCount:%d maxHorizFactor:%d " t maxHorizFactor) t) $
-           (blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8))
+           blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
 
         verticalBlockCount = (\t -> trace (printf "verticalBlockCount:%d maxVert:%d\n" t maxVertFactor) t) $
-           (blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8))
+           blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
 
         fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
             where idx = componentIdentifier component
@@ -714,23 +793,18 @@ buildJpegImageDecoder img = allBlockToDecode
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
 
-        -- This monstrous list comprehension build a list of function
-        -- for all macroblcoks at once, all that remains is to fold
-        -- over it to decode
-        allBlockToDecode =
-          [(compIdx, \dc -> do
-                        (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
-                        return (dcCoeff, unpacker block))
-                  | y <- [0 ..  verticalBlockCount - 1]
-                  , x <- [0 .. horizontalBlockCount - 1]
-                  , (compIdx, (horizCount, vertCount, dcTree, acTree, qTable)) 
-                                <- zip [0..] componentsInfo
-                  , let xScalingFactor = maxHorizFactor - horizCount + 1
-                        yScalingFactor = maxVertFactor - vertCount + 1
-                  , yd <- [0 .. vertCount - 1]
-                  , xd <- [0 .. horizCount - 1]
-                  , let unpacker = unpackMacroBlock xScalingFactor yScalingFactor (x + xd) (y + yd)
-                  ]
+        mcus = [trace (printf "component:%d x:%d y:%d xScale:%d yScale:%d horizCount:%d vertCount:%d" compIdx xd yd xScalingFactor yScalingFactor horizCount vertCount) $
+                (compIdx, \x y dc -> do
+                           (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
+                           return (dcCoeff, unpacker  (x * horizCount + xd) (y * vertCount + yd) block))
+                     | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable)) 
+                                   <- zip [0..] componentsInfo
+                     , let xScalingFactor = maxHorizFactor - horizCount + 1
+                           yScalingFactor = maxVertFactor - vertCount + 1
+                     , yd <- [0 .. vertCount - 1]
+                     , xd <- [0 .. horizCount - 1]
+                     , let unpacker = unpackMacroBlock xScalingFactor yScalingFactor
+                     ]
 
 loadJpeg :: FilePath -> IO (Either String (Image PixelYCbCr8))
 loadJpeg f = decodeJpeg <$> B.readFile f

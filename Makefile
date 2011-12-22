@@ -16,6 +16,7 @@ run:
 
 test:
 	dist\build\imageTest\imageTest.exe tests/jpeg/8x8jpeg.jpg
+	dist\build\imageTest\imageTest.exe tests/jpeg/16x16jpeg.jpg
 	dist\build\imageTest\imageTest.exe tests/jpeg/avatar.jpg
 	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
 	dist\build\imageTest\imageTest.exe tests/jpeg/explore_jpeg.jpg
