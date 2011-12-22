@@ -21,7 +21,9 @@ Status
     * Writing : 32bits (RGBA) per pixel images,
                 24bits (RGB) per pixel images
 
- - Jpeg   (.jpg, .jpeg) work in progress.
+ - Jpeg   (.jpg, .jpeg) 
+    * Reading non-interlaced baseline DCT image, seems to be OK
+    * Writing : none yet
 
 _I love juicy pixels_
 

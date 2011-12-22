@@ -23,8 +23,6 @@ import qualified Data.ByteString as B
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 
-import Debug.Trace
-
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -654,13 +652,11 @@ mapAccumLM f acc (x:xs) = do
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = S.get >>= \bits ->
-    case bits of
-        ( (_,True) : (_,True) : (_,True) : (_,True)
-            : (_,True) : (_,True) : (_,True) : (_,True) : markerString) ->
-            let (marker, rest) = splitAt 8 markerString
-                intBits = map snd marker
-            in S.put rest >> return (packInt intBits)
-        _ -> return (-1)
+  if take 8 bits == zip [0 .. 7] (repeat True)
+     then let (marker, rest) = splitAt 8 $ drop 8 bits
+              intBits = map snd marker
+          in S.put rest >> return (packInt intBits)
+     else return (-1)
 
 
 decodeImage :: Int              -- ^ Component count
@@ -672,7 +668,7 @@ decodeImage compCount decoder = concat <$> do
         mcuDecode = mcuDecoder decoder
         blockBeforeRestart = restartInterval decoder
 
-        mapAccumM f = mapAccumLM f (blockBeforeRestart - 1) blockIndices >>= \(_, lst) -> return lst
+        mapAccumM f = mapAccumLM f blockBeforeRestart blockIndices >>= \(_, lst) -> return lst
 
     dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Int32))
     concat <$> mapAccumM (\resetCounter (x,y) -> do
@@ -683,7 +679,7 @@ decodeImage compCount decoder = concat <$> do
                  restartCode <- decodeRestartInterval
                  if 0xD0 <= restartCode && restartCode <= 0xD7
                    then return ()
-                   else trace ("Wrong error marker") $ return ())
+                   else return ())
 
         dataUnits <- forM mcuDecode $ (\(comp, dataUnitDecoder) -> do
             dc <- lift $ dcArray `readArray` comp
@@ -692,6 +688,8 @@ decodeImage compCount decoder = concat <$> do
             return [(idx, (comp, val)) | (idx, val) <- block])
 
         return (if resetCounter /= 0 then resetCounter - 1 
+                                         -- we use blockBeforeRestart - 1 to count
+                                         -- the current MCU
                                      else blockBeforeRestart - 1, dataUnits))
 
 -- | Type used to write into an array
