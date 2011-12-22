@@ -19,6 +19,7 @@ Status
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading : none yet
     * Writing : 32bits (RGBA) per pixel images,
+                24bits (RGB) per pixel images
 
  - Jpeg   (.jpg, .jpeg) work in progress.
 

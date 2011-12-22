@@ -21,7 +21,7 @@ convertJpegToBmp filePath = do
                  (\err -> return $ Left (show err))
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmapFile (filePath ++ ".bmp") $ promotePixels rgbImage
+        Right img -> writeBitmapFile (filePath ++ ".bmp") rgbImage
                   where rgbImage = changeImageColorSpace img :: Image PixelRGB8
 
 convertPngToBmp :: FilePath -> IO ()
@@ -30,7 +30,7 @@ convertPngToBmp filePath = do
     putStr "."
     rez <- catch (return $ decodePng file)
                  (\err -> return $ Left (show err))
-    case rez of
+    case rez :: Either String (Image PixelRGBA8) of
         Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
         Right img -> writeBitmapFile (filePath ++ ".bmp") img
 

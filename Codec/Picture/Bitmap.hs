@@ -1,9 +1,12 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmapFile
                            , encodeBitmapFile
                            ) where
 
+import Control.Monad( replicateM_ )
 import Data.Array.Unboxed
 import Data.Serialize
 import Data.Word
@@ -79,27 +82,49 @@ instance Serialize BmpInfoHeader where
 
     get = error "Unimplemented"
 
-data BmpImage = BmpImage (BmpHeader, BmpInfoHeader, Image PixelRGBA8)
+data BmpImage a = BmpImage (BmpHeader, BmpInfoHeader, Image a)
 
-instance Serialize BmpImage where
+instance (BmpEncodable a) => Serialize (BmpImage a) where
     put (BmpImage (hdr, ihdr, img)) = put hdr >> put ihdr >> bmpEncode img
     get = error "Unimplemented"
 
-bmpEncode :: Image PixelRGBA8 -> Put
-bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [h, h-1..0], col <- [0..w]]
-    where (_, (w,h)) = bounds arr
+class BmpEncodable pixel where
+    bitsPerPixel :: pixel -> Word16
+    bmpEncode    :: Image pixel -> Put
+
+instance BmpEncodable PixelRGBA8 where
+    bitsPerPixel _ = 32
+    bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [h, h-1..0], col <- [0..w]]
+        where (_, (w,h)) = bounds arr
+
+instance BmpEncodable PixelRGB8 where
+    bitsPerPixel _ = 24
+    bmpEncode arr = mapM_ putLine [h, h - 1..0]
+        where (_, (w,h)) = bounds arr
+              swapBlueRedRGB8 (PixelRGB8 r g b) = PixelRGB8 b g r
+              stride = fromIntegral . linePadding 24 $ w + 1
+              putLine line = do
+                  mapM_ put [swapBlueRedRGB8 $ arr ! (col, line) | col <- [0..w]]
+                  replicateM_ stride $ put (0 :: Word8)
 
 -- | Write an image in a file use the bitmap format.
-writeBitmapFile :: FilePath -> Image PixelRGBA8 -> IO ()
-writeBitmapFile filename img = do
-    B.writeFile filename $ encodeBitmapFile img
+writeBitmapFile :: (IArray UArray pixel, BmpEncodable pixel) 
+                => FilePath -> Image pixel -> IO ()
+writeBitmapFile filename img = B.writeFile filename $ encodeBitmapFile img
+
+linePadding :: Word16 -> Word32 -> Word32
+linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
+    where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
 
 -- | Convert an image to a bytestring ready to be serialized.
-encodeBitmapFile :: Image PixelRGBA8 -> B.ByteString
+encodeBitmapFile :: forall pixel. (IArray UArray pixel, BmpEncodable pixel) 
+                 => Image pixel -> B.ByteString
 encodeBitmapFile img = encode $ BmpImage (hdr, info, img)
     where (_, (imgWidth, imgHeight)) = bounds img
 
-          imagePixelSize = (imgWidth + 1) * (imgHeight + 1) * 4
+          bpp = bitsPerPixel (undefined :: pixel)
+          padding = linePadding bpp (imgWidth + 1)
+          imagePixelSize = (imgWidth + 1 + padding) * (imgHeight + 1) * 4
           hdr = BmpHeader {
               magicIdentifier = 0x4D42,
               fileSize = sizeofBmpHeader + sizeofBmpInfo + imagePixelSize,
@@ -113,7 +138,7 @@ encodeBitmapFile img = encode $ BmpImage (hdr, info, img)
               width = imgWidth + 1,
               height = imgHeight + 1,
               planes = 1,
-              bitPerPixel = 32,
+              bitPerPixel = bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
               xResolution = 0,
