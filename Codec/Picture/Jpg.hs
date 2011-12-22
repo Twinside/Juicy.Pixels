@@ -13,7 +13,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State as S
 
-import Data.List( find, foldl', intersperse )
+import Data.List( find, foldl' )
 import Data.Bits
 import Data.Int
 import Data.Word
@@ -526,31 +526,16 @@ promoteMacroBlock :: (Integral a, Num b, IArray UArray a, IArray UArray b)
                   => MacroBlock a -> MacroBlock b
 promoteMacroBlock = amap fromIntegral
 
-{-macroShow :: (PrintfArg a, IArray UArray a, Show a) => MacroBlock a -> String-}
-{-macroShow block = unlines blockLines-}
-    {-where blockLines = [line_of j | j <- [0..7]]-}
-          {-cell_of :: Word32 -> Word32 -> String-}
-          {-cell_of i j = printf "%8d" $ block ! (i + 8 * j)-}
-          {-line_of :: Word32 -> String-}
-          {-line_of j = concat $ intersperse " " [cell_of i j | i <- [0 .. 7]]-}
-
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
 -- there is to know for macro block transformation
 decodeMacroBlock :: MacroBlock Int16 
                  -> MacroBlock DctCoefficients -> MacroBlock Word8
 decodeMacroBlock quantizationTable =  promoteMacroBlock
-                                 {-. (\a -> trace ("Scaled\n" ++ macroShow a ++ "\n") a) -}
                                  . levelScaling
-                                 {-. (\a -> trace ("Uncosed \n" ++ macroShow a ++ "\n") a) -}
                                  . inverseDirectCosineTransform 
-                                 {-. (\a -> trace ("Reorganized\n" ++ macroShow a ++ "\n") a)-}
                                  . zigZagReorder
-                                 {-. (\a -> trace ("Dequantized\n" ++ macroShow a ++ "\n") a)-}
-                                 {-. (\a -> trace ("QuantTable\n" ++ macroShow quantizationTable ++ "\n") a)-}
                                  . deQuantize quantizationTable
-                                 {-. (\a -> trace ("Promoted\n" ++ macroShow a ++ "\n") a)-}
-                                 {-. promoteMacroBlock-}
 
 packInt :: [Bool] -> Int32
 packInt = foldl' bitStep 0
@@ -584,7 +569,6 @@ decodeInt ssss = do
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
-    {- trace (printf "dc ssss %d" ssss) $  -}
     if ssss == 0
        then return 0
        else fromIntegral <$> (decodeInt $ fromIntegral ssss)
@@ -597,7 +581,6 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
             rrrrssss <- huffmanDecode acTree
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
-            {- trace (printf "ac rrrrssss %2X" rrrrssss) $-} 
             case (rrrr, ssss) of
                 (  0, 0) -> return $ [replicate n 0]
                 (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
@@ -689,29 +672,32 @@ decodeImage :: Int              -- ^ Component count
             -> JpegDecoder s
             -> BoolReader s [((Word32, Word32), (Int, Word8))]
 decodeImage compCount decoder = concat <$> do
-    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Int32))
     let blockIndices = [(x,y) | y <- [0 ..   verticalMcuCount decoder - 1]
                               , x <- [0 .. horizontalMcuCount decoder - 1] ]
         mcuDecode = mcuDecoder decoder
         blockBeforeRestart = restartInterval decoder
 
-        mapAccumM f = mapAccumLM f blockBeforeRestart mcuDecode >>= \(_, lst) -> return lst
+        mapAccumM f = mapAccumLM f (blockBeforeRestart - 1) blockIndices >>= \(_, lst) -> return lst
 
-    concat <$> forM blockIndices (\(x,y) ->
-        mapAccumM $ \resetCounter (comp, dataUnitDecoder) -> do
-            when (resetCounter == 0)
-                 (do forM_ [0.. compCount - 1] $ 
-                           \c -> lift $ (dcArray `writeArray` c) 0
-                     byteAlign
-                     restartCode <- decodeRestartInterval
-                     if 0xD0 <= restartCode && restartCode <= 0xD7
-                     	then return ()
-                     	else trace ("Wrong error marker") $ return ())
+    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Int32))
+    concat <$> mapAccumM (\resetCounter (x,y) -> do
+        when (resetCounter == 0)
+             (do forM_ [0.. compCount - 1] $ 
+                     \c -> lift $ (dcArray `writeArray` c) 0
+                 byteAlign
+                 restartCode <- decodeRestartInterval
+                 if 0xD0 <= restartCode && restartCode <= 0xD7
+                   then return ()
+                   else trace ("Wrong error marker") $ return ())
 
+        dataUnits <- forM mcuDecode $ (\(comp, dataUnitDecoder) -> do
             dc <- lift $ dcArray `readArray` comp
             (dcCoeff, block) <- dataUnitDecoder x y $ fromIntegral dc
             lift $ (dcArray `writeArray` comp) dcCoeff
-            return (resetCounter - 1, [(idx, (comp, val)) | (idx, val) <- block]))
+            return [(idx, (comp, val)) | (idx, val) <- block])
+
+        return (if resetCounter /= 0 then resetCounter - 1 
+                                     else blockBeforeRestart - 1, dataUnits))
 
 -- | Type used to write into an array
 type PixelWriteOrders   = [((Word32, Word32), Word8)]
