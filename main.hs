@@ -92,7 +92,6 @@ exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
 main :: IO ()
 main = do 
     (fname: args) <- getArgs
-    jpegTest fname
     {-huffTest-}
     convertJpegToBmp fname
     {-exportBmpWitness-}

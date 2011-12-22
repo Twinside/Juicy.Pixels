@@ -2,10 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Codec.Picture.Jpg( loadJpeg
-                        , decodeJpeg
-                        , jpegTest
-                        ) where
+module Codec.Picture.Jpg( loadJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_ )
@@ -27,8 +24,6 @@ import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 
 import Debug.Trace
-import Text.Printf
-import Text.Groom
 
 --------------------------------------------------
 ----            Types
@@ -758,10 +753,10 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                             not (allElementsEqual verticalSamplings) = maximum verticalSamplings 
                       | otherwise = 1
 
-        horizontalBlockCount = (\t -> trace (printf "horizontalBlockCount:%d maxHorizFactor:%d " t maxHorizFactor) t) $
+        horizontalBlockCount =
            blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
 
-        verticalBlockCount = (\t -> trace (printf "verticalBlockCount:%d maxVert:%d\n" t maxVertFactor) t) $
+        verticalBlockCount =
            blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
 
         fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
@@ -779,10 +774,10 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
 
-        mcus = [trace (printf "component:%d x:%d y:%d xScale:%d yScale:%d horizCount:%d vertCount:%d" compIdx xd yd xScalingFactor yScalingFactor horizCount vertCount) $
-                (compIdx, \x y dc -> do
+        mcus = [(compIdx, \x y dc -> do
                            (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
-                           return (dcCoeff, unpacker  (x * horizCount + xd) (y * vertCount + yd) block))
+                           return (dcCoeff, unpacker  (x * horizCount + xd) 
+                                                      (y * vertCount + yd) block))
                      | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable)) 
                                    <- zip [0..] componentsInfo
                      , let xScalingFactor = maxHorizFactor - horizCount + 1
@@ -821,11 +816,4 @@ decodeJpeg file = case decode file of
           inImageBound ((x, y), _) = x < imgWidth && y < imgHeight
 
       in accumArray setter (PixelYCbCr8 0 128 128) imageSize $ filter inImageBound pixelList
-
-jpegTest :: FilePath -> IO ()
-jpegTest path = do
-    file <- B.readFile path
-    case decode file of
-         Left err -> print err
-         Right img -> mapM_ (\a -> putStrLn (groom a) >> putStrLn "\n\n") $ jpgFrame img
 
