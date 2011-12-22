@@ -24,6 +24,18 @@ convertJpegToBmp filePath = do
         Right img -> writeBitmapFile (filePath ++ ".bmp") rgbImage
                   where rgbImage = changeImageColorSpace img :: Image PixelRGB8
 
+convertJpegToPng :: FilePath -> IO ()
+convertJpegToPng filePath = do
+    file <- B.readFile filePath
+    putStr "."
+    rez <- catch (return $ decodeJpeg file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
+        Right img -> writePngFile (filePath ++ ".png") rgbaImage
+                  where rgbImage  = changeImageColorSpace img :: Image PixelRGB8
+                        rgbaImage = promotePixels rgbImage :: Image PixelRGBA8
+
 convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
     file <- B.readFile filePath
@@ -93,7 +105,7 @@ main :: IO ()
 main = do 
     (fname: args) <- getArgs
     {-huffTest-}
-    convertJpegToBmp fname
+    convertJpegToPng fname
     {-exportBmpWitness-}
     {-putStrLn ">>>> Valid instances"-}
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}

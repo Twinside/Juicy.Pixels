@@ -11,11 +11,14 @@
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
                           PngLoadable( .. )
+                        , PngSavable( .. )
+
                         , loadPng
                         , pngDecode
+                        , writePngFile
 
                           -- * Low level types
-                        , ChunkSignature 
+                        , ChunkSignature
                         , PngChunk( .. )
                         , PngLowLevel( .. )
 
@@ -78,7 +81,7 @@ data PngRawImage = PngRawImage
 type PngPalette = Array Word32 PixelRGB8
 
 parsePalette :: PngRawChunk -> Either String PngPalette
-parsePalette plte 
+parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
  | otherwise = listArray (0, pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
     where pixelUnpacker = replicateM (fromIntegral pixelCount) get
@@ -111,11 +114,11 @@ data PngLowLevel a = PngLowLevel
 -- | a | x |
 -- +---+---+
 -- x being the current filtered pixel
-data PngFilter = 
+data PngFilter =
     -- | Filt(x) = Orig(x), Recon(x) = Filt(x)
-      FilterNone  
+      FilterNone
     -- | Filt(x) = Orig(x) - Orig(a), 	Recon(x) = Filt(x) + Recon(a)
-    | FilterSub   
+    | FilterSub
     -- | Filt(x) = Orig(x) - Orig(b), 	Recon(x) = Filt(x) + Recon(b)
     | FilterUp
     -- | Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2),
@@ -132,7 +135,7 @@ data PngInterlaceMethod =
       -- from left to right.
       PngNoInterlace
 
-      -- | Use the Adam7 ordering, see `adam7Reordering` 
+      -- | Use the Adam7 ordering, see `adam7Reordering`
     | PngInterlaceAdam7
     deriving (Enum, Show)
 
@@ -183,7 +186,7 @@ instance Serialize PngRawChunk where
 
         let computedCrc = pngComputeCrc [chunkSig, imgData]
         when (computedCrc `xor` crc /= 0)
-             (fail $ "Invalid CRC : " ++ show computedCrc ++ ", " 
+             (fail $ "Invalid CRC : " ++ show computedCrc ++ ", "
                                       ++ show crc)
         return $ PngRawChunk {
         	chunkLength = size,
@@ -194,16 +197,17 @@ instance Serialize PngRawChunk where
 
 instance Serialize PngIHdr where
     put hdr = do
-        putWord32be 14
-        putByteString iHDRSignature
+        putWord32be 13
         let inner = runPut $ do
+                putByteString iHDRSignature
                 putWord32be $ width hdr
                 putWord32be $ height hdr
-                put $ bitDepth hdr
+                putWord8    $ bitDepth hdr
                 put $ colourType hdr
+                put $ compressionMethod hdr
                 put $ filterMethod hdr
                 put $ interlaceMethod hdr
-            crc = pngComputeCrc $ [iHDRSignature, inner]
+            crc = pngComputeCrc $ [inner]
         putByteString inner
         putWord32be crc
 
@@ -259,7 +263,8 @@ instance Serialize PngInterlaceMethod where
         1 -> return PngInterlaceAdam7
         _ -> fail "Invalid interlace method"
 
-    put = putWord8 . fromIntegral . fromEnum
+    put PngNoInterlace    = putWord8 0
+    put PngInterlaceAdam7 = putWord8 1
 
 --------------------------------------------------
 ----            functions
@@ -272,7 +277,7 @@ pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
-data Adam7MatrixInfo = Adam7MatrixInfo 
+data Adam7MatrixInfo = Adam7MatrixInfo
     { adam7_starting_row :: [Word32]
     , adam7_starting_col  :: [Word32]
     , adam7_row_increment :: [Word32]
@@ -282,8 +287,8 @@ data Adam7MatrixInfo = Adam7MatrixInfo
     }
 
 -- | The real info about the matrix.
-adam7MatrixInfo :: Adam7MatrixInfo 
-adam7MatrixInfo = Adam7MatrixInfo 
+adam7MatrixInfo :: Adam7MatrixInfo
+adam7MatrixInfo = Adam7MatrixInfo
     { adam7_starting_row  = [0, 0, 4, 0, 2, 0, 1]
     , adam7_starting_col  = [0, 4, 0, 2, 0, 1, 0]
     , adam7_row_increment = [8, 8, 8, 4, 4, 2, 2]
@@ -298,7 +303,7 @@ adam7MatrixInfo = Adam7MatrixInfo
 adam7Indices :: Word32 -> Word32 -> [[(Word32,Word32)]]
 adam7Indices imgWidth imgHeight =
   [[ (x,y) | y <- [yBeg, yBeg + dy .. imgHeight - 1]
-           , x <- [xBeg, xBeg + dx .. imgWidth - 1] ]  
+           , x <- [xBeg, xBeg + dx .. imgWidth - 1] ]
           | (xBeg, dx, yBeg, dy) <- infos]
     where info = adam7MatrixInfo
           infos = zip4 (adam7_starting_col info)
@@ -317,11 +322,11 @@ breakLines size times wholestr = inner times [] wholestr
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line, using the previous line (the one above it) to perform
 -- some prediction on the value.
-pngFiltering :: Word32 
+pngFiltering :: Word32
              -> B.ByteString        -- ^ The real image
              -> (Word32, Word32)    -- ^ Image size
              -> Either String (B.ByteString, B.ByteString) -- ^ Filtered scanlines, rest
-pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest)) <$> filteredBytes 
+pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest)) <$> filteredBytes
     where -- create lines of the subimage and the rest of picture
           (filterLines, wholeRest) = breakLines (imgWidth + 1) imgHeight str
           nullLine = repeat 0
@@ -329,7 +334,7 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
           -- Iterate over lines keeping track of previous line
           filteredBytes = concat <$> imageLines nullLine filterLines
             where imageLines        _ [] = return []
-                  imageLines prevLine (line:newLine) = 
+                  imageLines prevLine (line:newLine) =
                         case methodRead (prevLine, line) of
                              Left err -> Left err
                              Right ll -> do
@@ -349,7 +354,7 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
           methodRead _ = Right []
 
           -- Process all the pixels keeping track all the context for prediction.
-          step method (prevLineByte:prevLinerest, (prevByte:restLine)) 
+          step method (prevLineByte:prevLinerest, (prevByte:restLine))
                       (b : restPrev, B.uncons -> Just (x, rest)) =
               thisByte : step method (prevLinerest, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
@@ -357,7 +362,7 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
 
           -- Really apply the filter, the pixel order is the one in the comment
           -- of 'PngFilter'
-          inner :: PngFilter 
+          inner :: PngFilter
                 -> (Word8, Word8, Word8, Word8)  -- (c, b, a, x)
                 -> Word8
           inner FilterNone    (_,_,_,x) = x
@@ -391,7 +396,7 @@ unpackScanline :: Word32  -- ^ Bitdepth
                -> Word32  -- ^ image Width
                -> Word32  -- ^ image Height
                -> Get [Word8]
-unpackScanline 1 1 imgWidth imgHeight = 
+unpackScanline 1 1 imgWidth imgHeight =
    concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting
           split times c = map (extractBit c) [7, 6 .. 8 - times]
@@ -430,14 +435,14 @@ unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromInt
 
           lineParser = do
             line <- concat <$> replicateM lineSize (split <$> get)
-            if isFullLine 
+            if isFullLine
                 then return line
                 else do lastElem <- ((head . split) <$> get)
                         return $ line ++ [lastElem]
 
-unpackScanline 8 sampleCount imgWidth imgHeight = 
+unpackScanline 8 sampleCount imgWidth imgHeight =
     replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) getWord8
-unpackScanline 16 sampleCount imgWidth imgHeight = 
+unpackScanline 16 sampleCount imgWidth imgHeight =
     replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (bitDepthReducer <$> getWord16be)
         where bitDepthReducer v = fromIntegral $ v32 * word8Max `div` word16Max
                   where v32 = fromIntegral v :: Word32 -- type signature to avoid defaulting to Integer
@@ -457,7 +462,7 @@ pixelizeRawData lst = px : pixelizeRawData rest
 
 -- | Given a decompressed stream of data, break it into lines and
 -- apply the required filtering on it.
-scanLineFilterUnpack :: (ColorConvertible Word8 a) 
+scanLineFilterUnpack :: (ColorConvertible Word8 a)
                      => Word32       -- ^ bitdepth
                      -> Word32       -- ^ Sample count per pixel
                      -> B.ByteString -- ^ the real data
@@ -466,7 +471,7 @@ scanLineFilterUnpack :: (ColorConvertible Word8 a)
 scanLineFilterUnpack     _           _ bytes (0       ,         _) = Right ([], bytes)
 scanLineFilterUnpack     _           _ bytes (_       ,         0) = Right ([], bytes)
 scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight) = do
-  let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth 
+  let scanlineByteSize = byteSizeOfBitLength depth sampleCount imgWidth
       stride = if depth >= 8 then sampleCount * (depth `div` 8) else 1
   (filtered, rest) <- pngFiltering stride bytes (scanlineByteSize, imgHeight)
   let unpackedBytes = runGet (unpackScanline depth sampleCount imgWidth imgHeight) filtered
@@ -478,7 +483,7 @@ scanLineUnpack :: (IArray UArray a, ColorConvertible Word8 a)
                -> Unpacker a
 scanLineUnpack depth sampleCount imgWidth imgHeight bytes = case scanLineData of
         Left err -> Left err
-        Right (unpacked,_) -> Right . array ((0,0), (imgWidth - 1, imgHeight - 1)) 
+        Right (unpacked,_) -> Right . array ((0,0), (imgWidth - 1, imgHeight - 1))
                                     $ zip pixelsIndices unpacked
     where pixelsIndices = [(x,y) | y <- [0 .. imgHeight - 1], x <- [0 .. imgWidth - 1]]
           scanLineData = scanLineFilterUnpack depth sampleCount bytes (imgWidth, imgHeight)
@@ -490,7 +495,7 @@ byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 t
 eitherMapAccumL :: (acc -> x -> Either err (acc, y)) -- Function of elt of input list
                                     -- and accumulator, returning new
                                     -- accumulator and elt of result list
-                -> acc            -- Initial accumulator 
+                -> acc            -- Initial accumulator
                 -> [x]            -- Input list
                 -> Either err (acc, [y])     -- Final accumulator and result list
 eitherMapAccumL _ s []        =  Right (s, [])
@@ -511,7 +516,7 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
 
           -- given the sizes of the pass, will produce bytetring of the deseried
           -- sizes.
-          passes = eitherMapAccumL (\acc -> eitherSwap . scanLineFilterUnpack depth sampleCount acc) 
+          passes = eitherMapAccumL (\acc -> eitherSwap . scanLineFilterUnpack depth sampleCount acc)
                                     bytes passSizes
 
           eitherSwap (Left a) = Left a
@@ -525,10 +530,10 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
             | otherwise = outDim + (if restDim /= 0 then 1 else 0)
                 where (outDim, restDim) = (dimension - begin) `quotRem` increment
 
-          passHeight = [ sizer imgHeight begin incr 
+          passHeight = [ sizer imgHeight begin incr
                             | (begin, incr) <- zip (adam7_starting_row infos) (adam7_row_increment infos)]
 
-          passWidth = [ sizer imgWidth begin incr 
+          passWidth = [ sizer imgWidth begin incr
                             | (begin, incr) <- zip (adam7_starting_col infos) (adam7_col_increment infos)]
 
 
@@ -538,17 +543,17 @@ deinterlacer :: (ColorConvertible Word8 a, IArray UArray a)
              => PngIHdr -> Unpacker a
 deinterlacer ihdr = fun (fromIntegral $ bitDepth ihdr) sampleCount
                         (width ihdr) (height ihdr)
-    where fun = case interlaceMethod ihdr of 
+    where fun = case interlaceMethod ihdr of
                     PngNoInterlace -> scanLineUnpack
                     PngInterlaceAdam7 -> adam7Unpack
           sampleCount = sampleCountOfImageType $ colourType ihdr
 
 -- | Helper function to help pack signatures.
-signature :: [Word8] -> ChunkSignature 
+signature :: [Word8] -> ChunkSignature
 signature = B.pack . map (toEnum . fromEnum)
 
 -- | Signature for all the critical chunks in a PNG image.
-iHDRSignature, iDATSignature, iENDSignature, pLTESignature :: ChunkSignature 
+iHDRSignature, iDATSignature, iENDSignature, pLTESignature :: ChunkSignature
 iHDRSignature = signature [73, 72, 68, 82]
 pLTESignature = signature [80, 76, 84, 69]
 iDATSignature = signature [73, 68, 65, 84]
@@ -561,10 +566,10 @@ instance Serialize PngImageType where
     put PngGreyscaleWithAlpha = putWord8 4
     put PngTrueColourWithAlpha = putWord8 6
 
-    get = get >>= imageTypeOfCode 
+    get = get >>= imageTypeOfCode
 
 imageTypeOfCode :: Word8 -> Get PngImageType
-imageTypeOfCode 0 = return PngGreyscale 
+imageTypeOfCode 0 = return PngGreyscale
 imageTypeOfCode 2 = return PngTrueColour
 imageTypeOfCode 3 = return PngIndexedColor
 imageTypeOfCode 4 = return PngGreyscaleWithAlpha
@@ -620,18 +625,18 @@ unparsePixelRGB8 _ PngGreyscaleWithAlpha ihdr bytes = promotePixels <$> img
     where img = deinterlacer ihdr bytes :: ErrImage PixelYA8
 unparsePixelRGB8 _ _ _ _ = Left "Cannot reduce data kind"
 
-generateGreyscalePalette :: Word8 -> PngPalette 
+generateGreyscalePalette :: Word8 -> PngPalette
 generateGreyscalePalette times = listArray (0, fromIntegral possibilities) pixels
     where possibilities = 2 ^ times - 1
           pixels = [PixelRGB8 i i i | n <- [0..possibilities], let i = n * (255 `div` possibilities)]
 
-paletteRGBA_1, paletteRGBA_2, paletteRGBA_4  :: PngPalette 
+paletteRGBA_1, paletteRGBA_2, paletteRGBA_4  :: PngPalette
 paletteRGBA_1 = generateGreyscalePalette 1
 paletteRGBA_2 = generateGreyscalePalette 2
 paletteRGBA_4 = generateGreyscalePalette 4
 
 unparsePixelRGBA8 :: PngParser PixelRGBA8
-unparsePixelRGBA8 _ PngGreyscale ihdr bytes 
+unparsePixelRGBA8 _ PngGreyscale ihdr bytes
     | bitDepth ihdr == 1 = unparsePixelRGBA8 (Just paletteRGBA_1) PngIndexedColor ihdr bytes
     | bitDepth ihdr == 2 = unparsePixelRGBA8 (Just paletteRGBA_2) PngIndexedColor ihdr bytes
     | bitDepth ihdr == 4 = unparsePixelRGBA8 (Just paletteRGBA_4) PngIndexedColor ihdr bytes
@@ -682,7 +687,6 @@ instance PngLoadable PixelRGBA8 where
 loadPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
 loadPng f = decodePng <$> B.readFile f
 
-
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
 -- a transformation to RGBA8 is performed. This should change
@@ -692,19 +696,19 @@ pngDecode :: B.ByteString -> Either String DynamicImage
 pngDecode byte = do
     rawImg <- runGet get byte
     let ihdr = header rawImg
-        compressedImageData = 
+        compressedImageData =
               B.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
-        zlibHeaderSize = 1 {- compression method/flags code -}  
-                       + 1 {- Additional flags/check bits -} 
+        zlibHeaderSize = 1 {- compression method/flags code -}
+                       + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
 
-        unparse _ PngGreyscale bytes 
+        unparse _ PngGreyscale bytes
             | bitDepth ihdr == 1 = unparse (Just paletteRGBA_1) PngIndexedColor bytes
             | bitDepth ihdr == 2 = unparse (Just paletteRGBA_2) PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGBA_4) PngIndexedColor bytes
             | otherwise = ImageY8 <$> deinterlacer ihdr bytes
-        unparse (Just plte) PngIndexedColor bytes = 
+        unparse (Just plte) PngIndexedColor bytes =
             ImageRGBA8 <$> amap (promotePixel . (plte !) . fromIntegral) <$> img
                 where img = deinterlacer ihdr bytes :: ErrImage Pixel8
         unparse Nothing PngIndexedColor _ = Left "no valid palette found"
@@ -731,11 +735,11 @@ pngUnparser :: (IArray UArray a, ColorConvertible Word8 a)
 pngUnparser unparser byte = do
     rawImg <- runGet get byte
     let ihdr = header rawImg
-        compressedImageData = 
+        compressedImageData =
               B.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
-        zlibHeaderSize = 1 {- compression method/flags code -}  
-                       + 1 {- Additional flags/check bits -} 
+        zlibHeaderSize = 1 {- compression method/flags code -}
+                       + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
     if B.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
@@ -746,4 +750,73 @@ pngUnparser unparser byte = do
                             Left _ -> Nothing
                             Right plte -> Just plte
             in unparser palette (colourType ihdr) ihdr . B.concat $ Lb.toChunks imgData
+
+
+-- | Encode an image into a png if possible.
+class (IArray UArray a) => PngSavable a where
+    -- | Real encoding function.
+    encodePng :: Image a -> B.ByteString
+
+preparePngHeader :: (IArray UArray a) => Image a -> PngImageType -> Word8 -> PngIHdr
+preparePngHeader img imgType depth = PngIHdr
+    { width             = w + 1
+    , height            = h + 1
+    , bitDepth          = depth
+    , colourType        = imgType
+    , compressionMethod = 0
+    , filterMethod      = 0
+    , interlaceMethod   = PngNoInterlace
+    }
+  where (_, (w,h)) = bounds img
+
+writePngFile :: (IArray UArray pixel, PngSavable pixel)
+             => FilePath -> Image pixel -> IO ()
+writePngFile path img = B.writeFile path $ encodePng img
+
+endChunk :: PngRawChunk
+endChunk = PngRawChunk { chunkLength = 0
+                       , chunkType = iENDSignature
+                       , chunkCRC = pngComputeCrc [iENDSignature]
+                       , chunkData = B.empty
+                       }
+
+
+prepareIDatChunk :: B.ByteString -> PngRawChunk
+prepareIDatChunk imageData = PngRawChunk
+    { chunkLength = fromIntegral $ B.length imageData
+    , chunkType   = iDATSignature
+    , chunkCRC    = pngComputeCrc [iDATSignature, imageData]
+    , chunkData   = imageData
+    }
+
+instance PngSavable PixelRGBA8 where
+    encodePng img = encode $ PngRawImage { header = hdr
+                                         , chunks = [prepareIDatChunk strictEncoded, endChunk]}
+        where hdr = preparePngHeader img PngTrueColourWithAlpha 8
+              (_, (w,h)) = bounds img
+
+              encodeLine line =
+                0 : concat [[r, g, b, a] | column <- [0 .. w]
+                                         , let (PixelRGBA8 r g b a) = img ! (column, line)]
+
+              imgEncodedData = Z.compress . Lb.pack . concat
+                             $ [encodeLine line | line <- [0 .. h]]
+
+              strictEncoded = B.concat $ Lb.toChunks imgEncodedData
+
+        
+instance PngSavable PixelRGB8 where
+    encodePng img = encode $ PngRawImage { header = hdr
+                                         , chunks = [prepareIDatChunk strictEncoded, endChunk] }
+        where hdr = preparePngHeader img PngTrueColour 8
+              (_, (w,h)) = bounds img
+
+              encodeLine line =
+                0 : concat [[r, g, b] | column <- [0 .. w]
+                                      , let (PixelRGB8 r g b) = img ! (column, line)]
+
+              imgEncodedData = Z.compress . Lb.pack . concat
+                             $ [encodeLine line | line <- [0 .. h]]
+
+              strictEncoded = B.concat $ Lb.toChunks imgEncodedData
 
