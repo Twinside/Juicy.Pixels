@@ -1,9 +1,6 @@
 
 import Data.Array.Unboxed
-import Codec.Picture.Bitmap
-import Codec.Picture.Png
-import Codec.Picture.Types
-import Codec.Picture.Jpg
+import Codec.Picture
 import System.Environment
 
 

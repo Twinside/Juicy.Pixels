@@ -1,6 +1,6 @@
-Name:                Picture
+Name:                JuicyPixels
 Version:             0.1
-Synopsis:            Picture loading/serialization
+Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
 -- Description:         
 License:             BSD3
 License-file:        LICENSE
@@ -31,7 +31,8 @@ Executable imageTest
                  transformers >= 0.2.2 && < 0.3
 Library
   -- Modules exported by the library.
-  Exposed-modules:  Codec.Picture.Bitmap,
+  Exposed-modules:  Codec.Picture,
+                    Codec.Picture.Bitmap,
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Types,

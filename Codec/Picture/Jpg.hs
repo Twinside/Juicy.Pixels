@@ -785,9 +785,15 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                      , let unpacker = unpackMacroBlock xScalingFactor yScalingFactor
                      ]
 
+-- | Try to load a jpeg file and decompress. The colorspace is still
+-- YCbCr if you want to perform computation on the luma part. You can
+-- convert it to RGB using 'colorSpaceConversion'
 loadJpeg :: FilePath -> IO (Either String (Image PixelYCbCr8))
 loadJpeg f = decodeJpeg <$> B.readFile f
 
+-- | Try to decompress a jpeg file and decompress. The colorspace is still
+-- YCbCr if you want to perform computation on the luma part. You can
+-- convert it to RGB using 'colorSpaceConversion'
 decodeJpeg :: B.ByteString -> Either String (Image PixelYCbCr8)
 decodeJpeg file = case decode file of
   Left err -> Left err

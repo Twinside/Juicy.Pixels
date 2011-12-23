@@ -1,18 +1,21 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+-- | Modules used for Bitmap file (.bmp) file loading and writing
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmapFile
                            , encodeBitmapFile
+                           , decodeBitmapImage 
+                             -- * Accepted formt in output
+                           , BmpEncodable()
                            ) where
 
-import Control.Monad( replicateM_ )
+import Control.Monad( replicateM_, when )
 import Data.Array.Unboxed
 import Data.Serialize
 import Data.Word
 
 import qualified Data.ByteString as B
-{-import qualified Data.ByteString.Lazy as Lb-}
 
 import Codec.Picture.Types
 
@@ -24,6 +27,8 @@ data BmpHeader = BmpHeader
     , dataOffset      :: !Word32
     }
 
+bitmapMagicIdentifier :: Word16
+bitmapMagicIdentifier = 0x4D42
 
 instance Serialize BmpHeader where
     put hdr = do
@@ -35,6 +40,8 @@ instance Serialize BmpHeader where
 
     get = do
         ident <- getWord16le
+        when (ident /= bitmapMagicIdentifier)
+             (fail "Invalid Bitmap magic identifier")
         fsize <- getWord32le
         r1 <- getWord16le
         r2 <- getWord16le
@@ -80,14 +87,34 @@ instance Serialize BmpInfoHeader where
         putWord32le $ colorCount hdr
         putWord32le $ importantColours hdr
 
-    get = error "Unimplemented"
+    get = do 
+        readSize <- getWord32le
+        readWidth <- getWord32le
+        readHeight <- getWord32le
+        readPlanes <- getWord16le
+        readBitPerPixel <- getWord16le
+        readBitmapCompression <- getWord32le
+        readByteImageSize <- getWord32le
+        readXResolution <- getWord32le
+        readYResolution <- getWord32le
+        readColorCount <- getWord32le
+        readImportantColours <- getWord32le
+        return $ BmpInfoHeader {
+            size = readSize,
+            width = readWidth,
+            height = readHeight,
+            planes = readPlanes,
+            bitPerPixel = readBitPerPixel,
+            bitmapCompression = readBitmapCompression,
+            byteImageSize = readByteImageSize,
+            xResolution = readXResolution,
+            yResolution = readYResolution,
+            colorCount = readColorCount,
+            importantColours = readImportantColours
+        }
 
-data BmpImage a = BmpImage (BmpHeader, BmpInfoHeader, Image a)
-
-instance (BmpEncodable a) => Serialize (BmpImage a) where
-    put (BmpImage (hdr, ihdr, img)) = put hdr >> put ihdr >> bmpEncode img
-    get = error "Unimplemented"
-
+-- | All the instance of this class can be written as a bitmap file
+-- using this library.
 class BmpEncodable pixel where
     bitsPerPixel :: pixel -> Word16
     bmpEncode    :: Image pixel -> Put
@@ -107,6 +134,18 @@ instance BmpEncodable PixelRGB8 where
                   mapM_ put [swapBlueRedRGB8 $ arr ! (col, line) | col <- [0..w]]
                   replicateM_ stride $ put (0 :: Word8)
 
+-- | Try to decode a bitmap image
+decodeBitmapImage :: B.ByteString -> Either String DynamicImage
+decodeBitmapImage str = (flip runGet) str $ do
+    _hdr      <- (get :: Get BmpHeader)
+    bmpHeader <- get
+    case (bitPerPixel bmpHeader,
+                planes  bmpHeader,
+                bitmapCompression bmpHeader) of
+         (32, 1, 0) -> fail "Meuh"
+         (24, 1, 0) -> fail "Meuh"
+         _          -> fail "Can't handle BMP file"
+
 -- | Write an image in a file use the bitmap format.
 writeBitmapFile :: (IArray UArray pixel, BmpEncodable pixel) 
                 => FilePath -> Image pixel -> IO ()
@@ -119,14 +158,14 @@ linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapFile :: forall pixel. (IArray UArray pixel, BmpEncodable pixel) 
                  => Image pixel -> B.ByteString
-encodeBitmapFile img = encode $ BmpImage (hdr, info, img)
+encodeBitmapFile img = runPut $ put hdr >> put info >> bmpEncode img
     where (_, (imgWidth, imgHeight)) = bounds img
 
           bpp = bitsPerPixel (undefined :: pixel)
           padding = linePadding bpp (imgWidth + 1)
           imagePixelSize = (imgWidth + 1 + padding) * (imgHeight + 1) * 4
           hdr = BmpHeader {
-              magicIdentifier = 0x4D42,
+              magicIdentifier = bitmapMagicIdentifier,
               fileSize = sizeofBmpHeader + sizeofBmpInfo + imagePixelSize,
               reserved1 = 0,
               reserved2 = 0,
