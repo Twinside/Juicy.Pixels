@@ -101,11 +101,18 @@ exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
           pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
           pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
 
+greyScaleWitness :: Image Pixel8
+greyScaleWitness = img 232 241
+    where img w h = array ((0, 0), (w - 1, h - 1)) $ pixels w h
+          pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
+          pixel x y = truncate . sqrt . fromIntegral $ (x - 100) * (x - 100) + (y - 100) * (y - 100)
+
 main :: IO ()
 main = do 
     (fname: args) <- getArgs
     {-huffTest-}
     convertJpegToPng fname
+    writePngFile "witness.png" greyScaleWitness 
     {-exportBmpWitness-}
     {-putStrLn ">>>> Valid instances"-}
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}

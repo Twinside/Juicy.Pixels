@@ -799,9 +799,7 @@ instance PngSavable PixelRGBA8 where
                 0 : concat [[r, g, b, a] | column <- [0 .. w]
                                          , let (PixelRGBA8 r g b a) = img ! (column, line)]
 
-              imgEncodedData = Z.compress . Lb.pack . concat
-                             $ [encodeLine line | line <- [0 .. h]]
-
+              imgEncodedData = Z.compress . Lb.pack $ concat [encodeLine line | line <- [0 .. h]]
               strictEncoded = B.concat $ Lb.toChunks imgEncodedData
 
         
@@ -815,8 +813,15 @@ instance PngSavable PixelRGB8 where
                 0 : concat [[r, g, b] | column <- [0 .. w]
                                       , let (PixelRGB8 r g b) = img ! (column, line)]
 
-              imgEncodedData = Z.compress . Lb.pack . concat
-                             $ [encodeLine line | line <- [0 .. h]]
+              imgEncodedData = Z.compress . Lb.pack $ concat [encodeLine line | line <- [0 .. h]]
+              strictEncoded = B.concat $ Lb.toChunks imgEncodedData
 
+instance PngSavable Pixel8 where
+    encodePng img = encode $ PngRawImage { header = hdr
+                                         , chunks = [prepareIDatChunk strictEncoded, endChunk] }
+        where hdr = preparePngHeader img PngGreyscale 8
+              (_, (w,h)) = bounds img
+              encodeLine line = 0 : [img ! (column, line) | column <- [0 .. w]]
+              imgEncodedData = Z.compress . Lb.pack $ concat [encodeLine line | line <- [0 .. h]]
               strictEncoded = B.concat $ Lb.toChunks imgEncodedData
 
