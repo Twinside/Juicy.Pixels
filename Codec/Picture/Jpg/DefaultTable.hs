@@ -5,18 +5,20 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , MacroBlock
 									 , makeMacroBlock
 									 , buildHuffmanTree
+									 {-  
 									 , defaultChromaQuantizationTable
 									 , defaultLumaQuantizationTable
 									 , defaultAcChromaHuffmanTable
 									 , defaultAcLumaHuffmanTable 
 									 , defaultDcChromaHuffmanTable
 									 , defaultDcLumaHuffmanTable
+                                     -}
 									 ) where
 
 import Data.Array.Unboxed
 import Data.Word
 import Data.List(foldl')
-import Data.Int
+{-import Data.Int-}
 
 data HuffmanTree = Branch HuffmanTree HuffmanTree
                  | Leaf Word8
@@ -26,7 +28,7 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree
 -- | Represent a compact array of 8 * 8 values. The size
 -- is not guarenteed by type system, but if makeMacroBlock is
 -- used, everything should be fine size-wise
-type MacroBlock a = UArray Word32 a
+type MacroBlock a = UArray Int a
 
 makeMacroBlock :: (IArray UArray a) => [a] -> MacroBlock a
 makeMacroBlock = listArray (0, 63)
@@ -34,6 +36,22 @@ makeMacroBlock = listArray (0, 63)
 data DctComponent = DcComponent | AcComponent
     deriving (Eq, Show)
 
+buildHuffmanTree :: [[Word8]] -> HuffmanTree
+buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
+                       . concatMap (\(i, t) -> map (i + 1,) t)
+                       $ zip ([0..] :: [Int]) table
+  where isTreeFullyDefined Empty = False
+        isTreeFullyDefined (Leaf _) = True
+        isTreeFullyDefined (Branch l r) = isTreeFullyDefined l && isTreeFullyDefined r
+
+        insertHuffmanVal Empty (0, val) = Leaf val
+        insertHuffmanVal Empty (d, val) = Branch (insertHuffmanVal Empty (d - 1, val)) Empty
+        insertHuffmanVal (Branch l r) (d, val)
+            | isTreeFullyDefined l = Branch l (insertHuffmanVal r (d - 1, val))
+            | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
+        insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
+
+{- 
 defaultLumaQuantizationTable :: MacroBlock Int16
 defaultLumaQuantizationTable = makeMacroBlock
     [16, 11, 10, 16,  24,  40,  51,  61
@@ -57,22 +75,6 @@ defaultChromaQuantizationTable = makeMacroBlock
     ,99, 99, 99, 99, 99, 99, 99, 99
     ,99, 99, 99, 99, 99, 99, 99, 99
     ]
-
-buildHuffmanTree :: [[Word8]] -> HuffmanTree
-buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
-                       . concatMap (\(i, t) -> map (i + 1,) t)
-                       $ zip ([0..] :: [Int]) table
-  where isTreeFullyDefined Empty = False
-        isTreeFullyDefined (Leaf _) = True
-        isTreeFullyDefined (Branch l r) = isTreeFullyDefined l && isTreeFullyDefined r
-
-        insertHuffmanVal Empty (0, val) = Leaf val
-        insertHuffmanVal Empty (d, val) = Branch (insertHuffmanVal Empty (d - 1, val)) Empty
-        insertHuffmanVal (Branch l r) (d, val)
-            | isTreeFullyDefined l = Branch l (insertHuffmanVal r (d - 1, val))
-            | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
-        insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
-
 -- | From the Table K.3 of ITU-81 (p153)
 defaultDcLumaHuffmanTable :: HuffmanTree
 defaultDcLumaHuffmanTable = buildHuffmanTree
@@ -175,4 +177,4 @@ defaultAcChromaHuffmanTable = buildHuffmanTree
       , 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA
       ]
     ]
-
+-}

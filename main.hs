@@ -18,7 +18,7 @@ convertJpegToBmp filePath = do
                  (\err -> return $ Left (show err))
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmapFile (filePath ++ ".bmp") rgbImage
+        Right img -> writeBitmap (filePath ++ ".bmp") rgbImage
                   where rgbImage = changeImageColorSpace img :: Image PixelRGB8
 
 convertJpegToPng :: FilePath -> IO ()
@@ -29,7 +29,7 @@ convertJpegToPng filePath = do
                  (\err -> return $ Left (show err))
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writePngFile (filePath ++ ".png") rgbaImage
+        Right img -> writePng (filePath ++ ".png") rgbaImage
                   where rgbImage  = changeImageColorSpace img :: Image PixelRGB8
                         rgbaImage = promotePixels rgbImage :: Image PixelRGBA8
 
@@ -41,7 +41,7 @@ convertPngToBmp filePath = do
                  (\err -> return $ Left (show err))
     case rez :: Either String (Image PixelRGBA8) of
         Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmapFile (filePath ++ ".bmp") img
+        Right img -> writeBitmap (filePath ++ ".bmp") img
 
 convertPngToBmpBad :: FilePath -> IO ()
 convertPngToBmpBad filePath = do
@@ -93,7 +93,7 @@ invalidTests = ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", 
                 "xs2n0g01.png", "xs4n0g01.png", "xs7n0g01.png", "xd9n2c08.png"]
 
 exportBmpWitness :: IO ()
-exportBmpWitness = writeBitmapFile "wintess.bmp" $ img 232 241
+exportBmpWitness = writeBitmap "wintess.bmp" $ img 232 241
     where img w h = array ((0,0), (w - 1, h - 1)) $ pixels w h
           pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
           pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
@@ -102,14 +102,16 @@ greyScaleWitness :: Image Pixel8
 greyScaleWitness = img 232 241
     where img w h = array ((0, 0), (w - 1, h - 1)) $ pixels w h
           pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
-          pixel x y = truncate . sqrt . fromIntegral $ (x - 100) * (x - 100) + (y - 100) * (y - 100)
+          pixel x y = truncate . sqrt . fromIntegral $ xf * xf + yf * yf
+                where xf = fromIntegral $ x - 100
+                      yf = fromIntegral $ y - 100
 
 main :: IO ()
 main = do 
     (fname: args) <- getArgs
     {-huffTest-}
     convertJpegToPng fname
-    writePngFile "witness.png" greyScaleWitness 
+    {-writePng "witness.png" greyScaleWitness -}
     {-exportBmpWitness-}
     {-putStrLn ">>>> Valid instances"-}
     {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}

@@ -10,6 +10,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State as S
 
+import Data.Array.Base( unsafeAt )
 import Data.List( find, foldl' )
 import Data.Bits
 import Data.Int
@@ -22,6 +23,7 @@ import qualified Data.ByteString as B
 
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
+import Codec.Picture.Jpg.FastIdct
 
 --------------------------------------------------
 ----            Types
@@ -487,8 +489,9 @@ truncateMacroblock = amap truncate
 matrixMultiplication :: MacroBlock Float -> MacroBlock Float -> MacroBlock Float
 matrixMultiplication a b = makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
     where dotProduct lst = sum $ (\(n,m) -> n * m) <$> lst
-          line i = map (a !) [ i * 8 .. i * 8 + 7 ]
-          column j = map (b !) [j, j + 8 .. 63]
+          (!!!) = unsafeAt
+          line i = map (a !!!) [ i * 8 .. i * 8 + 7 ]
+          column j = map (b !!!) [j, j + 8 .. 63]
           coeff i j = dotProduct $ zip (line i) (column j)
 
 inverseDirectCosineTransform :: (Integral a, IArray UArray a) => MacroBlock a -> MacroBlock a
