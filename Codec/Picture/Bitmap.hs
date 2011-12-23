@@ -3,9 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Modules used for Bitmap file (.bmp) file loading and writing
 module Codec.Picture.Bitmap( -- * Functions
-                             writeBitmapFile
-                           , encodeBitmapFile
-                           , decodeBitmapImage 
+                             writeBitmap
+                           , encodeBitmap
+                           , decodeBitmap
                              -- * Accepted formt in output
                            , BmpEncodable()
                            ) where
@@ -135,8 +135,8 @@ instance BmpEncodable PixelRGB8 where
                   replicateM_ stride $ put (0 :: Word8)
 
 -- | Try to decode a bitmap image
-decodeBitmapImage :: B.ByteString -> Either String DynamicImage
-decodeBitmapImage str = (flip runGet) str $ do
+decodeBitmap :: B.ByteString -> Either String DynamicImage
+decodeBitmap str = (flip runGet) str $ do
     _hdr      <- (get :: Get BmpHeader)
     bmpHeader <- get
     case (bitPerPixel bmpHeader,
@@ -147,18 +147,18 @@ decodeBitmapImage str = (flip runGet) str $ do
          _          -> fail "Can't handle BMP file"
 
 -- | Write an image in a file use the bitmap format.
-writeBitmapFile :: (IArray UArray pixel, BmpEncodable pixel) 
-                => FilePath -> Image pixel -> IO ()
-writeBitmapFile filename img = B.writeFile filename $ encodeBitmapFile img
+writeBitmap :: (IArray UArray pixel, BmpEncodable pixel) 
+            => FilePath -> Image pixel -> IO ()
+writeBitmap filename img = B.writeFile filename $ encodeBitmap img
 
 linePadding :: Word16 -> Word32 -> Word32
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
     where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
 
 -- | Convert an image to a bytestring ready to be serialized.
-encodeBitmapFile :: forall pixel. (IArray UArray pixel, BmpEncodable pixel) 
+encodeBitmap :: forall pixel. (IArray UArray pixel, BmpEncodable pixel) 
                  => Image pixel -> B.ByteString
-encodeBitmapFile img = runPut $ put hdr >> put info >> bmpEncode img
+encodeBitmap img = runPut $ put hdr >> put info >> bmpEncode img
     where (_, (imgWidth, imgHeight)) = bounds img
 
           bpp = bitsPerPixel (undefined :: pixel)

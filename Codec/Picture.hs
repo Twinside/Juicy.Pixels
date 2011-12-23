@@ -3,20 +3,20 @@
 -- image formats.
 module Codec.Picture ( -- * Bitmap handling 
                        BmpEncodable()
-                     , writeBitmapFile
-                     , encodeBitmapFile
-                     , decodeBitmapImage 
+                     , writeBitmap
+                     , encodeBitmap
+                     , decodeBitmap
 
                      -- * Jpeg handling
-                     , loadJpeg
+                     , readJpeg
                      , decodeJpeg 
 
                      -- * Png handling
                      , PngLoadable( .. )
                      , PngSavable( .. )
-                     , loadPng
+                     , readPng
                      , pngDecode
-                     , writePngFile
+                     , writePng
                      -- * Image types and pixel types
                      -- ** Image
                      , Image

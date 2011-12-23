@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
-module Codec.Picture.Jpg( loadJpeg, decodeJpeg ) where
+module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_ )
@@ -788,8 +788,8 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
 -- convert it to RGB using 'colorSpaceConversion'
-loadJpeg :: FilePath -> IO (Either String (Image PixelYCbCr8))
-loadJpeg f = decodeJpeg <$> B.readFile f
+readJpeg :: FilePath -> IO (Either String (Image PixelYCbCr8))
+readJpeg f = decodeJpeg <$> B.readFile f
 
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can

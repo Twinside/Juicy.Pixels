@@ -13,9 +13,9 @@ module Codec.Picture.Png( -- * High level functions
                           PngLoadable( .. )
                         , PngSavable( .. )
 
-                        , loadPng
+                        , readPng
                         , pngDecode
-                        , writePngFile
+                        , writePng
 
                           -- * Low level types
                         , ChunkSignature
@@ -684,8 +684,8 @@ instance PngLoadable PixelRGBA8 where
 
 
 -- | Load a png file, perform the same casts as 'decodePng'
-loadPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
-loadPng f = decodePng <$> B.readFile f
+readPng :: (PngLoadable a) => FilePath -> IO (Either String (Image a))
+readPng f = decodePng <$> B.readFile f
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
@@ -769,9 +769,9 @@ preparePngHeader img imgType depth = PngIHdr
     }
   where (_, (w,h)) = bounds img
 
-writePngFile :: (IArray UArray pixel, PngSavable pixel)
+writePng :: (IArray UArray pixel, PngSavable pixel)
              => FilePath -> Image pixel -> IO ()
-writePngFile path img = B.writeFile path $ encodePng img
+writePng path img = B.writeFile path $ encodePng img
 
 endChunk :: PngRawChunk
 endChunk = PngRawChunk { chunkLength = 0
