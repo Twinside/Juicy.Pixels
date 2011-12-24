@@ -32,6 +32,7 @@ import GHC.Word		( Word8(..) )
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
 -- position first, then the vertical one.
+-- The array start at (0,0) and end at (imageWidth - 1, imageHeight - 1)
 type Image a = UArray (Word32, Word32) a
 
 -- | Type allowing the loading of an image with different pixel
@@ -45,6 +46,8 @@ data DynamicImage =
      | ImageRGB8 (Image PixelRGB8)
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
+
+     | ImageYCbCr (Image PixelYCbCr8)
 
 type Pixel2 = Bool
 

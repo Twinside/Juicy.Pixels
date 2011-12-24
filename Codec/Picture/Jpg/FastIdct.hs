@@ -1,28 +1,24 @@
 -- | Module providing a 'fast' implementation of IDCT
-module Codec.Picture.Jpg.FastIdct where
-
--- *********************************************************/
--- inverse two dimensional DCT, Chen-Wang algorithm       */
--- (cf. IEEE ASSP-32, pp. 803-816, Aug. 1984)             */
--- 32-bit integer arithmetic (8 bit coefficients)         */
--- 11 mults, 29 adds per DCT                              */
---                                      sE, 18.8.91       */
--- ********************************************************/
--- coefficients extended to 12 bit for IEEE1180-1990      */
--- compliance                           sE,  2.1.94       */
--- ********************************************************/
+-- *******************************************************
+-- inverse two dimensional DCT, Chen-Wang algorithm       
+-- (cf. IEEE ASSP-32, pp. 803-816, Aug. 1984)             
+-- 32-bit integer arithmetic (8 bit coefficients)         
+-- 11 mults, 29 adds per DCT                              
+--                                      sE, 18.8.91       
+-- *******************************************************
+-- coefficients extended to 12 bit for IEEE1180-1990      
+-- compliance                           sE,  2.1.94       
+-- *******************************************************
 
 -- this code assumes >> to be a two's-complement arithmetic
 -- right shift: (-2)>>1 == -1 , (-3)>>1 == -2               
+module Codec.Picture.Jpg.FastIdct( fastIdct, mutableLevelShift ) where
 
 import Control.Monad( forM_ )
-import Control.Monad.ST( ST, runST )
+import Control.Monad.ST( ST )
 import Data.Array.Base
-import Data.Word
-import Data.Array.Unboxed
 import Data.Bits
 import Data.Int
-import Codec.Picture.Jpg.DefaultTable
 
 iclip :: UArray Int Int16
 iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]
@@ -216,6 +212,10 @@ fastIdct block = do
     forM_ [0..7] (idctRow block)
     forM_ [0..7] (idctCol block)
 
+mutableLevelShift :: MutableMacroBlock s Int16 -> ST s ()
+mutableLevelShift block = forM_ [0..63] $ \i -> do
+    v <- block .!!!. i
+    (block .<-. i) $ v + 128
 {-
 void idct(block)
 short *block;
