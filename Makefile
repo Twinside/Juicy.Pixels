@@ -12,7 +12,10 @@ clean:
 	rm -f tests/pngsuite/*.bmp
 
 run:
-	dist\build\imageTest\imageTest.exe tests/jpeg/fenek.jpg
+	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
+
+prof:
+	dist\build\imageTest\imageTest.exe +RTS -p -RTS tests/jpeg/sheep.jpg
 
 test:
 	dist\build\imageTest\imageTest.exe tests/jpeg/8x8jpeg.jpg

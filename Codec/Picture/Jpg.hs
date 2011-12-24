@@ -10,7 +10,6 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State as S
 
-import Data.Array.Base( unsafeAt )
 import Data.List( find, foldl' )
 import Data.Bits
 import Data.Int
@@ -458,49 +457,12 @@ deQuantize table block = makeMacroBlock . map dequant $ indices table
             where r = fromIntegral (table ! i) :: Int
                   l = fromIntegral (block ! i)
 
-
-idctCoefficientMatrix :: MacroBlock Float
-idctCoefficientMatrix =
-  makeMacroBlock [idctCoefficient x u | x <- [1, 3 .. 15], u <- [0 .. 7 :: Int]]
-    where idctCoefficient _ 0 = 0.5 / sqrt 2.0
-          idctCoefficient x u = 0.5 * cos(pi / 16.0 * xu)
-            where xu = fromIntegral $ x * u
-
-levelScaling :: (Integral a, IArray UArray a, Num a) => MacroBlock a -> MacroBlock Word8
-levelScaling = amap (\c -> fromIntegral . max 0 . min 255 $ 128 + c)
-
-macroBlockTranspose :: (IArray UArray a) => MacroBlock a -> MacroBlock a
-macroBlockTranspose = ixmap (0, 63) transposer
-    where transposer i = let (y,x) =  i `divMod` 8 in x * 8 + y
-             
-
--- | Cast a macroblock from an integer one to a floating point one.
-fromIntegralMacroblock :: (IArray UArray a, IArray UArray b, Integral a, Num b) 
-                       => MacroBlock a -> MacroBlock b
-fromIntegralMacroblock = amap fromIntegral
-
--- | Drop the fractional part of a macroblock to retrieve an integer
--- macroblock.
-truncateMacroblock :: (IArray UArray a, IArray UArray b, RealFrac a, Integral b) 
-                   => MacroBlock a -> MacroBlock b
-truncateMacroblock = amap truncate
-
--- | Implement an R^8*8 matrix multiplication between floating points
-matrixMultiplication :: MacroBlock Float -> MacroBlock Float -> MacroBlock Float
-matrixMultiplication a b = makeMacroBlock [coeff i j | i <- [0 .. 7], j <- [0 .. 7] ]
-    where dotProduct lst = sum $ (\(n,m) -> n * m) <$> lst
-          (!!!) = unsafeAt
-          line i = map (a !!!) [ i * 8 .. i * 8 + 7 ]
-          column j = map (b !!!) [j, j + 8 .. 63]
-          coeff i j = dotProduct $ zip (line i) (column j)
-
-inverseDirectCosineTransform :: (Integral a, IArray UArray a) => MacroBlock a -> MacroBlock a
-inverseDirectCosineTransform = truncateMacroblock 
-                             . macroBlockTranspose
-                             . matrixMultiplication idctCoefficientMatrix
-                             . macroBlockTranspose
-                             . matrixMultiplication idctCoefficientMatrix
-                             . fromIntegralMacroblock
+inverseDirectCosineTransform :: MacroBlock Int16 -> MacroBlock Int16
+inverseDirectCosineTransform block = runSTUArray $ do
+    mBlock <- newListArray (0, 63) $ elems block
+    fastIdct mBlock
+    mutableLevelShift mBlock
+    return mBlock
 
 zigZagReorder :: (IArray UArray a) => MacroBlock a -> MacroBlock a
 zigZagReorder block = ixmap (0,63) reorder block
@@ -518,20 +480,14 @@ zigZagReorder block = ixmap (0,63) reorder block
               ,[35,36,48,49,57,58,62,63]
               ]
 
-promoteMacroBlock :: (Integral a, Num b, IArray UArray a, IArray UArray b)
-                  => MacroBlock a -> MacroBlock b
-promoteMacroBlock = amap fromIntegral
-
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
 -- there is to know for macro block transformation
 decodeMacroBlock :: MacroBlock Int16 
-                 -> MacroBlock DctCoefficients -> MacroBlock Word8
-decodeMacroBlock quantizationTable =  promoteMacroBlock
-                                 . levelScaling
-                                 . inverseDirectCosineTransform 
-                                 . zigZagReorder
-                                 . deQuantize quantizationTable
+                 -> MacroBlock DctCoefficients -> MacroBlock Int16
+decodeMacroBlock quantizationTable = inverseDirectCosineTransform 
+                                   . zigZagReorder
+                                   . deQuantize quantizationTable
 
 packInt :: [Bool] -> Int32
 packInt = foldl' bitStep 0
@@ -591,7 +547,7 @@ decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> HuffmanTree         -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
                      -> DcCoefficient       -- ^ Previous dc value
-                     -> BoolReader s (DcCoefficient, MacroBlock Word8)
+                     -> BoolReader s (DcCoefficient, MacroBlock Int16)
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
     acCoefficients <- acCoefficientsDecode acTree
@@ -613,35 +569,40 @@ gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
           unScan (JpgScans a b) = (a,b)
           unScan _ = error "If this can happen, the JPEG image is ill-formed"
 
+pixelClamp :: (Num b, Integral a) => a -> b
+pixelClamp n = fromIntegral . min 255 $ max 0 n
+
 -- | Given a size coefficient (how much a pixel span horizontally
 -- and vertically), the position of the macroblock, return a list
 -- of indices and value to be stored in an array (like the final
 -- image)
-unpackMacroBlock :: (IArray UArray a)
+unpackMacroBlock :: (IArray UArray a, Integral a, Num b)
                  => Word32 -- ^ Width coefficient
                  -> Word32 -- ^ Height coefficient
                  -> Word32 -- ^ x
                  -> Word32 -- ^ y
                  -> MacroBlock a
-                 -> [((Word32, Word32), a)]
+                 -> [((Word32, Word32), b)]
     -- Simple case, a macroblock value => a pixel
 unpackMacroBlock      1      1 x y block =
-    [((i + x * 8, j + y * 8), block ! (i + j * 8))
+    [((fi i + x * 8, fi j + y * 8), pixelClamp $ block ! (i + j * 8))
                                 | i <- [0 .. 7], j <- [0 .. 7] ]
+        where fi = fromIntegral
 
     -- here we have to span
 unpackMacroBlock wCoeff hCoeff x y block =
-    [(((i + x * 8) * wCoeff + wDup,
-       (j + y * 8) * hCoeff + hDup), block ! (i + j * 8))
+    [(((fi i + x * 8) * wCoeff + wDup,
+       (fi j + y * 8) * hCoeff + hDup), pixelClamp $ block ! (i + j * 8))
                     | i <- [0 .. 7], j <- [0 .. 7]
                     -- Repetition to spread macro block
                     , wDup <- [0 .. wCoeff - 1]
                     , hDup <- [0 .. hCoeff - 1]
                     ]
+        where fi = fromIntegral
 
 -- | Type only used to make clear what kind of integer we are carrying
 -- Might be transformed into newtype in the future
-type DcCoefficient = Int32
+type DcCoefficient = Int16
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient 
@@ -673,7 +634,7 @@ decodeImage compCount decoder = concat <$> do
 
         mapAccumM f = mapAccumLM f blockBeforeRestart blockIndices >>= \(_, lst) -> return lst
 
-    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int Int32))
+    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
     concat <$> mapAccumM (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $ 
