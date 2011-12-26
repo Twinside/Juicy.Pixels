@@ -182,39 +182,39 @@ buildPackedHuffmanTree = buildHuffmanTree . map elems . elems
 -- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
-huffmanDecode originalTree = S.get >>= huffDecode originalTree
-  where huffDecode _       [] = return 0
-                        -- fail "huffmanDecode - No more bits (shouldn't happen)"
-        huffDecode Empty rest = S.put rest >> return 0
-                        -- fail "huffmanDecode - Empty leaf (shouldn't happen)"
-        huffDecode (Branch l _) ((_, False) : rest) = huffDecode l rest
-        huffDecode (Branch _ r) ((_, True ) : rest) = huffDecode r rest
-        huffDecode (Leaf v) boolList = S.put boolList >> return v
+huffmanDecode originalTree = getNextBit >>= huffDecode originalTree
+  where huffDecode Empty                   _ = return 0
+        huffDecode (Branch (Leaf v) _) False = return v
+        huffDecode (Branch l       _ ) False = getNextBit >>= huffDecode l
+        huffDecode (Branch _ (Leaf v)) True  = return v
+        huffDecode (Branch _       r ) True  = getNextBit >>= huffDecode r
+        huffDecode (Leaf v) _ = return v
 
 -- |  Drop all bit until the bit of indice 0, usefull to parse restart
 -- marker, as they are byte aligned, but Huffman might not.
 byteAlign :: BoolReader s ()
-byteAlign = S.get >>= S.put . firstBit
-    where firstBit bits = snd $ break (\(bitIdx,_) -> bitIdx == 0) bits
-
--- | Convert a bytestring to a list of word8, removing restart
--- markers.
-{-# INLINE markerRemoval #-}
-markerRemoval :: B.ByteString -> [Word8]
-markerRemoval = markerRemover . B.unpack
-  where markerRemover (0xFF:0x00:rest) = 0xFF : markerRemover rest
-        markerRemover (0xFF:   _:rest) = markerRemover rest -- restart marker
-        markerRemover (x   :rest)      = x : markerRemover rest
-        markerRemover []               = []
-
--- | Position of a bit in the initial word
-type BitIndex = Word8
+byteAlign = do
+  (idx, _, chain) <- S.get
+  when (idx /= 7) (setDecodedString chain)
 
 -- | Bitify a list of things to decode.
-{-# INLINE bitifyString #-}
-bitifyString :: [Word8] -> [(BitIndex, Bool)]
-bitifyString = concatMap bitify
-  where bitify v = [(7 - i, testBit v $ fromIntegral i) | i <- [7, 6 .. 0]]
+setDecodedString :: B.ByteString -> BoolReader s ()
+setDecodedString str = case B.uncons str of
+     Nothing        -> S.put (maxBound, 0, B.empty)
+     Just (0xFF, rest) -> case B.uncons rest of
+            Nothing                  -> S.put (maxBound, 0, B.empty)
+            Just (0x00, afterMarker) -> S.put (7, 0xFF, afterMarker)
+            Just (_   , afterMarker) -> setDecodedString afterMarker
+     Just (v, rest) -> S.put (       7, v,    rest)
+
+getNextBit :: BoolReader s Bool
+getNextBit = do
+    (idx, v, chain) <- S.get
+    let val = (v .&. (1 `shiftL` idx)) /= 0
+    if idx == 0
+      then setDecodedString chain
+      else S.put (idx - 1, v, chain)
+    return val
 
 --------------------------------------------------
 ----            Serialization instances
@@ -446,7 +446,10 @@ instance Serialize JpgScanHeader where
         put . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
-type BoolReader s a = S.StateT [(BitIndex, Bool)] (ST s) a
+-- | Current bit index, current value, string
+type BoolState = (Int, Word8, B.ByteString)
+
+type BoolReader s a = S.StateT BoolState (ST s) a
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -496,27 +499,18 @@ packInt = foldl' bitStep 0
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int32 -> BoolReader s Int32
-unpackInt bitCount = do
-    bits <- S.get
-    let (toUnpack, rest) = fromIntegral bitCount `splitAt` bits
-    S.put rest
-    return . packInt $ map snd toUnpack
+unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBit
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
-    bits <- S.get
+    signBit <- getNextBit
     let dataRange = 1 `shiftL` fromIntegral (ssss - 1)
         leftBitCount = ssss - 1
     -- First following bits store the sign of the coefficient, and counted in
     -- SSSS, so the bit count for the int, is ssss - 1
-    case bits of
-      []     -> fail "Not engouh bits"
-      ((_, True) : rest) -> do
-          S.put rest
-          (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
-      ((_, False) : rest) -> do
-          S.put rest
-          (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
+    if signBit
+       then (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
+       else (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
@@ -615,12 +609,14 @@ mapAccumLM f acc (x:xs) = do
     return (acc'', y : yList)
 
 decodeRestartInterval :: BoolReader s Int32
-decodeRestartInterval = S.get >>= \bits ->
-  if take 8 bits == zip [0 .. 7] (repeat True)
-     then let (marker, rest) = splitAt 8 $ drop 8 bits
-              intBits = map snd marker
-          in S.put rest >> return (packInt intBits)
+decodeRestartInterval = return (-1) {-  do
+  bits <- replicateM 8 getNextBit
+  if bits == replicate 8 True
+     then do
+         marker <- replicateM 8 getNextBit
+         return $ packInt marker
      else return (-1)
+        -}
 
 
 decodeImage :: Int              -- ^ Component count
@@ -763,7 +759,6 @@ decodeJpeg file = case decode file of
   Left err -> Left err
   Right img -> Right $
       let (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
-          bitList = bitifyString $ markerRemoval imgData
           (_, scanInfo) = gatherScanInfo img
           compCount = length $ jpgComponents scanInfo
 
@@ -779,7 +774,7 @@ decodeJpeg file = case decode file of
           setter (PixelYCbCr8 y cb  _) (2, v) = PixelYCbCr8 y cb  v
           setter _ _ = error "Impossible jpeg decoding can happen"
 
-          pixelList =  runST $ S.evalStateT decoder bitList
+          pixelList =  runST $ S.evalStateT (setDecodedString imgData >> decoder) (-1, 0, B.empty)
 
           inImageBound ((x, y), _) = x < imgWidth && y < imgHeight
 

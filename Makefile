@@ -9,13 +9,14 @@ doc:
 	runhaskell Setup.hs haddock
 
 clean:
+	runhaskell Setup.hs clean
 	rm -f tests/pngsuite/*.bmp
 
 run:
 	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
 
 prof:
-	dist\build\imageTest\imageTest.exe +RTS -p -RTS tests/jpeg/sheep.jpg
+	dist\build\imageTest\imageTest.exe +RTS -hc -p -sstderr -RTS tests/jpeg/sheep.jpg
 
 test:
 	dist\build\imageTest\imageTest.exe tests/jpeg/8x8jpeg.jpg
