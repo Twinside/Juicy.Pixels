@@ -28,20 +28,22 @@ iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]
 
 
 
+{-# INLINE (.<<.) #-}
+{-# INLINE (.>>.) #-}
 (.<<.), (.>>.) :: Bits a => a -> Int -> a
 (.<<.) = shiftL
 (.>>.) = shiftR
 
 data IDctStage = IDctStage { 
-        x0 :: !Int,
-        x1 :: !Int,
-        x2 :: !Int,
-        x3 :: !Int,
-        x4 :: !Int,
-        x5 :: !Int,
-        x6 :: !Int,
-        x7 :: !Int,
-        x8 :: !Int
+        x0 :: {-# UNPACK #-} !Int,
+        x1 :: {-# UNPACK #-} !Int,
+        x2 :: {-# UNPACK #-} !Int,
+        x3 :: {-# UNPACK #-} !Int,
+        x4 :: {-# UNPACK #-} !Int,
+        x5 :: {-# UNPACK #-} !Int,
+        x6 :: {-# UNPACK #-} !Int,
+        x7 :: {-# UNPACK #-} !Int,
+        x8 :: {-# UNPACK #-} !Int
     }
 
 w1, w2, w3, w5, w6, w7 :: Int
@@ -52,12 +54,15 @@ w5 = 1609 -- 2048*sqrt(2)*cos(5*pi/16)
 w6 = 1108 -- 2048*sqrt(2)*cos(6*pi/16)
 w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 
+{-# INLINE (!!!) #-}
 (!!!) :: (IArray array e) => array Int e -> Int -> e
 (!!!) a i = unsafeAt a (i + 512)
 
+{-# INLINE (.!!!.) #-}
 (.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
 (.!!!.) = unsafeRead
 
+{-# INLINE (.<-.) #-}
 (.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
 (.<-.)  = unsafeWrite
 
