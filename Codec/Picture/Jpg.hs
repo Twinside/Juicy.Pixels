@@ -5,10 +5,10 @@
 module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
-import Control.Monad( when, replicateM, forM, forM_ )
-import Control.Monad.ST( ST, runST )
+import Control.Monad( when, replicateM, forM, forM_, foldM_ )
+import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
-import qualified Control.Monad.Trans.State as S
+import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.List( find, foldl' )
 import Data.Bits
@@ -24,6 +24,7 @@ import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 
+import Data.Array.Base
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -207,6 +208,7 @@ setDecodedString str = case B.uncons str of
             Just (_   , afterMarker) -> setDecodedString afterMarker
      Just (v, rest) -> S.put (       7, v,    rest)
 
+{-# INLINE getNextBit #-}
 getNextBit :: BoolReader s Bool
 getNextBit = do
     (idx, v, chain) <- S.get
@@ -451,46 +453,73 @@ type BoolState = (Int, Word8, B.ByteString)
 
 type BoolReader s a = S.StateT BoolState (ST s) a
 
+{-# INLINE (!!!) #-}
+(!!!) :: (IArray array e) => array Int e -> Int -> e
+(!!!) a i = unsafeAt a i
+
+{-# INLINE (.!!!.) #-}
+(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
+(.!!!.) = unsafeRead
+
+{-# INLINE (.<-.) #-}
+(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
+(.<-.)  = unsafeWrite
+
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
-deQuantize :: (IArray UArray a, Num a, Integral a)
-           => MacroBlock Int16 -> MacroBlock a -> MacroBlock a
-deQuantize table block = makeMacroBlock . map dequant $ indices table
-    where dequant i = fromIntegral $ r * l
-            where r = fromIntegral (table ! i) :: Int
-                  l = fromIntegral (block ! i)
+deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16 
+           -> ST s (MutableMacroBlock s Int16)
+deQuantize table block = dequant 0 >> return block
+    where updateVal i = do
+              val <- block .!!!. i
+              let quantCoeff = table ! i
+                  newVal = val * quantCoeff
+              (block .<-. i) newVal
 
-inverseDirectCosineTransform :: MacroBlock Int16 -> MacroBlock Int16
-inverseDirectCosineTransform block = runSTUArray $ do
-    mBlock <- newListArray (0, 63) $ elems block
-    fastIdct mBlock
-    mutableLevelShift mBlock
-    return mBlock
+          dequant 63 = updateVal 63
+          dequant n  = updateVal  n >> dequant (n + 1)
 
-zigZagReorder :: (IArray UArray a) => MacroBlock a -> MacroBlock a
-zigZagReorder block = ixmap (0,63) reorder block
-    where reorder i = fromIntegral $ zigZagOrder ! i
+inverseDirectCosineTransform :: MutableMacroBlock s Int16 
+                             -> ST s (MutableMacroBlock s Int16)
+inverseDirectCosineTransform mBlock =
+    fastIdct mBlock >>= mutableLevelShift
 
-          zigZagOrder :: MacroBlock Word8
-          zigZagOrder = makeMacroBlock $ concat
-              [[ 0, 1, 5, 6,14,15,27,28]
-              ,[ 2, 4, 7,13,16,26,29,42]
-              ,[ 3, 8,12,17,25,30,41,43]
-              ,[ 9,11,18,24,31,40,44,53]
-              ,[10,19,23,32,39,45,52,54]
-              ,[20,22,33,38,46,51,55,60]
-              ,[21,34,37,47,50,56,59,61]
-              ,[35,36,48,49,57,58,62,63]
-              ]
+zigZagOrder :: MacroBlock Word8
+zigZagOrder = makeMacroBlock $ concat
+    [[ 0, 1, 5, 6,14,15,27,28]
+    ,[ 2, 4, 7,13,16,26,29,42]
+    ,[ 3, 8,12,17,25,30,41,43]
+    ,[ 9,11,18,24,31,40,44,53]
+    ,[10,19,23,32,39,45,52,54]
+    ,[20,22,33,38,46,51,55,60]
+    ,[21,34,37,47,50,56,59,61]
+    ,[35,36,48,49,57,58,62,63]
+    ]
+
+zigZagReorder :: MutableMacroBlock s Int16 -> ST s (MutableMacroBlock s Int16)
+zigZagReorder block = do
+    zigzaged <- newArray (0, 63) 0
+    let update i =  do
+            let idx = zigZagOrder !!! i
+            v <- block .!!!. (fromIntegral idx)
+            (zigzaged .<-. i) v
+
+        reorder 63 = update 63
+        reorder i  = update i >> reorder (i + 1)
+
+    reorder 0
+    return zigzaged 
+
 
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
 -- there is to know for macro block transformation
-decodeMacroBlock :: MacroBlock Int16 
-                 -> MacroBlock DctCoefficients -> MacroBlock Int16
-decodeMacroBlock quantizationTable = inverseDirectCosineTransform 
-                                   . zigZagReorder
-                                   . deQuantize quantizationTable
+decodeMacroBlock :: MacroBlock DctCoefficients 
+                 -> MutableMacroBlock s Int16 
+                 -> ST s (MutableMacroBlock s Int16)
+decodeMacroBlock quantizationTable block =
+    deQuantize quantizationTable block >>= zigZagReorder
+                                       >>= inverseDirectCosineTransform
 
 packInt :: [Bool] -> Int32
 packInt = foldl' bitStep 0
@@ -541,13 +570,14 @@ decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> HuffmanTree         -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
                      -> DcCoefficient       -- ^ Previous dc value
-                     -> BoolReader s (DcCoefficient, MacroBlock Int16)
+                     -> BoolReader s (DcCoefficient, MutableMacroBlock s Int16)
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
     acCoefficients <- acCoefficientsDecode acTree
     let neoDcCoefficient = previousDc + dcDeltaCoefficient
-        block = makeMacroBlock $ neoDcCoefficient : acCoefficients
-    return (neoDcCoefficient, decodeMacroBlock quantizationTable block)
+    block <- lift . makeMutableMacroBlock $ neoDcCoefficient : acCoefficients
+    decodedBlock <- lift $ decodeMacroBlock quantizationTable block
+    return (neoDcCoefficient, decodedBlock)
 
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
 gatherQuantTables img = concat [t | JpgQuantTable t <- jpgFrame img]
@@ -563,36 +593,43 @@ gatherScanInfo img = fromJust $ unScan <$> find scanDesc (jpgFrame img)
           unScan (JpgScans a b) = (a,b)
           unScan _ = error "If this can happen, the JPEG image is ill-formed"
 
-pixelClamp :: (Num b, Integral a) => a -> b
+pixelClamp :: Int16 -> Word8
 pixelClamp n = fromIntegral . min 255 $ max 0 n
 
 -- | Given a size coefficient (how much a pixel span horizontally
 -- and vertically), the position of the macroblock, return a list
 -- of indices and value to be stored in an array (like the final
 -- image)
-unpackMacroBlock :: (IArray UArray a, Integral a, Num b)
-                 => Word32 -- ^ Width coefficient
+unpackMacroBlock :: Int    -- ^ Component index
+                 -> Word32 -- ^ Width coefficient
                  -> Word32 -- ^ Height coefficient
                  -> Word32 -- ^ x
                  -> Word32 -- ^ y
-                 -> MacroBlock a
-                 -> [((Word32, Word32), b)]
+                 -> MutableImage s PixelYCbCr8
+                 -> MutableMacroBlock s Int16
+                 -> ST s ()
     -- Simple case, a macroblock value => a pixel
-unpackMacroBlock      1      1 x y block =
-    [((fi i + x * 8, fi j + y * 8), pixelClamp $ block ! (i + j * 8))
-                                | i <- [0 .. 7], j <- [0 .. 7] ]
-        where fi = fromIntegral
+unpackMacroBlock compIdx wCoeff hCoeff x y img block = do
+  (_, (imgWidthBound, imgHeightBound))  <- getBounds img
+  forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
+      let xPos = (fromIntegral i + x * 8) * wCoeff + wDup
+          yPos = (fromIntegral j + y * 8) * hCoeff + hDup
+      when (0 <= xPos && xPos <= imgWidthBound && 0 <= yPos && yPos <= imgHeightBound)
+           (do compVal <- pixelClamp <$> (block .!!!. (i + j * 8))
+               let mutableIdx = (xPos, yPos)
+               px <- img `readArray` mutableIdx 
+               (img `writeArray` mutableIdx) $ pixelUpdater px compIdx compVal
+               return ())
 
-    -- here we have to span
-unpackMacroBlock wCoeff hCoeff x y block =
-    [(((fi i + x * 8) * wCoeff + wDup,
-       (fi j + y * 8) * hCoeff + hDup), pixelClamp $ block ! (i + j * 8))
-                    | i <- [0 .. 7], j <- [0 .. 7]
-                    -- Repetition to spread macro block
-                    , wDup <- [0 .. wCoeff - 1]
-                    , hDup <- [0 .. hCoeff - 1]
-                    ]
-        where fi = fromIntegral
+    where pixelUpdater (PixelYCbCr8 _  cb cr) 0 v = PixelYCbCr8 v  cb cr
+          pixelUpdater (PixelYCbCr8 yp  _ cr) 1 v = PixelYCbCr8 yp  v cr
+          pixelUpdater (PixelYCbCr8 yp cb  _) 2 v = PixelYCbCr8 yp cb  v
+          pixelUpdater _ _ _ = error "Impossible jpeg decoding can happen"
+          pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
+                                -- Repetition to spread macro block
+                                , wDup <- [0 .. wCoeff - 1]
+                                , hDup <- [0 .. hCoeff - 1]
+                                ]
 
 -- | Type only used to make clear what kind of integer we are carrying
 -- Might be transformed into newtype in the future
@@ -600,13 +637,6 @@ type DcCoefficient = Int16
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient 
-
-mapAccumLM :: Monad m => (acc -> x -> m (acc, y)) -> acc -> [x] -> m (acc, [y])
-mapAccumLM _ acc []     = return (acc, [])
-mapAccumLM f acc (x:xs) = do
-    (acc', y)      <- f acc x
-    (acc'', yList) <- mapAccumLM f acc' xs
-    return (acc'', y : yList)
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
@@ -619,19 +649,20 @@ decodeRestartInterval = return (-1) {-  do
         -}
 
 
-decodeImage :: Int              -- ^ Component count
-            -> JpegDecoder s
-            -> BoolReader s [((Word32, Word32), (Int, Word8))]
-decodeImage compCount decoder = concat <$> do
+decodeImage :: Int                        -- ^ Component count
+            -> JpegDecoder s              -- ^ Function to call to decode an MCU
+            -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
+            -> BoolReader s ()
+decodeImage compCount decoder img = do
     let blockIndices = [(x,y) | y <- [0 ..   verticalMcuCount decoder - 1]
                               , x <- [0 .. horizontalMcuCount decoder - 1] ]
         mcuDecode = mcuDecoder decoder
         blockBeforeRestart = restartInterval decoder
 
-        mapAccumM f = mapAccumLM f blockBeforeRestart blockIndices >>= \(_, lst) -> return lst
+        folder f = foldM_ f blockBeforeRestart blockIndices
 
     dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
-    concat <$> mapAccumM (\resetCounter (x,y) -> do
+    folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $ 
                      \c -> lift $ (dcArray `writeArray` c) 0
@@ -641,23 +672,20 @@ decodeImage compCount decoder = concat <$> do
                    then return ()
                    else return ())
 
-        dataUnits <- forM mcuDecode $ (\(comp, dataUnitDecoder) -> do
+        forM_ mcuDecode $ \(comp, dataUnitDecoder) -> do
             dc <- lift $ dcArray `readArray` comp
-            (dcCoeff, block) <- dataUnitDecoder x y $ fromIntegral dc
+            dcCoeff <- dataUnitDecoder x y img $ fromIntegral dc
             lift $ (dcArray `writeArray` comp) dcCoeff
-            return [(idx, (comp, val)) | (idx, val) <- block])
+            return ()
 
-        return (if resetCounter /= 0 then resetCounter - 1 
+        if resetCounter /= 0 then return $ resetCounter - 1
                                          -- we use blockBeforeRestart - 1 to count
                                          -- the current MCU
-                                     else blockBeforeRestart - 1, dataUnits))
-
--- | Type used to write into an array
-type PixelWriteOrders   = [((Word32, Word32), Word8)]
+                            else return $ blockBeforeRestart - 1)
 
 -- | Type of a data unit (as in the ITU 81) standard
 type DataUnitDecoder s  =
-    (Int, Word32 -> Word32 -> DcCoefficient -> BoolReader s (DcCoefficient, PixelWriteOrders))
+    (Int, Word32 -> Word32 -> MutableImage s PixelYCbCr8 -> DcCoefficient -> BoolReader s DcCoefficient)
 
 data JpegDecoder s = JpegDecoder
     { restartInterval    :: Int
@@ -732,17 +760,17 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
 
-        mcus = [(compIdx, \x y dc -> do
+        mcus = [(compIdx, \x y writeImg dc -> do
                            (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
-                           return (dcCoeff, unpacker  (x * horizCount + xd) 
-                                                      (y * vertCount + yd) block))
+                           lift $ unpacker (x * horizCount + xd) (y * vertCount + yd) writeImg block
+                           return dcCoeff)
                      | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable)) 
                                    <- zip [0..] componentsInfo
                      , let xScalingFactor = maxHorizFactor - horizCount + 1
                            yScalingFactor = maxVertFactor - vertCount + 1
                      , yd <- [0 .. vertCount - 1]
                      , xd <- [0 .. horizCount - 1]
-                     , let unpacker = unpackMacroBlock xScalingFactor yScalingFactor
+                     , let unpacker = unpackMacroBlock compIdx xScalingFactor yScalingFactor
                      ]
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
@@ -762,21 +790,14 @@ decodeJpeg file = case decode file of
           (_, scanInfo) = gatherScanInfo img
           compCount = length $ jpgComponents scanInfo
 
-          {-decoder :: BoolReader s [((Word32, Word32), (Int, Word8))]-}
-          decoder = decodeImage compCount $ buildJpegImageDecoder img
-
           imgWidth = fromIntegral $ jpgWidth scanInfo
           imgHeight = fromIntegral $ jpgHeight scanInfo
 
           imageSize = ((0, 0), (imgWidth - 1, imgHeight - 1))
-          setter (PixelYCbCr8 _ cb cr) (0, v) = PixelYCbCr8 v cb cr
-          setter (PixelYCbCr8 y  _ cr) (1, v) = PixelYCbCr8 y  v cr
-          setter (PixelYCbCr8 y cb  _) (2, v) = PixelYCbCr8 y cb  v
-          setter _ _ = error "Impossible jpeg decoding can happen"
 
-          pixelList =  runST $ S.evalStateT (setDecodedString imgData >> decoder) (-1, 0, B.empty)
-
-          inImageBound ((x, y), _) = x < imgWidth && y < imgHeight
-
-      in accumArray setter (PixelYCbCr8 0 128 128) imageSize $ filter inImageBound pixelList
+      in runSTUArray $ S.evalStateT (do
+                resultImage <- lift $ newArray imageSize (PixelYCbCr8 0 128 128)
+                setDecodedString imgData 
+                decodeImage compCount (buildJpegImageDecoder img) resultImage
+                return resultImage) (-1, 0, B.empty)
 

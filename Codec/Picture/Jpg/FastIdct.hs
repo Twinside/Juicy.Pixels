@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 -- | Module providing a 'fast' implementation of IDCT
 -- *******************************************************
 -- inverse two dimensional DCT, Chen-Wang algorithm       
@@ -12,11 +13,14 @@
 
 -- this code assumes >> to be a two's-complement arithmetic
 -- right shift: (-2)>>1 == -1 , (-3)>>1 == -2               
-module Codec.Picture.Jpg.FastIdct( fastIdct, mutableLevelShift ) where
+module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
+                                 , fastIdct
+                                 , mutableLevelShift
+                                 , makeMutableMacroBlock ) where
 
+import Data.Array.Base
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
-import Data.Array.Base
 import Data.Bits
 import Data.Int
 
@@ -67,6 +71,10 @@ w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 (.<-.)  = unsafeWrite
 
 type MutableMacroBlock s a = STUArray s Int a
+
+makeMutableMacroBlock :: (MArray (STUArray s) a (ST s)) 
+                      => [a] -> ST s (MutableMacroBlock s a)
+makeMutableMacroBlock  = newListArray (0, 63)
 
 -- row (horizontal) IDCT
 --
@@ -214,13 +222,18 @@ idctCol blk idx = do
   (blk .<-. (idx + 8*7)) $ iclip !!! ((x7 f - x1 f) .>>. 14)
 
 
-fastIdct :: MutableMacroBlock s Int16 -> ST s ()
+fastIdct :: MutableMacroBlock s Int16
+         -> ST s (MutableMacroBlock s Int16)
 fastIdct block = do
     forM_ [0..7] (\i -> idctRow block (8 * i))
     forM_ [0..7] (idctCol block)
+    return block
 
-mutableLevelShift :: MutableMacroBlock s Int16 -> ST s ()
-mutableLevelShift block = forM_ [0..63] $ \i -> do
-    v <- block .!!!. i
-    (block .<-. i) $ v + 128
+mutableLevelShift :: MutableMacroBlock s Int16
+                  -> ST s (MutableMacroBlock s Int16)
+mutableLevelShift block = do
+    forM_ [0..63] $ (\i -> do
+        v <- block .!!!. i
+        (block .<-. i) $ v + 128)
+    return block
 

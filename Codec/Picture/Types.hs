@@ -7,6 +7,7 @@
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
                             Image
+                          , MutableImage
                           , DynamicImage( .. )
                             -- ** Pixel types
                           , Pixel2
@@ -34,6 +35,8 @@ import GHC.Word		( Word8(..) )
 -- position first, then the vertical one.
 -- The array start at (0,0) and end at (imageWidth - 1, imageHeight - 1)
 type Image a = UArray (Word32, Word32) a
+
+type MutableImage s a = STUArray s (Word32, Word32) a
 
 -- | Type allowing the loading of an image with different pixel
 -- structures
