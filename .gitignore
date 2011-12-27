@@ -2,4 +2,8 @@ dist
 tags
 *.o
 *.hi
-
+*.hp
+*.aux
+*.ps
+*.pdf
+*.prof
