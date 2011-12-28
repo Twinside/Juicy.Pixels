@@ -5,7 +5,7 @@
 module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
-import Control.Monad( when, replicateM, forM, forM_, foldM_ )
+import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
@@ -29,19 +29,19 @@ import Data.Array.Base
 ----            Types
 --------------------------------------------------
 data JpgFrameKind =
-      JpgBaselineDCT_Huffman
-    | JpgExtendedSequentialDCT_Huffman
-    | JpgProgressiveDCT_Huffman
-    | JpgLossless_Huffman
-    | JpgDifferentialSequentialDCT_Huffman
-    | JpgDifferentialProgressiveDCT_Huffman
-    | JpgDifferentialLossless_Huffman
-    | JpgExtendedSequential_Arithmetic
-    | JpgProgressiveDCT_Arithmetic
-    | JpgLossless_Arithmetic
-    | JpgDifferentialSequentialDCT_Arithmetic
-    | JpgDifferentialProgressiveDCT_Arithmetic
-    | JpgDifferentialLossless_Arithmetic
+      JpgBaselineDCTHuffman
+    | JpgExtendedSequentialDCTHuffman
+    | JpgProgressiveDCTHuffman
+    | JpgLosslessHuffman
+    | JpgDifferentialSequentialDCTHuffman
+    | JpgDifferentialProgressiveDCTHuffman
+    | JpgDifferentialLosslessHuffman
+    | JpgExtendedSequentialArithmetic
+    | JpgProgressiveDCTArithmetic
+    | JpgLosslessArithmetic
+    | JpgDifferentialSequentialDCTArithmetic
+    | JpgDifferentialProgressiveDCTArithmetic
+    | JpgDifferentialLosslessArithmetic
     | JpgQuantizationTable
     | JpgHuffmanTableMarker
     | JpgStartOfScan
@@ -160,7 +160,7 @@ instance Serialize JpgQuantTableSpec where
         coeffs <- replicateM 64 $ if precision == 0
                 then fromIntegral <$> getWord8
                 else fromIntegral <$> getWord16be
-        return $ JpgQuantTableSpec
+        return JpgQuantTableSpec
             { quantPrecision = precision
             , quantDestination = dest
             , quantTable = listArray (0, 63) coeffs
@@ -228,16 +228,14 @@ checkMarker :: Word8 -> Word8 -> Get ()
 checkMarker b1 b2 = do
     rb1 <- getWord8
     rb2 <- getWord8
-    if rb1 /= b1 || rb2 /= b2
-       then fail "Invalid marker used"
-       else return ()
+    when (rb1 /= b1 || rb2 /= b2)
+         (fail "Invalid marker used")
 
 eatUntilCode :: Get ()
 eatUntilCode = do
     code <- lookAhead getWord8
-    if code == 0xFF
-       then return ()
-       else skip 1 >> eatUntilCode
+    unless (code == 0xFF)
+           (skip 1 >> eatUntilCode)
 
 instance SizeCalculable JpgHuffmanTableSpec where
     calculateSize table = 1 + 16 + sum [fromIntegral e | e <- elems $ huffSizes table]
@@ -250,9 +248,9 @@ instance Serialize JpgHuffmanTableSpec where
         codes <- forM sizes $ \s -> do
             let si = fromIntegral s
             listArray (0, si - 1) <$> replicateM (fromIntegral s) getWord8
-        return $ JpgHuffmanTableSpec
+        return JpgHuffmanTableSpec
             { huffmanTableClass =
-                (if huffClass == 0 then DcComponent else AcComponent)
+                if huffClass == 0 then DcComponent else AcComponent
             , huffmanTableDest = huffDest
             , huffSizes = listArray (0, 15) sizes
             , huffCodes = listArray (0, 15) codes
@@ -267,7 +265,7 @@ instance Serialize JpgImage where
         eatUntilCode
         frames <- parseFrames
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
-        return $ JpgImage { jpgFrame = frames }
+        return JpgImage { jpgFrame = frames }
 
 takeCurrentFrame :: Get B.ByteString
 takeCurrentFrame = do
@@ -297,20 +295,20 @@ parseFrames = do
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
-secondStartOfFrameByteOfKind JpgBaselineDCT_Huffman = 0xC0
-secondStartOfFrameByteOfKind JpgExtendedSequentialDCT_Huffman = 0xC1
-secondStartOfFrameByteOfKind JpgProgressiveDCT_Huffman = 0xC2
-secondStartOfFrameByteOfKind JpgLossless_Huffman = 0xC3
-secondStartOfFrameByteOfKind JpgDifferentialSequentialDCT_Huffman = 0xC5
-secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCT_Huffman = 0xC6
-secondStartOfFrameByteOfKind JpgDifferentialLossless_Huffman = 0xC7
-secondStartOfFrameByteOfKind JpgExtendedSequential_Arithmetic = 0xC9
-secondStartOfFrameByteOfKind JpgProgressiveDCT_Arithmetic = 0xCA
-secondStartOfFrameByteOfKind JpgLossless_Arithmetic = 0xCB
+secondStartOfFrameByteOfKind JpgBaselineDCTHuffman = 0xC0
+secondStartOfFrameByteOfKind JpgExtendedSequentialDCTHuffman = 0xC1
+secondStartOfFrameByteOfKind JpgProgressiveDCTHuffman = 0xC2
+secondStartOfFrameByteOfKind JpgLosslessHuffman = 0xC3
+secondStartOfFrameByteOfKind JpgDifferentialSequentialDCTHuffman = 0xC5
+secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCTHuffman = 0xC6
+secondStartOfFrameByteOfKind JpgDifferentialLosslessHuffman = 0xC7
+secondStartOfFrameByteOfKind JpgExtendedSequentialArithmetic = 0xC9
+secondStartOfFrameByteOfKind JpgProgressiveDCTArithmetic = 0xCA
+secondStartOfFrameByteOfKind JpgLosslessArithmetic = 0xCB
 secondStartOfFrameByteOfKind JpgHuffmanTableMarker = 0xC4
-secondStartOfFrameByteOfKind JpgDifferentialSequentialDCT_Arithmetic = 0xCD
-secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCT_Arithmetic = 0xCE
-secondStartOfFrameByteOfKind JpgDifferentialLossless_Arithmetic = 0xCF
+secondStartOfFrameByteOfKind JpgDifferentialSequentialDCTArithmetic = 0xCD
+secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCTArithmetic = 0xCE
+secondStartOfFrameByteOfKind JpgDifferentialLosslessArithmetic = 0xCF
 secondStartOfFrameByteOfKind JpgQuantizationTable = 0xDB
 secondStartOfFrameByteOfKind JpgStartOfScan = 0xDA
 secondStartOfFrameByteOfKind JpgRestartInterval = 0xDD
@@ -326,26 +324,26 @@ instance Serialize JpgFrameKind where
                                 fail $ "Invalid Frame marker (" ++ show word
                                     ++ ", remaining : " ++ show leftData ++ ")")
         return $ case word2 of
-            0xC0 -> JpgBaselineDCT_Huffman
-            0xC1 -> JpgExtendedSequentialDCT_Huffman
-            0xC2 -> JpgProgressiveDCT_Huffman
-            0xC3 -> JpgLossless_Huffman
+            0xC0 -> JpgBaselineDCTHuffman
+            0xC1 -> JpgExtendedSequentialDCTHuffman
+            0xC2 -> JpgProgressiveDCTHuffman
+            0xC3 -> JpgLosslessHuffman
             0xC4 -> JpgHuffmanTableMarker
-            0xC5 -> JpgDifferentialSequentialDCT_Huffman
-            0xC6 -> JpgDifferentialProgressiveDCT_Huffman
-            0xC7 -> JpgDifferentialLossless_Huffman
-            0xC9 -> JpgExtendedSequential_Arithmetic
-            0xCA -> JpgProgressiveDCT_Arithmetic
-            0xCB -> JpgLossless_Arithmetic
-            0xCD -> JpgDifferentialSequentialDCT_Arithmetic
-            0xCE -> JpgDifferentialProgressiveDCT_Arithmetic
-            0xCF -> JpgDifferentialLossless_Arithmetic
+            0xC5 -> JpgDifferentialSequentialDCTHuffman
+            0xC6 -> JpgDifferentialProgressiveDCTHuffman
+            0xC7 -> JpgDifferentialLosslessHuffman
+            0xC9 -> JpgExtendedSequentialArithmetic
+            0xCA -> JpgProgressiveDCTArithmetic
+            0xCB -> JpgLosslessArithmetic
+            0xCD -> JpgDifferentialSequentialDCTArithmetic
+            0xCE -> JpgDifferentialProgressiveDCTArithmetic
+            0xCF -> JpgDifferentialLosslessArithmetic
             0xDA -> JpgStartOfScan
             0xDB -> JpgQuantizationTable
             0xDD -> JpgRestartInterval
-            a -> if a >= 0xF0 then JpgExtensionSegment a
-                 else if a >= 0xE0 then JpgAppSegment a
-                 else error ("Invalid frame marker (" ++ show a ++ ")")
+            a | a >= 0xF0 -> JpgExtensionSegment a
+              | a >= 0xE0 -> JpgAppSegment a
+              | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
 
 put4BitsOfEach :: Word8 -> Word8 -> Put
 put4BitsOfEach a b = put $ (a `shiftL` 4) .|. b
@@ -369,7 +367,7 @@ instance Serialize JpgComponent where
         ident <- getWord8
         (horiz, vert) <- get4BitOfEach
         quantTableIndex <- getWord8
-        return $ JpgComponent
+        return JpgComponent
             { componentIdentifier = ident
             , horizontalSamplingFactor = horiz
             , verticalSamplingFactor = vert
@@ -392,7 +390,7 @@ instance Serialize JpgFrameHeader where
         endOffset <- remaining
         when (beginOffset - endOffset < fromIntegral frmHLength)
              (skip $ fromIntegral frmHLength - (beginOffset - endOffset))
-        return $ JpgFrameHeader
+        return JpgFrameHeader
             { jpgFrameHeaderLength = frmHLength
             , jpgSamplePrecision = samplePrec
             , jpgHeight = h
@@ -417,7 +415,7 @@ instance Serialize JpgScanSpecification where
     get = do
         compSel <- get
         (dc, ac) <- get4BitOfEach
-        return $ JpgScanSpecification {
+        return JpgScanSpecification {
             componentSelector = compSel
           , dcEntropyCodingTable = dc
           , acEntropyCodingTable = ac
@@ -431,7 +429,7 @@ instance Serialize JpgScanHeader where
         specBeg <- get
         specEnd <- get
         (approxHigh, approxLow) <- get4BitOfEach
-        return $ JpgScanHeader {
+        return JpgScanHeader {
             scanLength = thisScanLength,
             componentCount = compCount,
             scans = comp,
@@ -455,7 +453,7 @@ type BoolReader s a = S.StateT BoolState (ST s) a
 
 {-# INLINE (!!!) #-}
 (!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) a i = unsafeAt a i
+(!!!) = unsafeAt
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
@@ -501,7 +499,7 @@ zigZagReorder block = do
     zigzaged <- newArray (0, 63) 0
     let update i =  do
             let idx = zigZagOrder !!! i
-            v <- block .!!!. (fromIntegral idx)
+            v <- block .!!!. fromIntegral idx
             (zigzaged .<-. i) v
 
         reorder 63 = update 63
@@ -546,7 +544,7 @@ dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
     if ssss == 0
        then return 0
-       else fromIntegral <$> (decodeInt $ fromIntegral ssss)
+       else fromIntegral <$> decodeInt (fromIntegral ssss)
 
 -- | Use an array of integer?
 acCoefficientsDecode :: HuffmanTree -> BoolReader s [DctCoefficients]
@@ -557,11 +555,11 @@ acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
-                (  0, 0) -> return $ [replicate n 0]
+                (  0, 0) -> return [replicate n 0]
                 (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
                 _        -> do
                     let zeroRunLength = replicate rrrr 0
-                    decoded <- fromIntegral <$> (decodeInt $ fromIntegral ssss)
+                    decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
                     ((zeroRunLength ++ [decoded]) :) <$> parseAcCoefficient (n - rrrr - 1)
 
 -- | Decompress a macroblock from a bitstream given the current configuration
@@ -661,16 +659,15 @@ decodeImage compCount decoder img = do
 
         folder f = foldM_ f blockBeforeRestart blockIndices
 
-    dcArray <- lift $ (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
+    dcArray <- lift (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $ 
                      \c -> lift $ (dcArray `writeArray` c) 0
                  byteAlign
-                 restartCode <- decodeRestartInterval
-                 if 0xD0 <= restartCode && restartCode <= 0xD7
-                   then return ()
-                   else return ())
+                 _restartCode <- decodeRestartInterval
+                 -- if 0xD0 <= restartCode && restartCode <= 0xD7
+                 return ())
 
         forM_ mcuDecode $ \(comp, dataUnitDecoder) -> do
             dc <- lift $ dcArray `readArray` comp

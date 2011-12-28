@@ -46,7 +46,7 @@ instance Serialize BmpHeader where
         r1 <- getWord16le
         r2 <- getWord16le
         offset <- getWord32le
-        return $ BmpHeader
+        return BmpHeader
             { magicIdentifier = ident
             , fileSize = fsize
             , reserved1 = r1
@@ -99,7 +99,7 @@ instance Serialize BmpInfoHeader where
         readYResolution <- getWord32le
         readColorCount <- getWord32le
         readImportantColours <- getWord32le
-        return $ BmpInfoHeader {
+        return BmpInfoHeader {
             size = readSize,
             width = readWidth,
             height = readHeight,
@@ -136,7 +136,7 @@ instance BmpEncodable PixelRGB8 where
 
 -- | Try to decode a bitmap image
 decodeBitmap :: B.ByteString -> Either String DynamicImage
-decodeBitmap str = (flip runGet) str $ do
+decodeBitmap str = flip runGet str $ do
     _hdr      <- (get :: Get BmpHeader)
     bmpHeader <- get
     case (bitPerPixel bmpHeader,

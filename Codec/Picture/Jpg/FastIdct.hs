@@ -117,8 +117,8 @@ idctRow blk idx = do
       secondStage c = c { x0 = x0 c - x1 c
                         , x8 = x0 c + x1 c 
                         , x1 = x1''
-                        , x2 = (x1' - (w2 + w6) * x2 c)
-                        , x3 = (x1' + (w2 - w6) * x3 c)
+                        , x2 = x1' - (w2 + w6) * x2 c
+                        , x3 = x1' + (w2 - w6) * x3 c
                         , x4 = x4 c - x6 c
                         , x6 = x5 c + x7 c
                         , x5 = x5 c - x7 c
@@ -232,7 +232,7 @@ fastIdct block = do
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
 mutableLevelShift block = do
-    forM_ [0..63] $ (\i -> do
+    forM_ [0..63] (\i -> do
         v <- block .!!!. i
         (block .<-. i) $ v + 128)
     return block

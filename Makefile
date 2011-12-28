@@ -30,3 +30,6 @@ test:
 	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_050.jpg
 	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_100.jpg
 	dist\build\imageTest\imageTest.exe tests/jpeg/fenek.jpg
+
+lint:
+	hlint Codec

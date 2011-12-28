@@ -9,17 +9,7 @@ import System.Environment
 import qualified Data.ByteString as B
 import Codec.Picture.ColorConversion
 {-import qualified Data.ByteString.Lazy as Lb-}
-
-convertJpegToBmp :: FilePath -> IO ()
-convertJpegToBmp filePath = do
-    file <- B.readFile filePath
-    putStr "."
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmap (filePath ++ ".bmp") rgbImage
-                  where rgbImage = changeImageColorSpace img :: Image PixelRGB8
+import qualified Control.Exception as E
 
 convertJpegToPng :: FilePath -> IO ()
 convertJpegToPng filePath = do
@@ -32,25 +22,6 @@ convertJpegToPng filePath = do
         Right img -> writePng (filePath ++ ".png") rgbaImage
                   where rgbImage  = changeImageColorSpace img :: Image PixelRGB8
                         rgbaImage = promotePixels rgbImage :: Image PixelRGBA8
-
-convertPngToBmp :: FilePath -> IO ()
-convertPngToBmp filePath = do
-    file <- B.readFile filePath
-    putStr "."
-    rez <- catch (return $ decodePng file)
-                 (\err -> return $ Left (show err))
-    case rez :: Either String (Image PixelRGBA8) of
-        Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writeBitmap (filePath ++ ".bmp") img
-
-convertPngToBmpBad :: FilePath -> IO ()
-convertPngToBmpBad filePath = do
-    file <- B.readFile filePath
-    rez <- catch (return $ decodePng file)
-                 (\err -> return $ Left (show err))
-    case rez :: Either String (Image PixelRGBA8) of
-        Left err -> putStr $ "\n(V) PNG loading error: (" ++ filePath ++ ")" ++ err
-        Right   _ -> putStr $ "\n(X) Invalid (" ++ filePath ++ ") loading loaded"
 
 validTests :: [FilePath]
 validTests = 

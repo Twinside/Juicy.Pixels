@@ -37,7 +37,7 @@ data DctComponent = DcComponent | AcComponent
     deriving (Eq, Show)
 
 buildHuffmanTree :: [[Word8]] -> HuffmanTree
-buildHuffmanTree table = foldl' (\a v -> insertHuffmanVal a v) Empty
+buildHuffmanTree table = foldl' insertHuffmanVal Empty
                        . concatMap (\(i, t) -> map (i + 1,) t)
                        $ zip ([0..] :: [Int]) table
   where isTreeFullyDefined Empty = False

@@ -188,7 +188,7 @@ instance Serialize PngRawChunk where
         when (computedCrc `xor` crc /= 0)
              (fail $ "Invalid CRC : " ++ show computedCrc ++ ", "
                                       ++ show crc)
-        return $ PngRawChunk {
+        return PngRawChunk {
         	chunkLength = size,
         	chunkData = imgData,
         	chunkCRC = crc,
@@ -207,7 +207,7 @@ instance Serialize PngIHdr where
                 put $ compressionMethod hdr
                 put $ filterMethod hdr
                 put $ interlaceMethod hdr
-            crc = pngComputeCrc $ [inner]
+            crc = pngComputeCrc [inner]
         putByteString inner
         putWord32be crc
 
@@ -224,7 +224,7 @@ instance Serialize PngIHdr where
         filtermethod <- get
         interlace <- get
         _crc <- getWord32be
-        return $ PngIHdr {
+        return PngIHdr {
         	width = w,
         	height = h,
         	bitDepth = depth,
@@ -245,7 +245,7 @@ parseRawPngImage = do
     ihdr <- get
 
     chunkList <- parseChunks
-    return $ PngRawImage { header = ihdr, chunks = chunkList }
+    return PngRawImage { header = ihdr, chunks = chunkList }
 
 -- | Parse method for a png chunk, without decompression.
 parseChunks :: Get [PngRawChunk]
@@ -278,23 +278,23 @@ pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
 data Adam7MatrixInfo = Adam7MatrixInfo
-    { adam7_starting_row :: [Word32]
-    , adam7_starting_col  :: [Word32]
-    , adam7_row_increment :: [Word32]
-    , adam7_col_increment :: [Word32]
-    , adam7_block_height  :: [Word32]
-    , adam7_block_width   :: [Word32]
+    { adam7StartingRow :: [Word32]
+    , adam7StartingCol  :: [Word32]
+    , adam7RowIncrement :: [Word32]
+    , adam7ColIncrement :: [Word32]
+    , adam7BlockHeight  :: [Word32]
+    , adam7BlockWidth   :: [Word32]
     }
 
 -- | The real info about the matrix.
 adam7MatrixInfo :: Adam7MatrixInfo
 adam7MatrixInfo = Adam7MatrixInfo
-    { adam7_starting_row  = [0, 0, 4, 0, 2, 0, 1]
-    , adam7_starting_col  = [0, 4, 0, 2, 0, 1, 0]
-    , adam7_row_increment = [8, 8, 8, 4, 4, 2, 2]
-    , adam7_col_increment = [8, 8, 4, 4, 2, 2, 1]
-    , adam7_block_height  = [8, 8, 4, 4, 2, 2, 1]
-    , adam7_block_width   = [8, 4, 4, 2, 2, 1, 1]
+    { adam7StartingRow  = [0, 0, 4, 0, 2, 0, 1]
+    , adam7StartingCol  = [0, 4, 0, 2, 0, 1, 0]
+    , adam7RowIncrement = [8, 8, 8, 4, 4, 2, 2]
+    , adam7ColIncrement = [8, 8, 4, 4, 2, 2, 1]
+    , adam7BlockHeight  = [8, 8, 4, 4, 2, 2, 1]
+    , adam7BlockWidth   = [8, 4, 4, 2, 2, 1, 1]
     }
 
 -- | Return the image indices used for adam7 interlacing methods.
@@ -306,15 +306,15 @@ adam7Indices imgWidth imgHeight =
            , x <- [xBeg, xBeg + dx .. imgWidth - 1] ]
           | (xBeg, dx, yBeg, dy) <- infos]
     where info = adam7MatrixInfo
-          infos = zip4 (adam7_starting_col info)
-                       (adam7_col_increment info)
-                       (adam7_starting_row info)
-                       (adam7_row_increment info)
+          infos = zip4 (adam7StartingCol info)
+                       (adam7ColIncrement info)
+                       (adam7StartingRow info)
+                       (adam7RowIncrement info)
 
 -- | Given a line size in bytes, a line count (repetition count), split
 -- a byte string of lines of the given size.
 breakLines :: Word32 -> Word32 -> B.ByteString -> ([B.ByteString], B.ByteString)
-breakLines size times wholestr = inner times [] wholestr
+breakLines size times = inner times []
     where inner 0 lst rest = (lst, rest)
           inner n lst str = inner (n - 1) (lst ++ [piece]) rest
             where (piece, rest) = B.splitAt (fromIntegral size) str
@@ -354,7 +354,7 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
           methodRead _ = Right []
 
           -- Process all the pixels keeping track all the context for prediction.
-          step method (prevLineByte:prevLinerest, (prevByte:restLine))
+          step method (prevLineByte:prevLinerest, prevByte:restLine)
                       (b : restPrev, B.uncons -> Just (x, rest)) =
               thisByte : step method (prevLinerest, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
@@ -429,7 +429,7 @@ unpackScanline 2 1 imgWidth imgHeight = concat <$> replicateM (fromIntegral imgH
 
 unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser
     where split :: Word8 -> [Word8]
-          split c = [(c `shiftR` 4) .&. 0xF, (c .&. 0xF)]
+          split c = [(c `shiftR` 4) .&. 0xF, c .&. 0xF]
           lineSize = fromIntegral $ imgWidth `quot` 2
           isFullLine = (imgWidth * sampleCount) `mod` 2 == 0
 
@@ -437,7 +437,7 @@ unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromInt
             line <- concat <$> replicateM lineSize (split <$> get)
             if isFullLine
                 then return line
-                else do lastElem <- ((head . split) <$> get)
+                else do lastElem <- (head . split) <$> get
                         return $ line ++ [lastElem]
 
 unpackScanline 8 sampleCount imgWidth imgHeight =
@@ -531,10 +531,10 @@ adam7Unpack depth sampleCount imgWidth imgHeight bytes = case passes of
                 where (outDim, restDim) = (dimension - begin) `quotRem` increment
 
           passHeight = [ sizer imgHeight begin incr
-                            | (begin, incr) <- zip (adam7_starting_row infos) (adam7_row_increment infos)]
+                            | (begin, incr) <- zip (adam7StartingRow infos) (adam7RowIncrement infos)]
 
           passWidth = [ sizer imgWidth begin incr
-                            | (begin, incr) <- zip (adam7_starting_col infos) (adam7_col_increment infos)]
+                            | (begin, incr) <- zip (adam7StartingCol infos) (adam7ColIncrement infos)]
 
 
 -- | deinterlace picture in function of the method indicated
@@ -630,16 +630,16 @@ generateGreyscalePalette times = listArray (0, fromIntegral possibilities) pixel
     where possibilities = 2 ^ times - 1
           pixels = [PixelRGB8 i i i | n <- [0..possibilities], let i = n * (255 `div` possibilities)]
 
-paletteRGBA_1, paletteRGBA_2, paletteRGBA_4  :: PngPalette
-paletteRGBA_1 = generateGreyscalePalette 1
-paletteRGBA_2 = generateGreyscalePalette 2
-paletteRGBA_4 = generateGreyscalePalette 4
+paletteRGBA1, paletteRGBA2, paletteRGBA4  :: PngPalette
+paletteRGBA1 = generateGreyscalePalette 1
+paletteRGBA2 = generateGreyscalePalette 2
+paletteRGBA4 = generateGreyscalePalette 4
 
 unparsePixelRGBA8 :: PngParser PixelRGBA8
 unparsePixelRGBA8 _ PngGreyscale ihdr bytes
-    | bitDepth ihdr == 1 = unparsePixelRGBA8 (Just paletteRGBA_1) PngIndexedColor ihdr bytes
-    | bitDepth ihdr == 2 = unparsePixelRGBA8 (Just paletteRGBA_2) PngIndexedColor ihdr bytes
-    | bitDepth ihdr == 4 = unparsePixelRGBA8 (Just paletteRGBA_4) PngIndexedColor ihdr bytes
+    | bitDepth ihdr == 1 = unparsePixelRGBA8 (Just paletteRGBA1) PngIndexedColor ihdr bytes
+    | bitDepth ihdr == 2 = unparsePixelRGBA8 (Just paletteRGBA2) PngIndexedColor ihdr bytes
+    | bitDepth ihdr == 4 = unparsePixelRGBA8 (Just paletteRGBA4) PngIndexedColor ihdr bytes
     | otherwise = promotePixels <$> img
         where img = deinterlacer ihdr bytes :: ErrImage Pixel8
 unparsePixelRGBA8 (Just plte) PngIndexedColor ihdr bytes = amap (promotePixel . (plte !) . fromIntegral) <$> img
@@ -704,9 +704,9 @@ pngDecode byte = do
                        + 4 {-CRC-}
 
         unparse _ PngGreyscale bytes
-            | bitDepth ihdr == 1 = unparse (Just paletteRGBA_1) PngIndexedColor bytes
-            | bitDepth ihdr == 2 = unparse (Just paletteRGBA_2) PngIndexedColor bytes
-            | bitDepth ihdr == 4 = unparse (Just paletteRGBA_4) PngIndexedColor bytes
+            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
             | otherwise = ImageY8 <$> deinterlacer ihdr bytes
         unparse (Just plte) PngIndexedColor bytes =
             ImageRGBA8 <$> amap (promotePixel . (plte !) . fromIntegral) <$> img
@@ -790,8 +790,8 @@ prepareIDatChunk imageData = PngRawChunk
     }
 
 instance PngSavable PixelRGBA8 where
-    encodePng img = encode $ PngRawImage { header = hdr
-                                         , chunks = [prepareIDatChunk strictEncoded, endChunk]}
+    encodePng img = encode PngRawImage { header = hdr
+                                       , chunks = [prepareIDatChunk strictEncoded, endChunk]}
         where hdr = preparePngHeader img PngTrueColourWithAlpha 8
               (_, (w,h)) = bounds img
 
@@ -804,8 +804,8 @@ instance PngSavable PixelRGBA8 where
 
         
 instance PngSavable PixelRGB8 where
-    encodePng img = encode $ PngRawImage { header = hdr
-                                         , chunks = [prepareIDatChunk strictEncoded, endChunk] }
+    encodePng img = encode PngRawImage { header = hdr
+                                       , chunks = [prepareIDatChunk strictEncoded, endChunk] }
         where hdr = preparePngHeader img PngTrueColour 8
               (_, (w,h)) = bounds img
 
@@ -817,8 +817,8 @@ instance PngSavable PixelRGB8 where
               strictEncoded = B.concat $ Lb.toChunks imgEncodedData
 
 instance PngSavable Pixel8 where
-    encodePng img = encode $ PngRawImage { header = hdr
-                                         , chunks = [prepareIDatChunk strictEncoded, endChunk] }
+    encodePng img = encode PngRawImage { header = hdr
+                                       , chunks = [prepareIDatChunk strictEncoded, endChunk] }
         where hdr = preparePngHeader img PngGreyscale 8
               (_, (w,h)) = bounds img
               encodeLine line = 0 : [img ! (column, line) | column <- [0 .. w]]
