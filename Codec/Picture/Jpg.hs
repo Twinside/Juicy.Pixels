@@ -98,7 +98,7 @@ data JpgScanSpecification = JpgScanSpecification
 
 data JpgScanHeader = JpgScanHeader
     { scanLength :: !Word16
-    , componentCount :: !Word8
+    , scanComponentCount :: !Word8
     , scans :: [JpgScanSpecification]
 
       -- | (begin, end)
@@ -432,7 +432,7 @@ instance Serialize JpgScanHeader where
         (approxHigh, approxLow) <- get4BitOfEach
         return JpgScanHeader {
             scanLength = thisScanLength,
-            componentCount = compCount,
+            scanComponentCount = compCount,
             scans = comp,
             spectralSelection = (specBeg, specEnd),
             successiveApproxHigh = approxHigh,
@@ -441,7 +441,7 @@ instance Serialize JpgScanHeader where
 
     put v = do
         put $ scanLength v
-        put $ componentCount v
+        put $ scanComponentCount v
         mapM_ put $ scans v
         put . fst $ spectralSelection v
         put . snd $ spectralSelection v
@@ -471,7 +471,7 @@ deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
 deQuantize table block = dequant 0 >> return block
     where updateVal i = do
               val <- block .!!!. i
-              let quantCoeff = table ! i
+              let quantCoeff = table !!! i
                   newVal = val * quantCoeff
               (block .<-. i) newVal
 
@@ -561,8 +561,7 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
                 (0xF, 0) -> parseAcCoefficient (n + 16)
                 _        -> do
                     decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
-                    {-lift $ (mutableBlock .<-. (n + rrrr)) decoded-}
-                    lift $ (mutableBlock `writeArray` (n + rrrr)) decoded
+                    lift $ (mutableBlock .<-. (n + rrrr)) decoded
                     parseAcCoefficient (n + rrrr + 1)
 
 -- | Decompress a macroblock from a bitstream given the current configuration
@@ -604,7 +603,6 @@ pixelClamp n = fromIntegral . min 255 $ max 0 n
 -- image)
 unpackMacroBlock :: Int    -- ^ Component count
                  -> Int    -- ^ Component index
-                 -> (Int, Int)    -- ^ Image width and height
                  -> Int -- ^ Width coefficient
                  -> Int -- ^ Height coefficient
                  -> Int -- ^ x
@@ -613,14 +611,17 @@ unpackMacroBlock :: Int    -- ^ Component count
                  -> MutableMacroBlock s Int16
                  -> ST s ()
     -- Simple case, a macroblock value => a pixel
-unpackMacroBlock compCount compIdx (imgWidth, imgHeight) wCoeff hCoeff x y img block = do
+unpackMacroBlock compCount compIdx  wCoeff hCoeff x y 
+                 (MutableImage { mutableImageWidth = imgWidth,
+                                 mutableImageHeight = imgHeight, mutableImageData = img })
+                 block = do
   forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
       let xPos = (i + x * 8) * wCoeff + wDup
           yPos = (j + y * 8) * hCoeff + hDup
       when (0 <= xPos && xPos < imgWidth && 0 <= yPos && yPos < imgHeight)
            (do compVal <- pixelClamp <$> (block .!!!. (i + j * 8))
                let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
-               (img `writeArray` mutableIdx) compVal)
+               (img .<-. mutableIdx) compVal)
 
     where pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
                                 -- Repetition to spread macro block
@@ -662,16 +663,16 @@ decodeImage compCount decoder img = do
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $
-                     \c -> lift $ (dcArray `writeArray` c) 0
+                     \c -> lift $ (dcArray .<-. c) 0
                  byteAlign
                  _restartCode <- decodeRestartInterval
                  -- if 0xD0 <= restartCode && restartCode <= 0xD7
                  return ())
 
         forM_ mcuDecode $ \(comp, dataUnitDecoder) -> do
-            dc <- lift $ dcArray `readArray` comp
+            dc <- lift $ dcArray .!!!. comp
             dcCoeff <- dataUnitDecoder x y img $ fromIntegral dc
-            lift $ (dcArray `writeArray` comp) dcCoeff
+            lift $ (dcArray .<-. comp) dcCoeff
             return ()
 
         if resetCounter /= 0 then return $ resetCounter - 1
@@ -767,7 +768,7 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                            yScalingFactor = maxVertFactor - vertCount + 1
                      , yd <- [0 .. vertCount - 1]
                      , xd <- [0 .. horizCount - 1]
-                     , let unpacker = unpackMacroBlock imgComponentCount compIdx (imgWidth, imgHeight)
+                     , let unpacker = unpackMacroBlock imgComponentCount compIdx 
                                                     xScalingFactor yScalingFactor
                      ]
 
@@ -795,7 +796,8 @@ decodeJpeg file = case decode file of
 
             pixelData = runSTUArray $ S.evalStateT (do
                 resultImage <- lift $ newArray imageSize 0
+                let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedString imgData
-                decodeImage compCount (buildJpegImageDecoder img) resultImage
+                decodeImage compCount (buildJpegImageDecoder img) wrapped
                 return resultImage) (-1, 0, B.empty)
 

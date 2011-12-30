@@ -43,7 +43,7 @@ convertJpegToBmp filePath = do
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
         Right img -> writeBitmap (filePath ++ ".bmp") rgbImage
-                  where rgbImage  = unsafeImageCast img :: Image PixelRGB8
+                  where rgbImage  = convertImage img :: Image PixelRGB8
 
 {-validTests :: [FilePath]-}
 {-validTests = -}
