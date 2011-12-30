@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files. The API has two layers, the high level, which load the image without
 -- looking deeply about it and the low level, allowing access to data chunks contained
@@ -10,6 +11,7 @@
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
+#if 0
                           PngLoadable( .. )
                         , PngSavable( .. )
 
@@ -21,9 +23,10 @@ module Codec.Picture.Png( -- * High level functions
                         , ChunkSignature
                         , PngChunk( .. )
                         , PngLowLevel( .. )
-
+#endif
                         ) where
 
+#if 0
 import Control.Applicative
 import Control.Monad( when, replicateM )
 import Data.Maybe( catMaybes )
@@ -354,8 +357,8 @@ pngFiltering beginZeroes str (imgWidth, imgHeight) = (\f -> (B.pack f, wholeRest
           methodRead _ = Right []
 
           -- Process all the pixels keeping track all the context for prediction.
-          step method (prevLineByte:prevLinerest, prevByte:restLine)
-                      (b : restPrev, B.uncons -> Just (x, rest)) =
+          step method (!prevLineByte:prevLinerest, !prevByte:restLine)
+                      (!b : restPrev, B.uncons -> Just (!x, rest)) =
               thisByte : step method (prevLinerest, restLine) (restPrev, rest)
                 where thisByte = inner method (prevLineByte, b, prevByte, x)
           step _ _ _ = []
@@ -824,4 +827,4 @@ instance PngSavable Pixel8 where
               encodeLine line = 0 : [img ! (column, line) | column <- [0 .. w]]
               imgEncodedData = Z.compress . Lb.pack $ concat [encodeLine line | line <- [0 .. h]]
               strictEncoded = B.concat $ Lb.toChunks imgEncodedData
-
+#endif

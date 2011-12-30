@@ -25,6 +25,7 @@ import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 
 import Data.Array.Base
+
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -285,8 +286,8 @@ parseFrames = do
         JpgRestartInterval ->
             (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\(TableList huffTables) lst -> 
-                    JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst) 
+            (\(TableList huffTables) lst ->
+                    JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
                     <$> get <*> parseFrames
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
@@ -465,7 +466,7 @@ type BoolReader s a = S.StateT BoolState (ST s) a
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
-deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16 
+deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
            -> ST s (MutableMacroBlock s Int16)
 deQuantize table block = dequant 0 >> return block
     where updateVal i = do
@@ -477,7 +478,7 @@ deQuantize table block = dequant 0 >> return block
           dequant 63 = updateVal 63
           dequant n  = updateVal  n >> dequant (n + 1)
 
-inverseDirectCosineTransform :: MutableMacroBlock s Int16 
+inverseDirectCosineTransform :: MutableMacroBlock s Int16
                              -> ST s (MutableMacroBlock s Int16)
 inverseDirectCosineTransform mBlock =
     fastIdct mBlock >>= mutableLevelShift
@@ -506,14 +507,14 @@ zigZagReorder block = do
         reorder i  = update i >> reorder (i + 1)
 
     reorder 0
-    return zigzaged 
+    return zigzaged
 
 
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all
 -- there is to know for macro block transformation
-decodeMacroBlock :: MacroBlock DctCoefficients 
-                 -> MutableMacroBlock s Int16 
+decodeMacroBlock :: MacroBlock DctCoefficients
+                 -> MutableMacroBlock s Int16
                  -> ST s (MutableMacroBlock s Int16)
 decodeMacroBlock quantizationTable block =
     deQuantize quantizationTable block >>= zigZagReorder
@@ -546,21 +547,23 @@ dcCoefficientDecode dcTree = do
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
 
--- | Use an array of integer?
-acCoefficientsDecode :: HuffmanTree -> BoolReader s [DctCoefficients]
-acCoefficientsDecode acTree = concat <$> parseAcCoefficient 63
-  where parseAcCoefficient 0 = return []
-        parseAcCoefficient n = do
+-- | Assume the macro block is initialized with zeroes
+acCoefficientsDecode :: HuffmanTree -> MutableMacroBlock s Int16
+                     -> BoolReader s (MutableMacroBlock s Int16)
+acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutableBlock
+  where parseAcCoefficient n | n >= 64 = return ()
+                             | otherwise = do
             rrrrssss <- huffmanDecode acTree
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
-                (  0, 0) -> return [replicate n 0]
-                (0xF, 0) -> (replicate 16 0 :) <$> parseAcCoefficient (n - 16)
+                (  0, 0) -> return ()
+                (0xF, 0) -> parseAcCoefficient (n + 16)
                 _        -> do
-                    let zeroRunLength = replicate rrrr 0
                     decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
-                    ((zeroRunLength ++ [decoded]) :) <$> parseAcCoefficient (n - rrrr - 1)
+                    {-lift $ (mutableBlock .<-. (n + rrrr)) decoded-}
+                    lift $ (mutableBlock `writeArray` (n + rrrr)) decoded
+                    parseAcCoefficient (n + rrrr + 1)
 
 -- | Decompress a macroblock from a bitstream given the current configuration
 -- from the frame.
@@ -571,10 +574,11 @@ decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> BoolReader s (DcCoefficient, MutableMacroBlock s Int16)
 decompressMacroBlock dcTree acTree quantizationTable previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
-    acCoefficients <- acCoefficientsDecode acTree
+    block <- lift createEmptyMutableMacroBlock
     let neoDcCoefficient = previousDc + dcDeltaCoefficient
-    block <- lift . makeMutableMacroBlock $ neoDcCoefficient : acCoefficients
-    decodedBlock <- lift $ decodeMacroBlock quantizationTable block
+    lift $ (block .<-. 0) neoDcCoefficient
+    fullBlock <- acCoefficientsDecode acTree block
+    decodedBlock <- lift $ decodeMacroBlock quantizationTable fullBlock
     return (neoDcCoefficient, decodedBlock)
 
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
@@ -598,32 +602,27 @@ pixelClamp n = fromIntegral . min 255 $ max 0 n
 -- and vertically), the position of the macroblock, return a list
 -- of indices and value to be stored in an array (like the final
 -- image)
-unpackMacroBlock :: Int    -- ^ Component index
-                 -> Word32 -- ^ Width coefficient
-                 -> Word32 -- ^ Height coefficient
-                 -> Word32 -- ^ x
-                 -> Word32 -- ^ y
+unpackMacroBlock :: Int    -- ^ Component count
+                 -> Int    -- ^ Component index
+                 -> (Int, Int)    -- ^ Image width and height
+                 -> Int -- ^ Width coefficient
+                 -> Int -- ^ Height coefficient
+                 -> Int -- ^ x
+                 -> Int -- ^ y
                  -> MutableImage s PixelYCbCr8
                  -> MutableMacroBlock s Int16
                  -> ST s ()
     -- Simple case, a macroblock value => a pixel
-unpackMacroBlock compIdx wCoeff hCoeff x y img block = do
-  (_, (imgWidthBound, imgHeightBound))  <- getBounds img
+unpackMacroBlock compCount compIdx (imgWidth, imgHeight) wCoeff hCoeff x y img block = do
   forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
-      let xPos = (fromIntegral i + x * 8) * wCoeff + wDup
-          yPos = (fromIntegral j + y * 8) * hCoeff + hDup
-      when (0 <= xPos && xPos <= imgWidthBound && 0 <= yPos && yPos <= imgHeightBound)
+      let xPos = (i + x * 8) * wCoeff + wDup
+          yPos = (j + y * 8) * hCoeff + hDup
+      when (0 <= xPos && xPos < imgWidth && 0 <= yPos && yPos < imgHeight)
            (do compVal <- pixelClamp <$> (block .!!!. (i + j * 8))
-               let mutableIdx = (xPos, yPos)
-               px <- img `readArray` mutableIdx 
-               (img `writeArray` mutableIdx) $ pixelUpdater px compIdx compVal
-               return ())
+               let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
+               (img `writeArray` mutableIdx) compVal)
 
-    where pixelUpdater (PixelYCbCr8 _  cb cr) 0 v = PixelYCbCr8 v  cb cr
-          pixelUpdater (PixelYCbCr8 yp  _ cr) 1 v = PixelYCbCr8 yp  v cr
-          pixelUpdater (PixelYCbCr8 yp cb  _) 2 v = PixelYCbCr8 yp cb  v
-          pixelUpdater _ _ _ = error "Impossible jpeg decoding can happen"
-          pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
+    where pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
                                 -- Repetition to spread macro block
                                 , wDup <- [0 .. wCoeff - 1]
                                 , hDup <- [0 .. hCoeff - 1]
@@ -634,7 +633,7 @@ unpackMacroBlock compIdx wCoeff hCoeff x y img block = do
 type DcCoefficient = Int16
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
-type DctCoefficients = DcCoefficient 
+type DctCoefficients = DcCoefficient
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
@@ -662,7 +661,7 @@ decodeImage compCount decoder img = do
     dcArray <- lift (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
-             (do forM_ [0.. compCount - 1] $ 
+             (do forM_ [0.. compCount - 1] $
                      \c -> lift $ (dcArray `writeArray` c) 0
                  byteAlign
                  _restartCode <- decodeRestartInterval
@@ -682,12 +681,12 @@ decodeImage compCount decoder img = do
 
 -- | Type of a data unit (as in the ITU 81) standard
 type DataUnitDecoder s  =
-    (Int, Word32 -> Word32 -> MutableImage s PixelYCbCr8 -> DcCoefficient -> BoolReader s DcCoefficient)
+    (Int, Int -> Int -> MutableImage s PixelYCbCr8 -> DcCoefficient -> BoolReader s DcCoefficient)
 
 data JpegDecoder s = JpegDecoder
     { restartInterval    :: Int
-    , horizontalMcuCount :: Word32
-    , verticalMcuCount   :: Word32
+    , horizontalMcuCount :: Int
+    , verticalMcuCount   :: Int
     , mcuDecoder         :: [DataUnitDecoder s]
     }
 
@@ -703,7 +702,7 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                                         , verticalMcuCount = verticalBlockCount
                                         , mcuDecoder = mcus }
   where huffmans = gatherHuffmanTables img
-        huffmanForComponent dcOrAc dest = 
+        huffmanForComponent dcOrAc dest =
             head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
                                        , huffmanTableDest h == dest]
 
@@ -715,7 +714,7 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
         quantForComponent dest =
             head [quantTable q | q <- quants, quantDestination q == dest]
 
-        hdr = head [h | JpgScanBlob h _ <- jpgFrame img]   
+        hdr = head [h | JpgScanBlob h _ <- jpgFrame img]
 
         (_, scanInfo) = gatherScanInfo img
         imgWidth = fromIntegral $ jpgWidth scanInfo
@@ -726,14 +725,15 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 
         horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
 
-        isImageLumanOnly = jpgImageComponentCount scanInfo == 1
-        maxHorizFactor | not isImageLumanOnly && 
-                            not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings 
+        imgComponentCount = fromIntegral $ jpgImageComponentCount scanInfo
+        isImageLumanOnly = imgComponentCount == 1
+        maxHorizFactor | not isImageLumanOnly &&
+                            not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings
                        | otherwise = 1
 
         verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
         maxVertFactor | not isImageLumanOnly &&
-                            not (allElementsEqual verticalSamplings) = maximum verticalSamplings 
+                            not (allElementsEqual verticalSamplings) = maximum verticalSamplings
                       | otherwise = 1
 
         horizontalBlockCount =
@@ -761,13 +761,14 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                            (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
                            lift $ unpacker (x * horizCount + xd) (y * vertCount + yd) writeImg block
                            return dcCoeff)
-                     | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable)) 
+                     | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable))
                                    <- zip [0..] componentsInfo
                      , let xScalingFactor = maxHorizFactor - horizCount + 1
                            yScalingFactor = maxVertFactor - vertCount + 1
                      , yd <- [0 .. vertCount - 1]
                      , xd <- [0 .. horizCount - 1]
-                     , let unpacker = unpackMacroBlock compIdx xScalingFactor yScalingFactor
+                     , let unpacker = unpackMacroBlock imgComponentCount compIdx (imgWidth, imgHeight)
+                                                    xScalingFactor yScalingFactor
                      ]
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
@@ -782,19 +783,19 @@ readJpeg f = decodeJpeg <$> B.readFile f
 decodeJpeg :: B.ByteString -> Either String (Image PixelYCbCr8)
 decodeJpeg file = case decode file of
   Left err -> Left err
-  Right img -> Right $
-      let (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
-          (_, scanInfo) = gatherScanInfo img
-          compCount = length $ jpgComponents scanInfo
+  Right img -> Right $ Image imgWidth imgHeight pixelData
+      where (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
+            (_, scanInfo) = gatherScanInfo img
+            compCount = length $ jpgComponents scanInfo
 
-          imgWidth = fromIntegral $ jpgWidth scanInfo
-          imgHeight = fromIntegral $ jpgHeight scanInfo
+            imgWidth = fromIntegral $ jpgWidth scanInfo
+            imgHeight = fromIntegral $ jpgHeight scanInfo
 
-          imageSize = ((0, 0), (imgWidth - 1, imgHeight - 1))
+            imageSize = (0, imgWidth * imgHeight * compCount - 1)
 
-      in runSTUArray $ S.evalStateT (do
-                resultImage <- lift $ newArray imageSize (PixelYCbCr8 0 128 128)
-                setDecodedString imgData 
+            pixelData = runSTUArray $ S.evalStateT (do
+                resultImage <- lift $ newArray imageSize 0
+                setDecodedString imgData
                 decodeImage compCount (buildJpegImageDecoder img) resultImage
                 return resultImage) (-1, 0, B.empty)
 

@@ -11,7 +11,6 @@ module Codec.Picture (
                      -- * Generic function
                        readImage
                      , decodeImage
-                     , generateImage
                      -- * Specific image format functions
                      -- ** Bitmap handling 
                      , BmpEncodable
@@ -24,11 +23,11 @@ module Codec.Picture (
                      , decodeJpeg 
 
                      -- ** Png handling
-                     , PngLoadable( .. )
-                     , PngSavable( .. )
-                     , readPng
-                     , pngDecode
-                     , writePng
+                     {-, PngLoadable( .. )-}
+                     {-, PngSavable( .. )-}
+                     {-, readPng-}
+                     {-, pngDecode-}
+                     {-, writePng-}
                      -- * Image types and pixel types
                      -- ** Image
                      , Image
@@ -42,13 +41,13 @@ module Codec.Picture (
                      , PixelYCbCr8( .. )
                      ) where
 
-import Data.Array.Unboxed
-import Data.Word
+{-import Data.Array.Unboxed-}
+{-import Data.Word-}
 
 import Control.Applicative
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
-import Codec.Picture.Png
+{-import Codec.Picture.Png-}
 import Codec.Picture.Types
 
 import qualified Data.ByteString as B
@@ -72,18 +71,6 @@ readImage path = decodeImage <$> B.readFile path
 -- the decoded image in it's own colorspace
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", \b -> ImageYCbCr <$> decodeJpeg b)
-                                 ,("PNG", pngDecode)
+                                 {-,("PNG", pngDecode)-}
                                  ]
     
-
--- | Little helper function to generate an image in a \'shader\' like fashion,
--- take a function, an image size and generate the image with the function.
-generateImage :: (IArray UArray a) 
-              => (Word32 -> Word32 -> a) -- ^ Image generating function, taking x and y parameter
-              -> Word32                  -- ^ Image width in pixels
-              -> Word32                  -- ^ Image Height in pixels
-              -> Image a
-generateImage f imageWidth imageHeight =
-  listArray ((0, 0), (imageWidth - 1, imageHeight - 1)) pixels
-    where pixels = [f x y | y <- [0 .. imageHeight - 1], x <- [0 .. imageWidth - 1]]
-

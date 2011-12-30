@@ -10,12 +10,12 @@ module Codec.Picture.ColorConversion( -- * Type classes
                                     , ColorSpaceConvertible( .. )
                                       -- * Helper functions
                                     , canConvertTo
-                                    , promotePixels
-                                    , changeImageColorSpace
+                                    {-, promotePixels-}
+                                    {-, changeImageColorSpace-}
                                     ) where
 
 import Codec.Picture.Types
-import Data.Array.Unboxed
+{-import Data.Array.Unboxed-}
 
 data PixelTypes = PixelMonochromatic
                 | PixelGreyscale
@@ -32,6 +32,8 @@ class ColorConvertionQuery a where
     -- the first value should not be used, and 'undefined' can
     -- be used as a valid value.
     canPromoteTo :: a -> PixelTypes -> Bool
+
+    byteSizePerSample :: a -> Int
 
     -- | Return the constructor associated to the type, again
     -- the value in the first parameter is not used, so you can use undefined
@@ -62,18 +64,16 @@ class (ColorConvertionQuery a) => ColorConvertible a b where
 class ColorSpaceConvertible a b where
     colorSpaceConversion :: a -> b
 
-{-# INLINE changeImageColorSpace #-}
+-- {-# INLINE changeImageColorSpace #-}
 -- | Convert an image between different colorspace, this operation can result
 -- in a loss of precision.
-changeImageColorSpace :: (IArray UArray a, IArray UArray b, ColorSpaceConvertible a b)
-                      => Image a -> Image b
-changeImageColorSpace = amap colorSpaceConversion
+{-changeImageColorSpace :: (ColorSpaceConvertible a b) => Image a -> Image b-}
+{-changeImageColorSpace i = i { imageData = amap colorSpaceConversion $ imageData i }-}
 
-{-# INLINE promotePixels #-}
+--{-# INLINE promotePixels #-}
 -- | Convert a whole image to a new pixel type.
-promotePixels :: (IArray UArray a, IArray UArray b, ColorConvertible a b) 
-              => Image a -> Image b
-promotePixels = amap promotePixel
+{-promotePixels :: (ColorConvertible a b) => Image a -> Image b-}
+{-promotePixels i = i { imageData = amap promotePixel $ imageData i }-}
 
 -- | Free promotion for identic pixel types
 instance (ColorConvertionQuery a) => ColorConvertible a a where
@@ -86,6 +86,7 @@ instance (ColorConvertionQuery a) => ColorConvertible a a where
 instance ColorConvertionQuery Pixel2 where
     canPromoteTo _ _ = True
     promotionType _ = PixelMonochromatic
+    byteSizePerSample _ = 1
 
 instance ColorConvertible Pixel2 Pixel8 where
     {-# INLINE promotePixel #-}
@@ -113,6 +114,7 @@ instance ColorConvertible Pixel2 PixelRGBA8 where
 instance ColorConvertionQuery Pixel8 where
     canPromoteTo _ a = a /= PixelMonochromatic 
     promotionType _ = PixelGreyscale
+    byteSizePerSample _ = 1
 
 instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
@@ -121,7 +123,7 @@ instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE fromRawData #-}
     fromRawData (y:a:xs) = (Just $ PixelYA8 y a, xs)
     fromRawData _ = (Nothing, [])
-     
+
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
@@ -144,6 +146,7 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 instance ColorConvertionQuery PixelYA8 where
     canPromoteTo _ a = a == PixelRedGreenBlueAlpha8 
     promotionType _ = PixelGreyscaleAlpha
+    byteSizePerSample _ = 2
 
 instance ColorConvertible PixelYA8 PixelRGB8 where
     {-# INLINE promotePixel #-}
@@ -161,6 +164,8 @@ instance ColorConvertionQuery PixelRGB8 where
     canPromoteTo _ PixelGreyscale = False
     canPromoteTo _ _ = True
 
+    byteSizePerSample _ = 3
+
     promotionType _ = PixelRedGreenBlue8
 
 instance ColorConvertible PixelRGB8 PixelRGBA8 where
@@ -176,12 +181,15 @@ instance ColorConvertionQuery PixelRGBA8 where
 
     promotionType _ = PixelRedGreenBlueAlpha8
 
+    byteSizePerSample _ = 4
+
 --------------------------------------------------
 ----            PixelYCbCr8 instances
 --------------------------------------------------
 instance ColorConvertionQuery PixelYCbCr8 where
     canPromoteTo _ _ = False
     promotionType _ = PixelYChromaRChromaB8
+    byteSizePerSample _ = 3
 
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE colorSpaceConversion #-}
