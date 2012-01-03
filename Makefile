@@ -16,7 +16,8 @@ run:
 	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
 
 prof:
-	dist\build\imageTest\imageTest.exe +RTS -hc -p -sstderr -RTS tests/jpeg/sheep.jpg
+	dist\build\imageTest\imageTest.exe +RTS -hy -p -sstderr -RTS tests/pngsuite/huge.png
+	hp2ps -c imageTest.hp
 
 test:
 	dist\build\imageTest\imageTest.exe tests/jpeg/8x8jpeg.jpg

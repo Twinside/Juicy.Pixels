@@ -33,7 +33,7 @@ Library
   -- Modules exported by the library.
   Exposed-modules:  Codec.Picture,
                     Codec.Picture.Bitmap,
-                    -- Codec.Picture.Png,
+                    Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Types
   Extensions: CPP
