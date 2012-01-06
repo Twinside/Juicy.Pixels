@@ -67,7 +67,6 @@ unparsePngFilter 3 = Right FilterAverage
 unparsePngFilter 4 = Right FilterPaeth
 unparsePngFilter _ = Left "Invalid scanline filter"
 
-type PngLine s = STUArray s Int Word8
 type ByteReader s a = S.StateT B.ByteString (ST s) a
 
 {-# INLINE getNextByte #-}
@@ -112,14 +111,14 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
         ) (thisLine, otherLine) [0 .. imgHeight - 1]
 
     where stride = fromIntegral beginZeroes
-          filterNone, filterSub, filterUp, filterPaeth, filterAverage :: (PngLine s, PngLine s) 
-                                                                      -> ByteReader s ()
-          filterNone (previousLine, thisLine) =
+          filterNone, filterSub, filterUp, filterPaeth,
+                filterAverage :: (PngLine s, PngLine s) -> ByteReader s ()
+          filterNone (_previousLine, thisLine) =
             mapM_ (\idx -> do
                 byte <- getNextByte
                 lift $ (thisLine .<-. idx) byte) [beginZeroes .. beginZeroes + imgWidth - 1]
 
-          filterSub (previousLine, thisLine) = 
+          filterSub (_previousLine, thisLine) = 
             mapM_ (\idx -> do
                 byte <- getNextByte
                 val <- lift $ thisLine .!!!. (idx - stride)
@@ -167,49 +166,36 @@ paeth a b c
           pb = abs $ p - b'
           pc = abs $ p - c'
 
-strideWrite :: STUArray s Int Word8 -> Int -> Int -> [Word8]
-            -> ST s ()
-strideWrite array idx stride vals = foldM_ (\ix val -> do
-    (array .<-. ix) val
-    return $ ix + stride) idx vals
+{-mArrayMap :: (MArray (STUArray s) a (ST s))-}
+          {-=> Int -> Int -> (a -> b) -> STUArray s Int a -> ST s [b]-}
+{-mArrayMap from to f arr = inner from-}
+    {-where inner idx | idx == to = return []-}
+                    {-| otherwise = do-}
+                        {-val <- arr .!!!. from-}
+                        {-rest <- inner $ idx + 1-}
+                        {-return $ f val : rest-}
 
-
-mArrayMap :: (MArray (STUArray s) a (ST s))
-          => Int -> Int -> (a -> b) -> STUArray s Int a -> ST s [b]
-mArrayMap from to f arr = inner from
-    where inner idx | idx == to = return []
-                    | otherwise = do
-                        val <- arr .!!!. from
-                        rest <- inner $ idx + 1
-                        return $ f val : rest
-
+type PngLine s = STUArray s Int Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
 
 type StrideInfo = (Int, Int)
 
 byteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> LineUnpacker s
 byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
-             (strideWidth, strideHeight) height (beginIdx, line) = do
+             (strideWidth, strideHeight) h (beginIdx, line) = do
     (_, maxIdx) <- getBounds line
 
     forM_ [0 .. maxIdx - beginIdx] $ \destSampleIndex -> do
-        let destSampleBase = (height * strideHeight * imgWidth + destSampleIndex) * sampleCount
+        let destSampleBase = (h * strideHeight * imgWidth + destSampleIndex) * sampleCount
         forM_ [0 .. sampleCount - 1] $ \sample -> do
             val <- line .!!!. (beginIdx + sample)
-            (arr .<-. (destSampleBase + sampleCount)) val
+            (arr .<-. (destSampleBase + sampleCount * strideWidth)) val
              
 
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
-{-unpackScanline :: Word32  -- ^ Bitdepth-}
-               {--> Word32  -- ^ Sample count-}
-               {--> MutableImage s Word8-}
-               {--> Int     -- ^ Stride width-}
-               {--> Int     -- ^ Stride height-}
-               {--> Int     -- ^ Beginning index-}
-               {--> PngLine s-}
-               {--> ST s ()-}
-{-unpackScanline 1 1 image@(MutableImage{ mutableImageWidth = imgWidth-}
+scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> LineUnpacker s
+{-scanlineUnpacker 1 1 image@(MutableImage{ mutableImageWidth = imgWidth-}
                                       {-, mutableImageData = arr-}
                                       {-}) strideWidth strideHeight -}
                                          {-beginIndice line = do-}
@@ -226,7 +212,7 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
           {-extractBit c shiftCount =-}
               {-((c `shiftR` shiftCount) .&. 1) * 255-}
 
-{-unpackScanline 2 1 imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
+{-scanlineUnpacker 2 1 imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
     {-where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting-}
           {-split times c = map (extractBit c) [3, 2 .. 4 - times]-}
           {-lineSize = imgWidth `quot` 4-}
@@ -241,7 +227,7 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
                 {-else do lastElems <- split bitRest <$> get-}
                         {-return $ line ++ lastElems-}
 
-{-unpackScanline 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
+{-scanlineUnpacker 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
     {-where split :: Word8 -> [Word8]-}
           {-split c = [(c `shiftR` 4) .&. 0xF, c .&. 0xF]-}
           {-lineSize = fromIntegral $ imgWidth `quot` 2-}
@@ -254,28 +240,34 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
                 {-else do lastElem <- (head . split) <$> get-}
                         {-return $ line ++ [lastElem]-}
 
-unpackScanline 8 = byteUnpacker
-{-unpackScanline 16 sampleCount imgWidth imgHeight =-}
+scanlineUnpacker 8 = byteUnpacker
+{-scanlineUnpacker 16 sampleCount imgWidth imgHeight =-}
     {-replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (bitDepthReducer <$> getWord16be)-}
         {-where bitDepthReducer v = fromIntegral $ v32 * word8Max `div` word16Max-}
                   {-where v32 = fromIntegral v :: Word32 -- type signature to avoid defaulting to Integer-}
                         {-word8Max = 2 ^ (8 :: Word32) - 1 :: Word32-}
                         {-word16Max = 2 ^ (16 :: Word32) - 1 :: Word32-}
 
-unpackScanline _ = error "Impossible bit depth"
+scanlineUnpacker _ = error "Impossible bit depth"
 
-byteSizeOfBitLength :: Word32 -> Word32 -> Word32 -> Word32
+byteSizeOfBitLength :: Int -> Int -> Int -> Int
 byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 then 1 else 0)
    where (size, rest) = (pixelBitDepth * dimension * sampleCount) `quotRem` 8
 
-scanLineInterleaving :: Int -> Int -> (Int, Int) -> LineUnpacker s -> ByteReader s ()
-scanLineInterleaving _depth _sampleCount (_imgWidt, _imgHeight) unpacker = return ()
+scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> LineUnpacker s)
+                     -> ByteReader s ()
+scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker =
+    pngFiltering (unpacker (1,1)) sampleCount (byteWidth, imgHeight)
+        where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
 
 -- | Given data and image size, recreate an image with deinterlaced
 -- data for PNG's adam 7 method.
-adam7Unpack :: Int -> Int -> (Int, Int) -> LineUnpacker s -> ByteReader s ()
+adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> LineUnpacker s) -> ByteReader s ()
 adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
-  [pngFiltering unpacker sampleCount passSize | passSize <- zip passWidths passHeights]
+  [pngFiltering (unpacker passSize) sampleCount (byteWidth, passHeight)
+                | passSize@(passWidth, passHeight) <- zip passWidths passHeights
+                , let byteWidth = byteSizeOfBitLength depth sampleCount passWidth
+                ]
     where Adam7MatrixInfo { adam7StartingRow  = startRows
                           , adam7RowIncrement = rowIncrement
                           , adam7StartingCol  = startCols
@@ -295,19 +287,21 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
 deinterlacer :: PngIHdr -> ByteReader s (STUArray s Int Word8)
-deinterlacer ihdr@(PngIHdr { width = w, height = h
-                           , colourType = imgKind
-                           , interlaceMethod = method
-                           , bitDepth        = depth  }) = do
-    let componentCount = sampleCountOfImageType imgKind 
-        arraySize = fromIntegral $ w * h * componentCount
+deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
+                      , interlaceMethod = method, bitDepth = depth  }) = do
+    let compCount = sampleCountOfImageType imgKind 
+        arraySize = fromIntegral $ w * h * compCount
         deinterlaceFunction = case method of
             PngNoInterlace -> scanLineInterleaving
             PngInterlaceAdam7 -> adam7Unpack
+        iBitDepth = fromIntegral depth
     imgArray <- lift $ newArray (0, arraySize - 1) 0
-    deinterlaceFunction (fromIntegral depth) 
-                        (fromIntegral componentCount)
-                        (fromIntegral w, fromIntegral h) undefined
+    let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
+    deinterlaceFunction iBitDepth 
+                        (fromIntegral compCount)
+                        (fromIntegral w, fromIntegral h)
+                        (scanlineUnpacker iBitDepth (fromIntegral compCount)
+                                                    mutableImage)
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
@@ -328,6 +322,15 @@ paletteRGBA1 = generateGreyscalePalette 1
 paletteRGBA2 = generateGreyscalePalette 2
 paletteRGBA4 = generateGreyscalePalette 4
 
+applyPalette :: PngPalette -> UArray Int Word8 -> UArray Int Word8
+applyPalette pal img = listArray (0, initSize * 3) pixels
+    where (_, initSize) = bounds img
+          pixels = concat [[r, g, b] | ipx <- elems img
+                                     , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
+
+readPng :: FilePath -> IO (Either String DynamicImage)
+readPng path = B.readFile path >>= return . decodePng
+
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
 -- a transformation to RGBA8 is performed. This should change
@@ -336,7 +339,7 @@ paletteRGBA4 = generateGreyscalePalette 4
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do
     rawImg <- runGet get byte
-    let ihdr = header rawImg
+    let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
         compressedImageData =
               B.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
@@ -344,26 +347,37 @@ decodePng byte = do
                        + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
 
-        unparse _ PngGreyscale
-            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor
-            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor
-            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor
-            | otherwise = ImageY8 <$> deinterlacer ihdr
-        unparse (Just plte) PngIndexedColor =
-            ImageRGBA8 <$> amap (promotePixel . (plte !) . fromIntegral) <$> img
-                where img = deinterlacer ihdr
-        unparse Nothing PngIndexedColor  = Left "no valid palette found"
-        unparse _ PngTrueColour          = ImageRGB8 <$> deinterlacer ihdr
-        unparse _ PngGreyscaleWithAlpha  = ImageYA8 <$> deinterlacer ihdr
-        unparse _ PngTrueColourWithAlpha = ImageRGBA8 <$> deinterlacer ihdr
+        imager = Image (fromIntegral w) (fromIntegral h)
+
+        unparse _ PngGreyscale bytes
+            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
+            | otherwise = Right . ImageY8 . imager $ runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+        unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
+        unparse _ PngTrueColour          bytes =
+            Right . ImageRGB8 . imager $ runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+        unparse _ PngGreyscaleWithAlpha  bytes =
+            Right . ImageYA8 . imager $ runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+        unparse _ PngTrueColourWithAlpha bytes =
+            Right . ImageRGBA8 . imager $ runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+        unparse (Just plte) PngIndexedColor bytes =
+            Right . ImageRGBA8 . imager $ applyPalette plte uarray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+                      uarray = runSTUArray stArray
 
     if B.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
        else let imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
+       	        parseableData = B.concat $ Lb.toChunks imgData
                 palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
                     Nothing -> Nothing
                     Just p -> case parsePalette p of
                             Left _ -> Nothing
                             Right plte -> Just plte
-            in unparse palette (colourType ihdr) . B.concat $ Lb.toChunks imgData
+            in unparse palette (colourType ihdr) parseableData
 

@@ -62,14 +62,14 @@ data PngRawImage = PngRawImage
     , chunks       :: [PngRawChunk]
     }
 
-type PngPalette = Array Word32 PixelRGB8
+type PngPalette = Array Int PixelRGB8
 
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
  | otherwise = listArray (0, pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
     where pixelUnpacker = replicateM (fromIntegral pixelCount) get
-          pixelCount = chunkLength plte `div` 3
+          pixelCount = fromIntegral $ chunkLength plte `div` 3
 
 -- | Data structure during real png loading/parsing
 data PngRawChunk = PngRawChunk

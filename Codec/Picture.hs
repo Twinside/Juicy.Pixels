@@ -66,6 +66,6 @@ readImage path = decodeImage <$> B.readFile path
 -- the decoded image in it's own colorspace
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", \b -> ImageYCbCr <$> decodeJpeg b)
-                                 {-,("PNG", pngDecode)-}
+                                 ,("PNG", decodePng)
                                  ]
     
