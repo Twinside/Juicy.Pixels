@@ -11,8 +11,7 @@
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
-                          PngLoadable( .. )
-                        , PngSavable( .. )
+                          PngSavable( .. )
 
                         , readPng
                         , decodePng
@@ -20,18 +19,16 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Applicative
-import Control.Monad( when, replicateM, foldM_, forM_ )
+import Control.Monad( foldM_, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
-import Data.Maybe( catMaybes )
-import Data.Bits
-import Data.Serialize
-import Data.Array.Unboxed
-import Data.Array.ST
-import Data.List( foldl', zip4, find )
-import Data.Word
+import Data.Serialize( Serialize, runGet, get)
+import Data.Array.Unboxed( IArray, UArray, (!), listArray, bounds, elems )
+import Data.Array.ST( STUArray, runSTUArray, MArray
+                    , readArray, writeArray, newArray, getBounds )
+import Data.List( find )
+import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb

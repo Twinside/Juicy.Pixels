@@ -10,21 +10,25 @@ import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
 
+import Data.Array.Base( unsafeAt, unsafeRead, unsafeWrite )
 import Data.List( find, foldl' )
-import Data.Bits
-import Data.Int
-import Data.Word
-import Data.Serialize
+import Data.Bits( (.|.), (.&.), shiftL, shiftR )
+import Data.Int( Int16, Int32 )
+import Data.Word(Word8, Word16, Word32)
+import Data.Serialize( Serialize(..), Get, Put
+                     , getWord8, putWord8
+                     , getWord16be, putWord16be
+                     , remaining, lookAhead, skip
+                     , getBytes, decode )
 import Data.Maybe( fromJust )
-import Data.Array.Unboxed
-import Data.Array.ST
+import Data.Array.Unboxed( IArray, Array, UArray, elems, listArray)
+import Data.Array.ST( STUArray, MArray, newArray, runSTUArray )
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 
-import Data.Array.Base
 
 --------------------------------------------------
 ----            Types

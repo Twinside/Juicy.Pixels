@@ -19,11 +19,13 @@ module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
                                  , createEmptyMutableMacroBlock
                                  ) where
 
-import Data.Array.Base
+import Data.Array.Base( IArray, UArray, unsafeAt
+                      , unsafeRead, unsafeWrite, listArray )
+import Data.Array.ST( MArray, STUArray, newArray )
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
-import Data.Bits
-import Data.Int
+import Data.Bits( shiftL, shiftR )
+import Data.Int( Int16 )
 
 iclip :: UArray Int Int16
 iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]

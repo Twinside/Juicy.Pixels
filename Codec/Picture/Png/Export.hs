@@ -2,9 +2,9 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 module Codec.Picture.Png.Export where
 
-import Data.Serialize
-import Data.Array.Unboxed
-import Data.Word
+import Data.Serialize(encode)
+import Data.Array.Unboxed(IArray, UArray, (!))
+import Data.Word(Word8)
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb

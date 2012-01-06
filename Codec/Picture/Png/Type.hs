@@ -16,13 +16,16 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngLowLevel( .. )
                              ) where
 
-import Control.Applicative
+import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM )
-import Data.Bits
-import Data.Serialize
-import Data.Array.Unboxed
+import Data.Bits( xor, (.&.), shiftR )
+import Data.Serialize( Serialize(..), Get, get, runGet, runPut
+                     , putWord8, getWord8
+                     , putWord32be, getWord32be
+                     , getByteString, putByteString )
+import Data.Array.Unboxed( Array, UArray, listArray, (!) )
 import Data.List( foldl' )
-import Data.Word
+import Data.Word( Word32, Word8 )
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types

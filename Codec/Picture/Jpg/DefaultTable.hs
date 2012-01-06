@@ -15,10 +15,9 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
                                      -}
 									 ) where
 
-import Data.Array.Unboxed
-import Data.Word
-import Data.List(foldl')
-{-import Data.Int-}
+import Data.Array.Unboxed( IArray, UArray, listArray )
+import Data.Word( Word8 )
+import Data.List( foldl' )
 
 data HuffmanTree = Branch HuffmanTree HuffmanTree
                  | Leaf Word8

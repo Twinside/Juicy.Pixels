@@ -23,10 +23,8 @@ module Codec.Picture (
                      , decodeJpeg 
 
                      -- ** Png handling
-                     {-, PngLoadable( .. )-}
-                     {-, PngSavable( .. )-}
-                     {-, readPng-}
-                     {-, pngDecode-}
+                     , readPng
+                     , decodePng
                      {-, writePng-}
                      -- * Image types and pixel types
                      -- ** Image
@@ -41,13 +39,10 @@ module Codec.Picture (
                      , PixelYCbCr8( .. )
                      ) where
 
-{-import Data.Array.Unboxed-}
-{-import Data.Word-}
-
-import Control.Applicative
+import Control.Applicative( (<$>) )
 import Codec.Picture.Bitmap
-import Codec.Picture.Jpg
-{-import Codec.Picture.Png-}
+import Codec.Picture.Jpg( readJpeg, decodeJpeg )
+import Codec.Picture.Png( readPng, decodePng )
 import Codec.Picture.Types
 
 import qualified Data.ByteString as B
