@@ -188,10 +188,11 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
              (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = 
             (trace (printf "img:(%d, %d) stride:(%d,%d) beg(%d,%d) beginIdx:%d h:%d" imgWidth imgHeight strideWidth strideHeight beginLeft beginTop beginIdx h)) $ do
     (_, maxIdx) <- getBounds line
-    let realTop = trace (printf "0..%d" pixelToRead)$ beginTop + h * strideHeight
-        pixelToRead = (maxIdx - beginIdx) `div` sampleCount
+    let realTop = beginTop + h * strideHeight
+        lineIndex = realTop * imgWidth
+        pixelToRead = min (imgWidth - 1) $ (maxIdx - beginIdx) `div` sampleCount
     forM_ [0 .. pixelToRead] $ \pixelIndex -> do
-        let destPixelIndex = realTop * imgWidth + pixelIndex * strideWidth + beginLeft 
+        let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
             destSampleIndex = destPixelIndex * sampleCount
             srcPixelIndex = pixelIndex * sampleCount + beginIdx
         forM_ [0 .. sampleCount - 1] $ \sample -> do
@@ -272,11 +273,11 @@ scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker = trace ("
 -- data for PNG's adam 7 method.
 adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
             -> ByteReader s ()
-adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
-  [pngFiltering (unpacker passSize (beginW, beginH)) sampleCount (byteWidth, passHeight)
-                | (beginW, incrW, beginH, incrH) <- zip4 startRows rowIncrement startCols colIncrement
-                , let passSize@(passWidth, passHeight) = 
-                            (sizer imgWidth beginW incrW, sizer imgHeight beginH incrH)
+adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = trace "Adam7 interleaving" $ sequence_
+  [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) sampleCount (byteWidth, passHeight)
+                | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
+                , let passWidth = sizer imgWidth beginW incrW
+                      passHeight = sizer imgHeight beginH incrH
                       byteWidth = byteSizeOfBitLength depth sampleCount passWidth
                 ]
     where Adam7MatrixInfo { adam7StartingRow  = startRows
