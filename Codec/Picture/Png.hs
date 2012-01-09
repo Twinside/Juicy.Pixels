@@ -27,7 +27,7 @@ import Data.Serialize( Serialize, runGet, get)
 import Data.Array.Unboxed( IArray, UArray, (!), listArray, bounds, elems )
 import Data.Array.ST( STUArray, runSTUArray, MArray
                     , readArray, writeArray, newArray, getBounds )
-import Data.List( find )
+import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
@@ -36,6 +36,8 @@ import qualified Data.ByteString.Lazy as Lb
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
+import Debug.Trace
+import Text.Printf
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
@@ -78,15 +80,15 @@ getNextByte = do str <- S.get
 
 {-# INLINE (!!!) #-}
 (!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) = (!) -- unsafeAt
+(!!!) arr i = (!) arr i -- unsafeAt
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) = readArray -- unsafeRead
+(.!!!.) arr i= readArray arr i -- unsafeRead
 
 {-# INLINE (.<-.) #-}
 (.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.)  = writeArray -- unsafeWrite
+(.<-.) arr i = writeArray arr i -- unsafeWrite
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line, using the previous line (the one above it) to perform
@@ -178,23 +180,29 @@ paeth a b c
 type PngLine s = STUArray s Int Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
 
-type StrideInfo = (Int, Int)
+type StrideInfo  = (Int, Int)
+type BeginOffset = (Int, Int)
 
-byteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> LineUnpacker s
-byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
-             (strideWidth, strideHeight) h (beginIdx, line) = do
+byteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
+byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageHeight = imgHeight, mutableImageData = arr })
+             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = 
+            (trace (printf "img:(%d, %d) stride:(%d,%d) beg(%d,%d) beginIdx:%d h:%d" imgWidth imgHeight strideWidth strideHeight beginLeft beginTop beginIdx h)) $ do
     (_, maxIdx) <- getBounds line
-
-    forM_ [0 .. maxIdx - beginIdx] $ \destSampleIndex -> do
-        let destSampleBase = (h * strideHeight * imgWidth + destSampleIndex) * sampleCount
+    let realTop = trace (printf "0..%d" pixelToRead)$ beginTop + h * strideHeight
+        pixelToRead = (maxIdx - beginIdx) `div` sampleCount
+    forM_ [0 .. pixelToRead] $ \pixelIndex -> do
+        let destPixelIndex = realTop * imgWidth + pixelIndex * strideWidth + beginLeft 
+            destSampleIndex = destPixelIndex * sampleCount
+            srcPixelIndex = pixelIndex * sampleCount + beginIdx
         forM_ [0 .. sampleCount - 1] $ \sample -> do
-            val <- line .!!!. (beginIdx + sample)
-            (arr .<-. (destSampleBase + sampleCount * strideWidth)) val
+            val <- line .!!!. (srcPixelIndex + sample)
+            let writeIdx = destSampleIndex + sample
+            (arr .<-. writeIdx) val
              
 
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
-scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> LineUnpacker s
+scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 {-scanlineUnpacker 1 1 image@(MutableImage{ mutableImageWidth = imgWidth-}
                                       {-, mutableImageData = arr-}
                                       {-}) strideWidth strideHeight -}
@@ -254,19 +262,22 @@ byteSizeOfBitLength :: Int -> Int -> Int -> Int
 byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 then 1 else 0)
    where (size, rest) = (pixelBitDepth * dimension * sampleCount) `quotRem` 8
 
-scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> LineUnpacker s)
+scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
                      -> ByteReader s ()
-scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker =
-    pngFiltering (unpacker (1,1)) sampleCount (byteWidth, imgHeight)
+scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker = trace ("Normal interleaving") $
+    pngFiltering (unpacker (1,1) (0, 0)) sampleCount (byteWidth, imgHeight)
         where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
 
 -- | Given data and image size, recreate an image with deinterlaced
 -- data for PNG's adam 7 method.
-adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> LineUnpacker s) -> ByteReader s ()
+adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
+            -> ByteReader s ()
 adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
-  [pngFiltering (unpacker passSize) sampleCount (byteWidth, passHeight)
-                | passSize@(passWidth, passHeight) <- zip passWidths passHeights
-                , let byteWidth = byteSizeOfBitLength depth sampleCount passWidth
+  [pngFiltering (unpacker passSize (beginW, beginH)) sampleCount (byteWidth, passHeight)
+                | (beginW, incrW, beginH, incrH) <- zip4 startRows rowIncrement startCols colIncrement
+                , let passSize@(passWidth, passHeight) = 
+                            (sizer imgWidth beginW incrW, sizer imgHeight beginH incrH)
+                      byteWidth = byteSizeOfBitLength depth sampleCount passWidth
                 ]
     where Adam7MatrixInfo { adam7StartingRow  = startRows
                           , adam7RowIncrement = rowIncrement
@@ -277,12 +288,6 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
             | dimension <= begin = 0
             | otherwise = outDim + (if restDim /= 0 then 1 else 0)
                 where (outDim, restDim) = (dimension - begin) `quotRem` increment
-
-          passHeights =
-              [sizer imgHeight begin incr | (begin, incr) <- zip startRows rowIncrement]
-          passWidths  =
-              [sizer imgWidth  begin incr | (begin, incr) <- zip startCols colIncrement]
-
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
