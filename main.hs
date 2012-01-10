@@ -18,7 +18,7 @@ convertPngToBmp filePath = do
     case rez of
         Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
         Right (ImageRGB8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right _ -> putStr $ "\n(X) Bmp read error can't do\n"
+        Right _ -> putStr $ "\n(X) Bitmap write error, can't encode"
 
 
 {-convertJpegToPng :: FilePath -> IO ()-}
@@ -103,13 +103,20 @@ main :: IO ()
 main = do 
     {-(fname: _args) <- getArgs-}
     {-huffTest-}
+    convertPngToBmp "tests/pngsuite/basn0g01.png"
+    convertPngToBmp "tests/pngsuite/basn3p01.png"
+    convertPngToBmp "tests/pngsuite/basn0g02.png"
+    convertPngToBmp "tests/pngsuite/basn3p02.png"
+    convertPngToBmp "tests/pngsuite/basn0g08.png"
+    convertPngToBmp "tests/pngsuite/basn2c16.png"
+    convertPngToBmp "tests/pngsuite/basi2c16.png"
     convertPngToBmp "tests/pngsuite/basi2c08.png"
     convertPngToBmp "tests/pngsuite/basn2c08.png"
-    {-convertPngToBmp "tests/pngsuite/f00n2c08.png"-}
-    {-convertPngToBmp "tests/pngsuite/f01n2c08.png"-}
-    {-convertPngToBmp "tests/pngsuite/f02n2c08.png"-}
-    {-convertPngToBmp "tests/pngsuite/f03n2c08.png"-}
-    {-convertPngToBmp "tests/pngsuite/f04n2c08.png"-}
+    convertPngToBmp "tests/pngsuite/f00n2c08.png"
+    convertPngToBmp "tests/pngsuite/f01n2c08.png"
+    convertPngToBmp "tests/pngsuite/f02n2c08.png"
+    convertPngToBmp "tests/pngsuite/f03n2c08.png"
+    convertPngToBmp "tests/pngsuite/f04n2c08.png"
     {-convertJpegToBmp  fname-}
     {-convertJpegToPng fname-}
     {-writePng "witness.png" greyScaleWitness -}

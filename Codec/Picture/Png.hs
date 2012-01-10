@@ -19,7 +19,9 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( foldM_, forM_ )
+import Control.Monad( foldM_, forM_
+                    {-, when-}
+                    )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
@@ -27,7 +29,7 @@ import Data.Serialize( Serialize, runGet, get)
 import Data.Array.Unboxed( IArray, UArray, (!), listArray, bounds, elems )
 import Data.Array.ST( STUArray, runSTUArray, MArray
                     , readArray, writeArray, newArray, getBounds )
-import Data.Bits( (.|.), shiftL )
+import Data.Bits( (.&.), (.|.), shiftL, shiftR )
 import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
@@ -38,7 +40,7 @@ import Codec.Picture.Types
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
 import Debug.Trace
-import Text.Printf
+{-import Text.Printf-}
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
@@ -169,15 +171,6 @@ paeth a b c
           pb = abs $ p - b'
           pc = abs $ p - c'
 
-{-mArrayMap :: (MArray (STUArray s) a (ST s))-}
-          {-=> Int -> Int -> (a -> b) -> STUArray s Int a -> ST s [b]-}
-{-mArrayMap from to f arr = inner from-}
-    {-where inner idx | idx == to = return []-}
-                    {-| otherwise = do-}
-                        {-val <- arr .!!!. from-}
-                        {-rest <- inner $ idx + 1-}
-                        {-return $ f val : rest-}
-
 type PngLine s = STUArray s Int Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
 
@@ -185,9 +178,8 @@ type StrideInfo  = (Int, Int)
 type BeginOffset = (Int, Int)
 
 byteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
-byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageHeight = imgHeight, mutableImageData = arr })
-             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = 
-            (trace (printf "img:(%d, %d) stride:(%d,%d) beg(%d,%d) beginIdx:%d h:%d" imgWidth imgHeight strideWidth strideHeight beginLeft beginTop beginIdx h)) $ do
+byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
+             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
     (_, maxIdx) <- getBounds line
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
@@ -201,10 +193,37 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
             let writeIdx = destSampleIndex + sample
             (arr .<-. writeIdx) val
              
+bitUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
+bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
+              (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
+    let realTop = beginTop + h * strideHeight
+        lineIndex = realTop * imgWidth
+    forM_ [0 .. imgWidth `div` 8 - 1] $ \pixelIndex -> do
+        val <- line .!!!. (pixelIndex  + beginIdx)
+        let writeIdx n = lineIndex + (pixelIndex * 8 + n) * strideWidth + beginLeft 
+        forM_ [0 .. 7] $ \bit -> (arr .<-. writeIdx (7 - bit)) ((val `shiftR` bit) .&. 1)
+
+twoBitsUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
+twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
+                  (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
+    let realTop = beginTop + h * strideHeight
+        lineIndex = realTop * imgWidth
+    forM_ [0 .. imgWidth `div` 4 - 1] $ \pixelIndex -> do
+        val <- line .!!!. (pixelIndex  + beginIdx)
+        let writeIdx n = lineIndex + (pixelIndex * 4 + n) * strideWidth + beginLeft 
+        (arr .<-. writeIdx 0) $ (val `shiftR` 6) .&. 0x3
+        (arr .<-. writeIdx 1) $ (val `shiftR` 4) .&. 0x3
+        (arr .<-. writeIdx 2) $ (val `shiftR` 2) .&. 0x3
+        (arr .<-. writeIdx 3) $ val .&. 0x3
+    {-let restBit = imgWidth `mod` 4-}
+    {-when (restBit /= 0) (do-}
+        {-val <- line .!!!. (imgWidth `div` 4)-}
+        {-forM_ [0 .. restBit - 1] (\n-> -}
+            {-(arr .<-. writeIdx n) $ (val `shiftR` 6 - 2 * n) .&. 0x3))-}
+
 shortUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
-             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = 
-            trace (printf "stride(%d,%d) begin(%d,%d) h:%d beg:%d" strideWidth strideHeight beginLeft beginTop h beginIdx) $ do
+             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
     (_, maxIdx) <- getBounds line
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
@@ -226,38 +245,6 @@ shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIm
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
 scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
-{-scanlineUnpacker 1 1 image@(MutableImage{ mutableImageWidth = imgWidth-}
-                                      {-, mutableImageData = arr-}
-                                      {-}) strideWidth strideHeight -}
-                                         {-beginIndice line = do-}
-   {-bytes <- mArrayMap beginIndice (beginIndice + lineSize) (split 8) line-}
-   {-restVal <- line .!!!. (beginIndice + lineSize + 1)-}
-   {-let finalList = concat bytes ++ split bitRest restVal-}
-   {-strideWrite arr $ finalList-}
-    {-where split :: Int -> Word8 -> [Word8] -- avoid defaulting-}
-          {-split times c = map (extractBit c) [7, 6 .. 8 - times]-}
-          {-lineSize = imgWidth `quot` 8-}
-          {-bitRest = imgWidth `mod` 8-}
-          {-realHeight = height * strideHeight-}
-
-          {-extractBit c shiftCount =-}
-              {-((c `shiftR` shiftCount) .&. 1) * 255-}
-
-{-scanlineUnpacker 2 1 imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
-    {-where split :: Word32 -> Word8 -> [Word8] -- avoid defaulting-}
-          {-split times c = map (extractBit c) [3, 2 .. 4 - times]-}
-          {-lineSize = imgWidth `quot` 4-}
-          {-bitRest = imgWidth `mod` 4-}
-
-          {-extractBit c shiftCount = (c `shiftR` (fromIntegral shiftCount * 2)) .&. 0x3-}
-
-          {-lineParser = do-}
-            {-line <- concat <$> replicateM (fromIntegral lineSize) (split 4 <$> get)-}
-            {-if bitRest == 0-}
-                {-then return line-}
-                {-else do lastElems <- split bitRest <$> get-}
-                        {-return $ line ++ lastElems-}
-
 {-scanlineUnpacker 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
     {-where split :: Word8 -> [Word8]-}
           {-split c = [(c `shiftR` 4) .&. 0xF, c .&. 0xF]-}
@@ -270,7 +257,8 @@ scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> BeginOff
                 {-then return line-}
                 {-else do lastElem <- (head . split) <$> get-}
                         {-return $ line ++ [lastElem]-}
-
+scanlineUnpacker 1 = bitUnpacker
+scanlineUnpacker 2 = twoBitsUnpacker
 scanlineUnpacker 8 = byteUnpacker
 scanlineUnpacker 16 = shortUnpacker
 scanlineUnpacker _ = error "Impossible bit depth"
@@ -343,13 +331,14 @@ sampleCountOfImageType PngIndexedColor = 1
 sampleCountOfImageType PngGreyscaleWithAlpha = 2
 sampleCountOfImageType PngTrueColourWithAlpha = 4
 
-paletteRGBA1, paletteRGBA2, paletteRGBA4 :: PngPalette
+paletteRGBA1, paletteRGBA2, paletteRGBA4, paletteRGBA8 :: PngPalette
 paletteRGBA1 = generateGreyscalePalette 1
 paletteRGBA2 = generateGreyscalePalette 2
 paletteRGBA4 = generateGreyscalePalette 4
+paletteRGBA8 = generateGreyscalePalette 8
 
 applyPalette :: PngPalette -> UArray Int Word8 -> UArray Int Word8
-applyPalette pal img = listArray (0, initSize * 3) pixels
+applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- elems img
                                      , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
@@ -379,8 +368,9 @@ decodePng byte = do
             | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
             | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
-            | otherwise = Right . ImageY8 . imager $ runSTUArray stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+            | otherwise = unparse (Just paletteRGBA8) PngIndexedColor bytes
+            {-| otherwise = Right . ImageY8 . imager $ runSTUArray stArray-}
+                {-where stArray = S.evalStateT (deinterlacer ihdr) bytes-}
         unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
         unparse _ PngTrueColour          bytes =
             Right . ImageRGB8 . imager $ runSTUArray stArray
@@ -392,7 +382,7 @@ decodePng byte = do
             Right . ImageRGBA8 . imager $ runSTUArray stArray
                 where stArray = S.evalStateT (deinterlacer ihdr) bytes
         unparse (Just plte) PngIndexedColor bytes =
-            Right . ImageRGBA8 . imager $ applyPalette plte uarray
+            Right . ImageRGB8 . imager $ applyPalette plte uarray
                 where stArray = S.evalStateT (deinterlacer ihdr) bytes
                       uarray = runSTUArray stArray
 
