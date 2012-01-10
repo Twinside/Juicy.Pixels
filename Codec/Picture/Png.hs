@@ -27,6 +27,7 @@ import Data.Serialize( Serialize, runGet, get)
 import Data.Array.Unboxed( IArray, UArray, (!), listArray, bounds, elems )
 import Data.Array.ST( STUArray, runSTUArray, MArray
                     , readArray, writeArray, newArray, getBounds )
+import Data.Bits( (.|.), shiftL )
 import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
@@ -200,6 +201,27 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
             let writeIdx = destSampleIndex + sample
             (arr .<-. writeIdx) val
              
+shortUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
+shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
+             (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = 
+            trace (printf "stride(%d,%d) begin(%d,%d) h:%d beg:%d" strideWidth strideHeight beginLeft beginTop h beginIdx) $ do
+    (_, maxIdx) <- getBounds line
+    let realTop = beginTop + h * strideHeight
+        lineIndex = realTop * imgWidth
+        pixelToRead = min (imgWidth - 1) $ (maxIdx - beginIdx) `div` (sampleCount * 2)
+    forM_ [0 .. pixelToRead] $ \pixelIndex -> do
+        let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
+            destSampleIndex = destPixelIndex * sampleCount
+            srcPixelIndex = pixelIndex * sampleCount * 2 + beginIdx
+        forM_ [0 .. sampleCount - 1] $ \sample -> do
+            highBits <- line .!!!. (srcPixelIndex + sample * 2 + 0)
+            lowBits <- line .!!!. (srcPixelIndex + sample * 2 + 1)
+            let fullValue = fromIntegral lowBits .|. (fromIntegral highBits `shiftL` 8) :: Word32
+                word8Max = 2 ^ (8 :: Word32) - 1 :: Word32
+                word16Max = 2 ^ (16 :: Word32) - 1 :: Word32
+                val = fullValue * word8Max `div` word16Max
+                writeIdx = destSampleIndex + sample
+            (arr .<-. writeIdx) $ fromIntegral val
 
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
@@ -250,13 +272,7 @@ scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> BeginOff
                         {-return $ line ++ [lastElem]-}
 
 scanlineUnpacker 8 = byteUnpacker
-{-scanlineUnpacker 16 sampleCount imgWidth imgHeight =-}
-    {-replicateM (fromIntegral $ imgWidth * imgHeight * sampleCount) (bitDepthReducer <$> getWord16be)-}
-        {-where bitDepthReducer v = fromIntegral $ v32 * word8Max `div` word16Max-}
-                  {-where v32 = fromIntegral v :: Word32 -- type signature to avoid defaulting to Integer-}
-                        {-word8Max = 2 ^ (8 :: Word32) - 1 :: Word32-}
-                        {-word16Max = 2 ^ (16 :: Word32) - 1 :: Word32-}
-
+scanlineUnpacker 16 = shortUnpacker
 scanlineUnpacker _ = error "Impossible bit depth"
 
 byteSizeOfBitLength :: Int -> Int -> Int -> Int
@@ -266,15 +282,17 @@ byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 t
 scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
                      -> ByteReader s ()
 scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker = trace ("Normal interleaving") $
-    pngFiltering (unpacker (1,1) (0, 0)) sampleCount (byteWidth, imgHeight)
+    pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight)
         where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
+              strideInfo | depth < 8 = 1
+                         | otherwise = sampleCount * (depth `div` 8)
 
 -- | Given data and image size, recreate an image with deinterlaced
 -- data for PNG's adam 7 method.
 adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
             -> ByteReader s ()
 adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = trace "Adam7 interleaving" $ sequence_
-  [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) sampleCount (byteWidth, passHeight)
+  [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) strideInfo (byteWidth, passHeight)
                 | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
                 , let passWidth = sizer imgWidth beginW incrW
                       passHeight = sizer imgHeight beginH incrH
@@ -285,6 +303,8 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = trace "Adam7 inte
                           , adam7StartingCol  = startCols
                           , adam7ColIncrement = colIncrement } = adam7MatrixInfo
 
+          strideInfo | depth < 8 = 1
+                     | otherwise = sampleCount * (depth `div` 8)
           sizer dimension begin increment
             | dimension <= begin = 0
             | otherwise = outDim + (if restDim /= 0 then 1 else 0)
