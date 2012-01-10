@@ -19,9 +19,7 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( foldM_, forM_
-                    {-, when-}
-                    )
+import Control.Monad( foldM_, forM_, when )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
@@ -221,6 +219,24 @@ twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData 
         {-forM_ [0 .. restBit - 1] (\n-> -}
             {-(arr .<-. writeIdx n) $ (val `shiftR` 6 - 2 * n) .&. 0x3))-}
 
+halfByteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
+halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
+                   (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
+    (_, endLine) <- getBounds line
+    let realTop = beginTop + h * strideHeight
+        lineIndex = realTop * imgWidth
+        lineWidth = endLine - beginIdx
+    forM_ [0 .. lineWidth] $ \pixelIndex -> do
+        val <- line .!!!. (pixelIndex  + beginIdx)
+        let writeIdx n = lineIndex + (pixelIndex * 2 + n) * strideWidth + beginLeft 
+        (arr .<-. writeIdx 0) $ (val `shiftR` 4) .&. 0xF
+        (arr .<-. writeIdx 1) $ val .&. 0xF
+    
+    when (lineWidth `mod` 2 /= 0)
+         (do val <- line .!!!. endLine
+             let writeIdx = lineIndex + (lineWidth * 2) * strideWidth + beginLeft 
+             (arr .<-. writeIdx) $ (val `shiftR` 4) .&. 0xF)
+
 shortUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
              (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
@@ -245,20 +261,9 @@ shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIm
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
 scanlineUnpacker :: Int -> Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
-{-scanlineUnpacker 4 sampleCount imgWidth imgHeight = concat <$> replicateM (fromIntegral imgHeight) lineParser-}
-    {-where split :: Word8 -> [Word8]-}
-          {-split c = [(c `shiftR` 4) .&. 0xF, c .&. 0xF]-}
-          {-lineSize = fromIntegral $ imgWidth `quot` 2-}
-          {-isFullLine = (imgWidth * sampleCount) `mod` 2 == 0-}
-
-          {-lineParser = do-}
-            {-line <- concat <$> replicateM lineSize (split <$> get)-}
-            {-if isFullLine-}
-                {-then return line-}
-                {-else do lastElem <- (head . split) <$> get-}
-                        {-return $ line ++ [lastElem]-}
 scanlineUnpacker 1 = bitUnpacker
 scanlineUnpacker 2 = twoBitsUnpacker
+scanlineUnpacker 4 = halfByteUnpacker
 scanlineUnpacker 8 = byteUnpacker
 scanlineUnpacker 16 = shortUnpacker
 scanlineUnpacker _ = error "Impossible bit depth"

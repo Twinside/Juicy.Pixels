@@ -103,6 +103,9 @@ main :: IO ()
 main = do 
     {-(fname: _args) <- getArgs-}
     {-huffTest-}
+    convertPngToBmp "tests/pngsuite/basn0g04.png"
+    convertPngToBmp "tests/pngsuite/basn3p04.png"
+    convertPngToBmp "tests/pngsuite/basi3p04.png"
     convertPngToBmp "tests/pngsuite/basn0g01.png"
     convertPngToBmp "tests/pngsuite/basn3p01.png"
     convertPngToBmp "tests/pngsuite/basn0g02.png"
