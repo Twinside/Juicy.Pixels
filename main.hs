@@ -103,29 +103,12 @@ main :: IO ()
 main = do 
     {-(fname: _args) <- getArgs-}
     {-huffTest-}
-    convertPngToBmp "tests/pngsuite/basn0g04.png"
-    convertPngToBmp "tests/pngsuite/basn3p04.png"
-    convertPngToBmp "tests/pngsuite/basi3p04.png"
-    convertPngToBmp "tests/pngsuite/basn0g01.png"
-    convertPngToBmp "tests/pngsuite/basn3p01.png"
-    convertPngToBmp "tests/pngsuite/basn0g02.png"
-    convertPngToBmp "tests/pngsuite/basn3p02.png"
-    convertPngToBmp "tests/pngsuite/basn0g08.png"
-    convertPngToBmp "tests/pngsuite/basn2c16.png"
-    convertPngToBmp "tests/pngsuite/basi2c16.png"
-    convertPngToBmp "tests/pngsuite/basi2c08.png"
-    convertPngToBmp "tests/pngsuite/basn2c08.png"
-    convertPngToBmp "tests/pngsuite/f00n2c08.png"
-    convertPngToBmp "tests/pngsuite/f01n2c08.png"
-    convertPngToBmp "tests/pngsuite/f02n2c08.png"
-    convertPngToBmp "tests/pngsuite/f03n2c08.png"
-    convertPngToBmp "tests/pngsuite/f04n2c08.png"
     {-convertJpegToBmp  fname-}
     {-convertJpegToPng fname-}
     {-writePng "witness.png" greyScaleWitness -}
     {-exportBmpWitness-}
-    {-putStrLn ">>>> Valid instances"-}
-    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
+    putStrLn ">>>> Valid instances"
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
     {-putStr "\n"-}

@@ -173,8 +173,11 @@ type PngLine s = STUArray s Int Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
 
 type StrideInfo  = (Int, Int)
+
 type BeginOffset = (Int, Int)
 
+
+-- | Unpack lines where bit depth is 8
 byteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
              (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
@@ -191,33 +194,55 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
             let writeIdx = destSampleIndex + sample
             (arr .<-. writeIdx) val
              
+
+-- | Unpack lines where bit depth is 1
 bitUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
               (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
+    (_, endLine) <- getBounds line
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
-    forM_ [0 .. imgWidth `div` 8 - 1] $ \pixelIndex -> do
+        (lineWidth, subImageRest) = (imgWidth - beginLeft) `divMod` strideWidth
+        subPadd | subImageRest > 0 = 1
+                | otherwise = 0
+        (pixelToRead, lineRest) = (lineWidth + subPadd) `divMod` 8
+    forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line .!!!. (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 8 + n) * strideWidth + beginLeft 
         forM_ [0 .. 7] $ \bit -> (arr .<-. writeIdx (7 - bit)) ((val `shiftR` bit) .&. 1)
 
+    when (lineRest /= 0)
+         (do val <- line .!!!. endLine
+             let writeIdx n = lineIndex + (pixelToRead * 8 + n) * strideWidth + beginLeft
+             forM_ [0 .. lineRest - 1] $ \bit ->
+                (arr .<-. writeIdx bit) $ ((val `shiftR` (7 - 2 * bit)) .&. 0x1))
+
+
+-- | Unpack lines when bit depth is 2
 twoBitsUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
                   (strideWidth, strideHeight) (beginLeft, beginTop) h (beginIdx, line) = do
+    (_, endLine) <- getBounds line
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
-    forM_ [0 .. imgWidth `div` 4 - 1] $ \pixelIndex -> do
+        (lineWidth, subImageRest) = (imgWidth - beginLeft) `divMod` strideWidth
+        subPadd | subImageRest > 0 = 1
+                | otherwise = 0
+        (pixelToRead, lineRest) = (lineWidth + subPadd) `divMod` 4
+
+    forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line .!!!. (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 4 + n) * strideWidth + beginLeft 
         (arr .<-. writeIdx 0) $ (val `shiftR` 6) .&. 0x3
         (arr .<-. writeIdx 1) $ (val `shiftR` 4) .&. 0x3
         (arr .<-. writeIdx 2) $ (val `shiftR` 2) .&. 0x3
         (arr .<-. writeIdx 3) $ val .&. 0x3
-    {-let restBit = imgWidth `mod` 4-}
-    {-when (restBit /= 0) (do-}
-        {-val <- line .!!!. (imgWidth `div` 4)-}
-        {-forM_ [0 .. restBit - 1] (\n-> -}
-            {-(arr .<-. writeIdx n) $ (val `shiftR` 6 - 2 * n) .&. 0x3))-}
+
+    when (lineRest /= 0)
+         (do val <- line .!!!. endLine
+             let writeIdx n = lineIndex + (pixelToRead * 4 + n) * strideWidth + beginLeft
+             forM_ [0 .. lineRest - 1] $ \bit ->
+                (arr .<-. writeIdx bit) $ ((val `shiftR` (6 - 2 * bit)) .&. 0x3))
 
 halfByteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
@@ -225,16 +250,19 @@ halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData
     (_, endLine) <- getBounds line
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
-        lineWidth = endLine - beginIdx
-    forM_ [0 .. lineWidth] $ \pixelIndex -> do
+        (lineWidth, subImageRest) = (imgWidth - beginLeft) `divMod` strideWidth
+        subPadd | subImageRest > 0 = 1
+                | otherwise = 0
+        (pixelToRead, lineRest) = (lineWidth + subPadd) `divMod` 2
+    forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line .!!!. (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 2 + n) * strideWidth + beginLeft 
         (arr .<-. writeIdx 0) $ (val `shiftR` 4) .&. 0xF
         (arr .<-. writeIdx 1) $ val .&. 0xF
     
-    when (lineWidth `mod` 2 /= 0)
+    when (lineRest /= 0)
          (do val <- line .!!!. endLine
-             let writeIdx = lineIndex + (lineWidth * 2) * strideWidth + beginLeft 
+             let writeIdx = lineIndex + (pixelToRead * 2) * strideWidth + beginLeft 
              (arr .<-. writeIdx) $ (val `shiftR` 4) .&. 0xF)
 
 shortUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
