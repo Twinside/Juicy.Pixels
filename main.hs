@@ -18,8 +18,10 @@ convertPngToBmp filePath = do
     case rez of
         Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
         Right (ImageRGB8 img) -> writeBitmap (filePath ++ ".bmp") img
+        Right (ImageRGBA8 img) -> writeBitmap (filePath ++ ".bmp") img
         Right (ImageY8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right _ -> putStr $ "\n(X) Bitmap write error, can't encode"
+        Right (ImageYA8 _) -> putStr $ "\n(X) Bitmap write error, can't encode YA8"
+        Right (ImageYCbCr8 _) -> putStr $ "\n(X) Bitmap write error, can't encode YCbCr8"
 
 {-convertJpegToPng :: FilePath -> IO ()-}
 {-convertJpegToPng filePath = do-}

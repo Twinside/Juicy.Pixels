@@ -72,7 +72,7 @@ data DynamicImage =
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
 
-     | ImageYCbCr (Image PixelYCbCr8)
+     | ImageYCbCr8 (Image PixelYCbCr8)
 
 type Pixel2 = Bool
 
