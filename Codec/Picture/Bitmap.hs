@@ -7,7 +7,7 @@ module Codec.Picture.Bitmap( -- * Functions
                            , encodeBitmap
                            , decodeBitmap
                              -- * Accepted formt in output
-                           , BmpEncodable()
+                           , BmpEncodable( )
                            ) where
 
 import Control.Monad( replicateM_, when )
@@ -126,7 +126,7 @@ instance BmpEncodable PixelRGBA8 where
                                                , let lineIndex = line * w
                                                , col <- [0..w - 1]
                                                , let pixelIdx = lineIndex + col
-                                               , comp <- [0..3]
+                                               , comp <- [3, 2, 1, 0]
                                                ]
 
 instance BmpEncodable PixelRGB8 where
@@ -136,7 +136,7 @@ instance BmpEncodable PixelRGB8 where
         where stride = fromIntegral . linePadding 24 $ w
               putLine line = do
                   let lineIdx = line * w
-                  mapM_ put [arr ! ((lineIdx + col) * 3 + comp) | col <- [0..w - 1], comp <- [0..2]]
+                  mapM_ put [arr ! ((lineIdx + col) * 3 + comp) | col <- [0..w - 1], comp <- [2, 1, 0]]
                   replicateM_ stride $ put (0 :: Word8)
 
 -- | Try to decode a bitmap image
