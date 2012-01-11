@@ -24,9 +24,13 @@ import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
 import Data.Serialize( Serialize, runGet, get)
-import Data.Array.Unboxed( IArray, UArray, (!), listArray, bounds, elems )
-import Data.Array.ST( STUArray, runSTUArray, MArray
-                    , readArray, writeArray, newArray, getBounds )
+
+import Data.Array.Base( unsafeAt, unsafeRead, unsafeWrite )
+-- import Data.Array.Unboxed( (!) )
+-- import Data.Array.ST( readArray, writeArray )
+
+import Data.Array.Unboxed( IArray, UArray, listArray, bounds, elems )
+import Data.Array.ST( STUArray, runSTUArray, MArray, newArray, getBounds )
 import Data.Bits( (.&.), (.|.), shiftL, shiftR )
 import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
@@ -81,15 +85,15 @@ getNextByte = do str <- S.get
 
 {-# INLINE (!!!) #-}
 (!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) arr i = (!) arr i -- unsafeAt
+(!!!) = unsafeAt
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) arr i= readArray arr i -- unsafeRead
+(.!!!.) = unsafeRead
 
 {-# INLINE (.<-.) #-}
 (.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.) arr i = writeArray arr i -- unsafeWrite
+(.<-.) = unsafeWrite
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line, using the previous line (the one above it) to perform
@@ -114,45 +118,54 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
         ) (thisLine, otherLine) [0 .. imgHeight - 1]
 
     where stride = fromIntegral beginZeroes
+          lastIdx = beginZeroes + imgWidth - 1
+
+          -- The filter implementation are... well non-idiomatic
+          -- to say the least, but my benchmarks proved me one thing,
+          -- they are faster than mapM_, gained something like 5% with
+          -- a rewrite from mapM_ to this direct version
           filterNone, filterSub, filterUp, filterPaeth,
                 filterAverage :: (PngLine s, PngLine s) -> ByteReader s ()
-          filterNone (_previousLine, thisLine) =
-            mapM_ (\idx -> do
-                byte <- getNextByte
-                lift $ (thisLine .<-. idx) byte) [beginZeroes .. beginZeroes + imgWidth - 1]
+          filterNone (_previousLine, thisLine) = inner beginZeroes
+            where inner idx | idx > lastIdx = return ()
+                            | otherwise = do byte <- getNextByte
+                                             lift $ (thisLine .<-. idx) byte
+                                             inner (idx + 1)
 
-          filterSub (_previousLine, thisLine) = 
-            mapM_ (\idx -> do
-                byte <- getNextByte
-                val <- lift $ thisLine .!!!. (idx - stride)
-                lift . (thisLine .<-. idx) $ byte + val)
-                    [beginZeroes .. beginZeroes + imgWidth - 1]
+          filterSub (_previousLine, thisLine) = inner beginZeroes
+            where inner idx | idx > lastIdx = return ()
+                            | otherwise = do byte <- getNextByte
+                                             val <- lift $ thisLine .!!!. (idx - stride)
+                                             lift . (thisLine .<-. idx) $ byte + val
+                                             inner (idx + 1)
 
-          filterUp (previousLine, thisLine) = 
-            mapM_ (\idx -> do
-                byte <- getNextByte
-                val <- lift $ previousLine .!!!. idx
-                lift . (thisLine .<-. idx) $ val + byte)
-                    [beginZeroes .. beginZeroes + imgWidth - 1]
+          filterUp (previousLine, thisLine) = inner beginZeroes
+            where inner idx | idx > lastIdx = return ()
+                            | otherwise = do byte <- getNextByte
+                                             val <- lift $ previousLine .!!!. idx
+                                             lift . (thisLine .<-. idx) $ val + byte
+                                             inner (idx + 1)
 
-          filterAverage (previousLine, thisLine) = 
-            mapM_ (\idx -> do
-                byte <- getNextByte
-                valA <- lift $ thisLine .!!!. (idx - stride)
-                valB <- lift $ previousLine .!!!. idx
-                let a' = fromIntegral valA
-                    b' = fromIntegral valB
-                lift . (thisLine .<-. idx) $ byte + fromIntegral ((a' + b') `div` (2 :: Word16))
-                ) [beginZeroes .. beginZeroes + imgWidth - 1]
+          filterAverage (previousLine, thisLine) = inner beginZeroes
+            where inner idx | idx > lastIdx = return ()
+                            | otherwise = do byte <- getNextByte
+                                             valA <- lift $ thisLine .!!!. (idx - stride)
+                                             valB <- lift $ previousLine .!!!. idx
+                                             let a' = fromIntegral valA
+                                                 b' = fromIntegral valB
+                                                 average = fromIntegral ((a' + b') `div` (2 :: Word16)) 
+                                                 writeVal = byte + average 
+                                             lift . (thisLine .<-. idx) $ writeVal
+                                             inner (idx + 1)
 
-          filterPaeth (previousLine, thisLine) =
-            mapM_ (\idx -> do
-                byte <- getNextByte
-                valA <- lift $ thisLine .!!!. (idx - stride)
-                valC <- lift $ previousLine .!!!. (idx - stride)
-                valB <- lift $ previousLine .!!!. idx
-                lift . (thisLine .<-. idx) $ byte + paeth valA valB valC
-                ) [beginZeroes .. beginZeroes + imgWidth - 1]
+          filterPaeth (previousLine, thisLine) = inner beginZeroes
+            where inner idx | idx > lastIdx = return ()
+                            | otherwise = do byte <- getNextByte
+                                             valA <- lift $ thisLine .!!!. (idx - stride)
+                                             valC <- lift $ previousLine .!!!. (idx - stride)
+                                             valB <- lift $ previousLine .!!!. idx
+                                             lift . (thisLine .<-. idx) $ byte + paeth valA valB valC
+                                             inner (idx + 1)
 
 -- | Directly stolen from the definition in the standard (on W3C page),
 -- pixel predictor.
@@ -368,7 +381,6 @@ paletteRGBA1, paletteRGBA2, paletteRGBA4 :: PngPalette
 paletteRGBA1 = generateGreyscalePalette 1
 paletteRGBA2 = generateGreyscalePalette 2
 paletteRGBA4 = generateGreyscalePalette 4
---paletteRGBA8 = generateGreyscalePalette 8
 
 applyPalette :: PngPalette -> UArray Int Word8 -> UArray Int Word8
 applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
