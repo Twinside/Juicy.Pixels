@@ -1,27 +1,48 @@
-
+-- test file, don't care about unused, on the contrary...
+{-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 import Data.Array.Unboxed
 import Codec.Picture
 import System.Environment
 
-
--- import System.Environment
-{-import System.FilePath-}
+import System.Environment
+import System.FilePath
 import qualified Data.ByteString as B
-import Codec.Picture.ColorConversion
-{-import qualified Data.ByteString.Lazy as Lb-}
-import qualified Control.Exception as E
+import Codec.Picture.Types
 
-convertJpegToPng :: FilePath -> IO ()
-convertJpegToPng filePath = do
+convertPngToBmp :: FilePath -> IO ()
+convertPngToBmp filePath = do
+    file <- B.readFile filePath
+    putStr "."
+    rez <- catch (return $ decodePng file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
+        Right (ImageRGB8 img) -> writeBitmap (filePath ++ ".bmp") img
+        Right _ -> putStr $ "\n(X) Bitmap write error, can't encode"
+
+
+{-convertJpegToPng :: FilePath -> IO ()-}
+{-convertJpegToPng filePath = do-}
+    {-file <- B.readFile filePath-}
+    {-putStr "."-}
+    {-rez <- catch (return $ decodeJpeg file)-}
+                 {-(\err -> return $ Left (show err))-}
+    {-case rez of-}
+        {-Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err-}
+        {-Right img -> writePng (filePath ++ ".png") rgbaImage-}
+                  {-where rgbImage  = changeImageColorSpace img :: Image PixelRGB8-}
+                        {-rgbaImage = promotePixels rgbImage :: Image PixelRGBA8-}
+
+convertJpegToBmp :: FilePath -> IO ()
+convertJpegToBmp filePath = do
     file <- B.readFile filePath
     putStr "."
     rez <- catch (return $ decodeJpeg file)
                  (\err -> return $ Left (show err))
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right img -> writePng (filePath ++ ".png") rgbaImage
-                  where rgbImage  = changeImageColorSpace img :: Image PixelRGB8
-                        rgbaImage = promotePixels rgbImage :: Image PixelRGBA8
+        Right img -> writeBitmap (filePath ++ ".bmp") rgbImage
+                  where rgbImage  = convertImage img :: Image PixelRGB8
 
 validTests :: [FilePath]
 validTests = 
@@ -63,29 +84,31 @@ invalidTests = ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", 
                 "xd3n2c08.png", "xdtn0g01.png", "xhdn0g08.png", "xlfn0g04.png", "xs1n0g01.png",
                 "xs2n0g01.png", "xs4n0g01.png", "xs7n0g01.png", "xd9n2c08.png"]
 
-exportBmpWitness :: IO ()
-exportBmpWitness = writeBitmap "wintess.bmp" $ img 232 241
-    where img w h = array ((0,0), (w - 1, h - 1)) $ pixels w h
-          pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
-          pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255
+{-exportBmpWitness :: IO ()-}
+{-exportBmpWitness = writeBitmap "wintess.bmp" $ img 232 241-}
+    {-where img w h = array ((0,0), (w - 1, h - 1)) $ pixels w h-}
+          {-pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]-}
+          {-pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255-}
 
 greyScaleWitness :: Image Pixel8
 greyScaleWitness = img 232 241
-    where img w h = array ((0, 0), (w - 1, h - 1)) $ pixels w h
-          pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]
-          pixel x y = truncate . sqrt . fromIntegral $ xf * xf + yf * yf
-                where xf = fromIntegral $ x - 100
+    where img w h = Image w h $ listArray (0, w * h - 1) $ pixels w h
+          pixels w h = [pixel x y | y <- [0 .. h-1], x <- [0 .. w-1] ]
+          pixel x y = truncate $ sqrt dist
+                where xf = fromIntegral $ x - 100 :: Int
                       yf = fromIntegral $ y - 100
+                      dist = (fromIntegral $ xf * xf + yf * yf) :: Double
 
 main :: IO ()
 main = do 
-    (fname: args) <- getArgs
+    {-(fname: _args) <- getArgs-}
     {-huffTest-}
-    convertJpegToPng fname
+    {-convertJpegToBmp  fname-}
+    {-convertJpegToPng fname-}
     {-writePng "witness.png" greyScaleWitness -}
     {-exportBmpWitness-}
-    {-putStrLn ">>>> Valid instances"-}
-    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
+    putStrLn ">>>> Valid instances"
+    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
     {-putStr "\n"-}

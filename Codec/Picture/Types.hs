@@ -1,14 +1,15 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
-                            Image
-                          , MutableImage
+                            Image( .. )
+                          , MutableImage( .. )
                           , DynamicImage( .. )
+                          , PixelType( .. )
                             -- ** Pixel types
                           , Pixel2
                           , Pixel8
@@ -18,25 +19,46 @@ module Codec.Picture.Types( -- * Types
                           , PixelYCbCr8( .. )
                             -- * Helper functions
                           , swapBlueRed 
+                          -- * Type classes
+                          , ColorConvertible( .. )
+                          , Pixel(..)
+                          , ColorSpaceConvertible( .. )
+                            -- * Helper functions
+                          , canConvertTo
+                          {-, promotePixels-}
+                          {-, changeImageColorSpace-}
+                          , unsafeImageCast
                           ) where
 
 import Control.Applicative
-import Control.Monad.ST
+import Control.Monad.ST( ST )
 import Data.Word
 import Data.Array.Unboxed
 import Data.Array.Base
+import Data.Array.ST
 import Data.Serialize
-import GHC.ST( ST(..) )
-import GHC.Exts
-import GHC.Word		( Word8(..) )
+
 
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
 -- position first, then the vertical one.
--- The array start at (0,0) and end at (imageWidth - 1, imageHeight - 1)
-type Image a = UArray (Word32, Word32) a
+data Image a = Image
+    { -- | Width of the image in pixels
+      imageWidth  :: {-# UNPACK #-} !Int
+      -- | Height of the image in pixels.
+    , imageHeight :: {-# UNPACK #-} !Int
 
-type MutableImage s a = STUArray s (Word32, Word32) a
+      -- | The real image, to extract pixels at some position
+      -- you should use the helpers functions.
+    , imageData   :: UArray Int Word8
+    }
+
+data MutableImage s a = MutableImage 
+    {
+	  mutableImageWidth  :: {-# UNPACK #-} !Int
+	, mutableImageHeight :: {-# UNPACK #-} !Int
+    , mutableImageData   :: STUArray s Int Word8
+    }
 
 -- | Type allowing the loading of an image with different pixel
 -- structures
@@ -110,231 +132,364 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Alpha
 
 instance Serialize PixelYA8 where
+    {-# INLINE put #-}
     put (PixelYA8 y a) = put y >> put a
+    {-# INLINE get #-}
     get = PixelYA8 <$> get <*> get
 
 instance Serialize PixelRGB8 where
+    {-# INLINE put #-}
     put (PixelRGB8 r g b) = put r >> put g >> put b
+    {-# INLINE get #-}
     get = PixelRGB8 <$> get <*> get <*> get
 
 instance Serialize PixelYCbCr8 where
+    {-# INLINE put #-}
     put (PixelYCbCr8 y cb cr) = put y >> put cb >> put cr
+    {-# INLINE get #-}
     get = PixelYCbCr8 <$> get <*> get <*> get
+
+instance Serialize PixelRGBA8 where
+    {-# INLINE put #-}
+    put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
+    {-# INLINE get #-}
+    get = PixelRGBA8 <$> get <*> get <*> get <*> get
 
 -- | Helper function to let put color in the "windows" order
 -- used in the Bitmap file format.
+{-# INLINE swapBlueRed #-}
 swapBlueRed :: PixelRGBA8 -> PixelRGBA8
 swapBlueRed (PixelRGBA8 r g b a) = PixelRGBA8 b g r a
 
-instance Serialize PixelRGBA8 where
-    put (PixelRGBA8 r g b a) = put b >> put g >> put r >> put a
-    get = PixelRGBA8 <$> get <*> get <*> get <*> get
+unsafeImageCast :: Image a -> Image b
+unsafeImageCast (Image { imageWidth = w, imageHeight = h, imageData = d }) =
+    Image { imageWidth = w, imageHeight = h, imageData = d }
 
-instance MArray (STUArray s) PixelRGBA8 (ST s) where
-    {-# INLINE getBounds #-}
-    getBounds (STUArray l u _ _) = return (l,u)
-    {-# INLINE getNumElements #-}
-    getNumElements (STUArray _ _ n _) = return n
-    {-# INLINE unsafeNewArray_ #-}
-    unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 4#)
-    {-# INLINE newArray_ #-}
-    newArray_ arrBounds = newArray arrBounds (PixelRGBA8 0 0 0 255)
-    {-# INLINE unsafeRead #-}
-    unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
-        case i# *# 4# of { idx# ->
-        case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
-        case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
-        case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->
-        case readWord8Array# marr# (idx# +# 3#) s4# of { (# s5#, a# #) ->
-            (# s5#, PixelRGBA8 (W8# r#) (W8# g#) (W8# b#) (W8# a#) #)
-        } } } } }
+data PixelType = PixelMonochromatic
+               | PixelGreyscale
+               | PixelGreyscaleAlpha
+               | PixelRedGreenBlue8
+               | PixelRedGreenBlueAlpha8
+               | PixelYChromaRChromaB8
+               deriving Eq
 
-    {-# INLINE unsafeWrite #-}
-    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelRGBA8 (W8# r) (W8# g) (W8# b) (W8# a)) =
-       ST $ \s1# ->
-        case i# *# 4# of { idx# ->
-        case writeWord8Array# marr# idx# r s1# of { s2# ->
-        case writeWord8Array# marr# (idx# +# 1#) g s2# of { s3# ->
-        case writeWord8Array# marr# (idx# +# 2#) b s3# of { s4# ->
-        case writeWord8Array# marr# (idx# +# 3#) a s4# of { s5# ->
-        (# s5#, () #) } } } } }
+-- | Typeclass used to query a type about it's properties
+-- regarding casting to other pixel types
+class (Serialize a) => Pixel a where
+    -- | Tell if a pixel can be converted to another pixel,
+    -- the first value should not be used, and 'undefined' can
+    -- be used as a valid value.
+    canPromoteTo :: a -> PixelType -> Bool
+
+    -- | Return the number of component of the pixel
+    componentCount :: a -> Int
+
+    -- | Calculate the index for the begining of the pixel
+    pixelBaseIndex :: Image a -> Int -> Int -> Int
+    pixelBaseIndex (Image { imageWidth = w }) x y =
+            (x + y * w) * componentCount (undefined :: a)
+
+    mutablePixelBaseIndex :: MutableImage s a -> Int -> Int -> Int
+    mutablePixelBaseIndex (MutableImage { mutableImageWidth = w }) x y =
+            (x + y * w) * componentCount (undefined :: a)
+
+    -- | Return the constructor associated to the type, again
+    -- the value in the first parameter is not used, so you can use undefined
+    promotionType :: a -> PixelType
+
+    -- | Extract a pixel at a given position, (x, y), the origin
+    -- is assumed to be at the corner top left, positive y to the
+    -- bottom of the image
+    pixelAt :: Image a -> Int -> Int -> a
+
+    readPixel :: MutableImage s a -> Int -> Int -> ST s a
+
+    writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
+
+-- | Tell if you can convert between two pixel types, both arguments
+-- are unused.
+canConvertTo :: (Pixel a, Pixel b) => a -> b -> Bool
+canConvertTo a b = canPromoteTo a $ promotionType b
+
+-- | Implement upcasting for pixel types
+-- Minimal declaration declaration `promotePixel`
+-- It is strongly recommanded to overload promoteImage to keep
+-- performance acceptable
+class (Pixel a, Pixel b) => ColorConvertible a b where
+    -- | Convert a pixel type to another pixel type. This
+    -- operation should never loss any data.
+    promotePixel :: a -> b
+
+    -- | Change the underlying pixel type of an image by performing a full copy
+    -- of it.
+    promoteImage :: Image a -> Image b
+    promoteImage image@(Image { imageWidth = w, imageHeight = h }) =
+        Image w h pixels
+         where pixels = runSTUArray $ do
+                    newArr <- newArray (0, w * h * componentCount (undefined :: b) - 1) 0
+                    let wrapped = MutableImage w h newArr
+                        promotedPixel :: Int -> Int -> b
+                        promotedPixel x y = promotePixel $ pixelAt image x y 
+                    sequence_ [writePixel wrapped x y $ promotedPixel x y
+                                        | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+                    return newArr
+
+    {-# INLINE fromRawData #-}
+    -- | Given a list of raw elements, convert them to a new type.
+    -- Usefull to unserialize some elements from more basic types.
+    fromRawData   :: [a] -> (Maybe b, [a])
+    fromRawData [] = (Nothing, [])
+    fromRawData (x:xs) = (Just $ promotePixel x, xs)
+
+-- | This class abstract colorspace conversion. This
+-- conversion can be lossy, which ColorConvertible cannot
+class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
+    convertPixel :: a -> b
+
+    convertImage :: Image a -> Image b
+    convertImage image@(Image { imageWidth = w, imageHeight = h }) =
+        Image w h pixels
+         where pixels = runSTUArray $ do
+                    newArr <- newArray (0, w * h * componentCount (undefined :: b) - 1) 0
+                    let wrapped = MutableImage w h newArr
+                        promotedPixel :: Int -> Int -> b
+                        promotedPixel x y = convertPixel $ pixelAt image x y 
+                    sequence_ [writePixel wrapped x y $ promotedPixel x y
+                                        | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+                    return newArr
+
+-- | Free promotion for identic pixel types
+instance (Pixel a) => ColorConvertible a a where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
+    {-# INLINE promoteImage #-}
+    promoteImage = id
+
+{-# INLINE (!!!) #-}
+(!!!) :: (IArray array e) => array Int e -> Int -> e
+(!!!) = (!) -- unsafeAt
+
+{-# INLINE (.!!!.) #-}
+(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
+(.!!!.) = readArray -- unsafeRead
+
+{-# INLINE (.<-.) #-}
+(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
+(.<-.)  = writeArray -- unsafeWrite
+
+--------------------------------------------------
+----            Pixel2 instances
+--------------------------------------------------
+instance Pixel Pixel2 where
+    canPromoteTo _ _ = True
+    promotionType _  = PixelMonochromatic
+    componentCount _ = 1
+    pixelAt image@(Image { imageData = arr }) x y =
+        arr !!! (pixelBaseIndex image x y) /= 0
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        (/= 0) <$> arr .!!!. (mutablePixelBaseIndex image x y)
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y v =
+        (arr .<-. (mutablePixelBaseIndex image x y)) (if v then 255 else 0)
+
+instance ColorConvertible Pixel2 Pixel8 where
+    {-# INLINE promotePixel #-}
+    promotePixel a | a = 255
+                   | otherwise = 0
+
+instance ColorConvertible Pixel2 PixelYA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel a | a = PixelYA8 255 255
+                   | otherwise = PixelYA8 0 255
+
+instance ColorConvertible Pixel2 PixelRGB8 where
+    {-# INLINE promotePixel #-}
+    promotePixel a | a = PixelRGB8 255 255 255
+                   | otherwise = PixelRGB8   0   0   0
+
+instance ColorConvertible Pixel2 PixelRGBA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel a | a = PixelRGBA8 255 255 255 255
+                   | otherwise = PixelRGBA8   0   0   0 255
+
+--------------------------------------------------
+----            Pixel8 instances
+--------------------------------------------------
+instance Pixel Pixel8 where
+    canPromoteTo _ a = a /= PixelMonochromatic 
+    promotionType _ = PixelGreyscale
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr .!!!. (mutablePixelBaseIndex image x y)
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y v =
+        (arr .<-. (mutablePixelBaseIndex image x y)) v
+
+instance ColorConvertible Pixel8 PixelYA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelYA8 c 255
+
+    {-# INLINE fromRawData #-}
+    fromRawData (y:a:xs) = (Just $ PixelYA8 y a, xs)
+    fromRawData _ = (Nothing, [])
+
+instance ColorConvertible Pixel8 PixelRGB8 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGB8 c c c
+
+    {-# INLINE fromRawData #-}
+    fromRawData (r:g:b:xs) = (Just $ PixelRGB8 r g b, xs)
+    fromRawData _ = (Nothing, [])
+
+instance ColorConvertible Pixel8 PixelRGBA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGBA8 c c c 255
+
+    {-# INLINE fromRawData #-}
+    fromRawData (r:g:b:a:xs) = (Just $ PixelRGBA8 r g b a, xs)
+    fromRawData _ = (Nothing, [])
+
+--------------------------------------------------
+----            PixelYA8 instances
+--------------------------------------------------
+instance Pixel PixelYA8 where
+    canPromoteTo _ a = a == PixelRedGreenBlueAlpha8 
+    promotionType _  = PixelGreyscaleAlpha
+    componentCount _ = 2
+    pixelAt image@(Image { imageData = arr }) x y = PixelYA8 (arr ! (baseIdx + 0))
+                                                             (arr ! (baseIdx + 1))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        yv <- arr .!!!. baseIdx
+        av <- arr .!!!. (baseIdx + 1)
+        return $ PixelYA8 yv av
+        where baseIdx = mutablePixelBaseIndex image x y
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYA8 yv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) yv
+        (arr .<-. (baseIdx + 1)) av
 
 
-instance MArray (STUArray s) PixelYCbCr8 (ST s) where
-    {-# INLINE getBounds #-}
-    getBounds (STUArray l u _ _) = return (l,u)
-    {-# INLINE getNumElements #-}
-    getNumElements (STUArray _ _ n _) = return n
-    {-# INLINE unsafeNewArray_ #-}
-    unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 3#)
-    {-# INLINE newArray_ #-}
-    newArray_ arrBounds = newArray arrBounds (PixelYCbCr8 0 0 0)
-    {-# INLINE unsafeRead #-}
-    unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
-        case i# *# 3# of { idx# ->
-        case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
-        case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
-        case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->
-            (# s4#, PixelYCbCr8 (W8# r#) (W8# g#) (W8# b#) #)
-        } } } }
+instance ColorConvertible PixelYA8 PixelRGB8 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA8 y _) = PixelRGB8 y y y
 
-    {-# INLINE unsafeWrite #-}
-    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelYCbCr8 (W8# y) (W8# cb) (W8# cr)) = ST $ \s1# ->
-        case i# *# 3# of { idx# ->
-        case writeWord8Array# marr# idx# y s1# of { s2# ->
-        case writeWord8Array# marr# (idx# +# 1#) cb s2# of { s3# ->
-        case writeWord8Array# marr# (idx# +# 2#) cr s3# of { s4# ->
-        (# s4#, () #) } } } }
+instance ColorConvertible PixelYA8 PixelRGBA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
 
-instance IArray UArray PixelYCbCr8 where
-    {-# INLINE bounds #-}
-    bounds (UArray l u _ _) = (l,u)
-    {-# INLINE numElements #-}
-    numElements (UArray _ _ n _) = n
-    {-# INLINE unsafeArray #-}
-    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelYCbCr8 0 0 0)
-#ifdef __GLASGOW_HASKELL__
-    {-# INLINE unsafeAt #-}
-    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
-        case i# *# 3# of { idx# ->
-            PixelYCbCr8 (W8# (indexWord8Array# arr# idx#))
-                        (W8# (indexWord8Array# arr# (idx# +# 1#)))
-                        (W8# (indexWord8Array# arr# (idx# +# 2#))) }
-#endif
-#ifdef __HUGS__
-    unsafeAt = unsafeAtBArray
-#endif
-    {-# INLINE unsafeReplace #-}
-    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
-    {-# INLINE unsafeAccum #-}
-    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
-    {-# INLINE unsafeAccumArray #-}
-    unsafeAccumArray f initialValue lu ies = runST (unsafeAccumArrayUArray f initialValue lu ies)
+--------------------------------------------------
+----            PixelRGB8 instances
+--------------------------------------------------
+instance Pixel PixelRGB8 where
+    canPromoteTo _ PixelMonochromatic = False
+    canPromoteTo _ PixelGreyscale = False
+    canPromoteTo _ _ = True
 
-instance MArray (STUArray s) PixelRGB8 (ST s) where
-    {-# INLINE getBounds #-}
-    getBounds (STUArray l u _ _) = return (l,u)
-    {-# INLINE getNumElements #-}
-    getNumElements (STUArray _ _ n _) = return n
-    {-# INLINE unsafeNewArray_ #-}
-    unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 3#)
-    {-# INLINE newArray_ #-}
-    newArray_ arrBounds = newArray arrBounds (PixelRGB8 0 0 0)
-    {-# INLINE unsafeRead #-}
-    unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
-        case i# *# 3# of { idx# ->
-        case readWord8Array# marr# idx# s1# of { (# s2#, r# #) ->
-        case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, g# #) ->
-        case readWord8Array# marr# (idx# +# 2#) s3# of { (# s4#, b# #) ->
-            (# s4#, PixelRGB8 (W8# r#) (W8# g#) (W8# b#) #)
-        } } } }
+    componentCount _ = 3
 
-    {-# INLINE unsafeWrite #-}
-    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelRGB8 (W8# r) (W8# g) (W8# b)) = ST $ \s1# ->
-        case i# *# 3# of { idx# ->
-        case writeWord8Array# marr# idx# r s1# of { s2# ->
-        case writeWord8Array# marr# (idx# +# 1#) g s2# of { s3# ->
-        case writeWord8Array# marr# (idx# +# 2#) b s3# of { s4# ->
-        (# s4#, () #) } } } }
+    promotionType _ = PixelRedGreenBlue8
 
-instance IArray UArray PixelRGB8 where
-    {-# INLINE bounds #-}
-    bounds (UArray l u _ _) = (l,u)
-    {-# INLINE numElements #-}
-    numElements (UArray _ _ n _) = n
-    {-# INLINE unsafeArray #-}
-    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelRGB8 0 0 0)
-#ifdef __GLASGOW_HASKELL__
-    {-# INLINE unsafeAt #-}
-    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
-        case i# *# 3# of { idx# ->
-            PixelRGB8 (W8# (indexWord8Array# arr# idx#))
-                      (W8# (indexWord8Array# arr# (idx# +# 1#)))
-                      (W8# (indexWord8Array# arr# (idx# +# 2#))) }
-#endif
-#ifdef __HUGS__
-    unsafeAt = unsafeAtBArray
-#endif
-    {-# INLINE unsafeReplace #-}
-    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
-    {-# INLINE unsafeAccum #-}
-    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
-    {-# INLINE unsafeAccumArray #-}
-    unsafeAccumArray f initialValue lu ies = runST (unsafeAccumArrayUArray f initialValue lu ies)
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGB8 (arr ! (baseIdx + 0))
+                                                              (arr ! (baseIdx + 1))
+                                                              (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
 
-instance IArray UArray PixelRGBA8 where
-    {-# INLINE bounds #-}
-    bounds (UArray l u _ _) = (l,u)
-    {-# INLINE numElements #-}
-    numElements (UArray _ _ n _) = n
-    {-# INLINE unsafeArray #-}
-    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelRGBA8 0 0 0 255)
-#ifdef __GLASGOW_HASKELL__
-    {-# INLINE unsafeAt #-}
-    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
-        case i# *# 4# of { idx# ->
-            PixelRGBA8
-                    (W8# (indexWord8Array# arr# idx#))
-                    (W8# (indexWord8Array# arr# (idx# +# 1#)))
-                    (W8# (indexWord8Array# arr# (idx# +# 2#)))
-                    (W8# (indexWord8Array# arr# (idx# +# 3#))) }
-#endif
-#ifdef __HUGS__
-    unsafeAt = unsafeAtBArray
-#endif
-    {-# INLINE unsafeReplace #-}
-    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
-    {-# INLINE unsafeAccum #-}
-    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
-    {-# INLINE unsafeAccumArray #-}
-    unsafeAccumArray f initialValue lu ies =
-        runST (unsafeAccumArrayUArray f initialValue lu ies)
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        return $ PixelRGB8 rv gv bv
+        where baseIdx = mutablePixelBaseIndex image x y
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGB8 rv gv bv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
 
-instance MArray (STUArray s) PixelYA8 (ST s) where
-    {-# INLINE getBounds #-}
-    getBounds (STUArray l u _ _) = return (l,u)
-    {-# INLINE getNumElements #-}
-    getNumElements (STUArray _ _ n _) = return n
-    {-# INLINE unsafeNewArray_ #-}
-    unsafeNewArray_ (l,u) = unsafeNewArraySTUArray_ (l,u) (*# 2#)
-    {-# INLINE newArray_ #-}
-    newArray_ arrBounds = newArray arrBounds (PixelYA8 0 255)
-    {-# INLINE unsafeRead #-}
-    unsafeRead (STUArray _ _ _ marr#) (I# i#) = ST $ \s1# ->
-        case i# *# 2# of { idx# ->
-        case readWord8Array# marr# idx# s1# of { (# s2#, y# #) ->
-        case readWord8Array# marr# (idx# +# 1#) s2# of { (# s3#, a# #) ->
-            (# s3#, PixelYA8 (W8# y#) (W8# a#) #)
-        } } }
+instance ColorConvertible PixelRGB8 PixelRGBA8 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b 255
 
-    {-# INLINE unsafeWrite #-}
-    unsafeWrite (STUArray _ _ _ marr#) (I# i#) (PixelYA8 (W8# y) (W8# a)) = ST $ \s1# ->
-        case i# *# 2# of { idx# ->
-        case writeWord8Array# marr# idx# y s1# of { s2# ->
-        case writeWord8Array# marr# (idx# +# 1#) a s2# of { s3# ->
-        (# s3#, () #) } } }
+--------------------------------------------------
+----            PixelRGBA8 instances
+--------------------------------------------------
+instance Pixel PixelRGBA8 where
+    canPromoteTo _ PixelRedGreenBlueAlpha8 = True
+    canPromoteTo _ _ = False
 
-instance IArray UArray PixelYA8 where
-    {-# INLINE bounds #-}
-    bounds (UArray l u _ _) = (l,u)
-    {-# INLINE numElements #-}
-    numElements (UArray _ _ n _) = n
-    {-# INLINE unsafeArray #-}
-    unsafeArray lu ies = runST (unsafeArrayUArray lu ies $ PixelYA8 0 255)
-#ifdef __GLASGOW_HASKELL__
-    {-# INLINE unsafeAt #-}
-    unsafeAt (UArray _ _ _ arr#) (I# i#) = 
-        case i# *# 2# of { idx# ->
-            PixelYA8 (W8# (indexWord8Array# arr# idx#))
-                     (W8# (indexWord8Array# arr# (idx# +# 1#))) }
-#endif
-#ifdef __HUGS__
-    unsafeAt = unsafeAtBArray
-#endif
-    {-# INLINE unsafeReplace #-}
-    unsafeReplace arr ies = runST (unsafeReplaceUArray arr ies)
-    {-# INLINE unsafeAccum #-}
-    unsafeAccum f arr ies = runST (unsafeAccumUArray f arr ies)
-    {-# INLINE unsafeAccumArray #-}
-    unsafeAccumArray f initialValue lu ies = runST (unsafeAccumArrayUArray f initialValue lu ies)
+    promotionType _ = PixelRedGreenBlueAlpha8
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGBA8 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+                                                               (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelRGBA8 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGBA8 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+--------------------------------------------------
+----            PixelYCbCr8 instances
+--------------------------------------------------
+instance Pixel PixelYCbCr8 where
+    canPromoteTo _ _ = False
+    promotionType _ = PixelYChromaRChromaB8
+    componentCount _ = 3
+    pixelAt image@(Image { imageData = arr }) x y = PixelYCbCr8 (arr ! (baseIdx + 0))
+                                                                (arr ! (baseIdx + 1))
+                                                                (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        yv <- arr .!!!. baseIdx
+        cbv <- arr .!!!. (baseIdx + 1)
+        crv <- arr .!!!. (baseIdx + 2)
+        return $ PixelYCbCr8 yv cbv crv
+        where baseIdx = mutablePixelBaseIndex image x y
+    
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYCbCr8 yv cbv crv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) yv
+        (arr .<-. (baseIdx + 1)) cbv
+        (arr .<-. (baseIdx + 2)) crv
+
+instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
+    {-# INLINE convertPixel #-}
+    convertPixel (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
+        where y :: Float
+              y  = fromIntegral y_w8 - 128.0
+              cb = fromIntegral cb_w8 - 128.0
+              cr = fromIntegral cr_w8 - 128.0
+
+              clampWord8 = truncate . max 0.0 . min 255.0 . (128 +)
+
+              cred = 0.299
+              cgreen = 0.587
+              cblue = 0.114
+
+              r = cr * (2 - 2 * cred) + y
+              b = cb * (2 - 2 * cblue) + y
+              g = (y - cblue * b - cred * r) / cgreen
 

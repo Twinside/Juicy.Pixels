@@ -16,13 +16,16 @@
 module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
                                  , fastIdct
                                  , mutableLevelShift
-                                 , makeMutableMacroBlock ) where
+                                 , createEmptyMutableMacroBlock
+                                 ) where
 
-import Data.Array.Base
+import Data.Array.Base( IArray, UArray, unsafeAt
+                      , unsafeRead, unsafeWrite, listArray )
+import Data.Array.ST( MArray, STUArray, newArray )
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
-import Data.Bits
-import Data.Int
+import Data.Bits( shiftL, shiftR )
+import Data.Int( Int16 )
 
 iclip :: UArray Int Int16
 iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]
@@ -34,7 +37,7 @@ iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
-(.<<.), (.>>.) :: Bits a => a -> Int -> a
+(.<<.), (.>>.) :: Int -> Int -> Int
 (.<<.) = shiftL
 (.>>.) = shiftR
 
@@ -72,9 +75,9 @@ w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 
 type MutableMacroBlock s a = STUArray s Int a
 
-makeMutableMacroBlock :: (MArray (STUArray s) a (ST s)) 
-                      => [a] -> ST s (MutableMacroBlock s a)
-makeMutableMacroBlock  = newListArray (0, 63)
+{-# INLINE createEmptyMutableMacroBlock #-}
+createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
+createEmptyMutableMacroBlock = newArray (0, 63) 0
 
 -- row (horizontal) IDCT
 --
@@ -222,6 +225,7 @@ idctCol blk idx = do
   (blk .<-. (idx + 8*7)) $ iclip !!! ((x7 f - x1 f) .>>. 14)
 
 
+{-# INLINE fastIdct #-}
 fastIdct :: MutableMacroBlock s Int16
          -> ST s (MutableMacroBlock s Int16)
 fastIdct block = do
@@ -229,6 +233,7 @@ fastIdct block = do
     forM_ [0..7] (idctCol block)
     return block
 
+{-# INLINE mutableLevelShift #-}
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
 mutableLevelShift block = do

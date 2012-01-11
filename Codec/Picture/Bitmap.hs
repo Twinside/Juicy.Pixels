@@ -7,7 +7,7 @@ module Codec.Picture.Bitmap( -- * Functions
                            , encodeBitmap
                            , decodeBitmap
                              -- * Accepted formt in output
-                           , BmpEncodable()
+                           , BmpEncodable( )
                            ) where
 
 import Control.Monad( replicateM_, when )
@@ -116,22 +116,27 @@ instance Serialize BmpInfoHeader where
 -- | All the instance of this class can be written as a bitmap file
 -- using this library.
 class BmpEncodable pixel where
-    bitsPerPixel :: pixel -> Word16
+    bitsPerPixel :: pixel -> Int
     bmpEncode    :: Image pixel -> Put
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
-    bmpEncode arr = mapM_ put [arr ! (col, line) | line <- [h, h-1..0], col <- [0..w]]
-        where (_, (w,h)) = bounds arr
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
+        mapM_ put [arr ! (pixelIdx * 4 + comp) | line <- [h-1, h-2..0]
+                                               , let lineIndex = line * w
+                                               , col <- [0..w - 1]
+                                               , let pixelIdx = lineIndex + col
+                                               , comp <- [3, 2, 1, 0]
+                                               ]
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
-    bmpEncode arr = mapM_ putLine [h, h - 1..0]
-        where (_, (w,h)) = bounds arr
-              swapBlueRedRGB8 (PixelRGB8 r g b) = PixelRGB8 b g r
-              stride = fromIntegral . linePadding 24 $ w + 1
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
+      mapM_ putLine [h - 1, h - 2..0]
+        where stride = fromIntegral . linePadding 24 $ w
               putLine line = do
-                  mapM_ put [swapBlueRedRGB8 $ arr ! (col, line) | col <- [0..w]]
+                  let lineIdx = line * w
+                  mapM_ put [arr ! ((lineIdx + col) * 3 + comp) | col <- [0..w - 1], comp <- [2, 1, 0]]
                   replicateM_ stride $ put (0 :: Word8)
 
 -- | Try to decode a bitmap image
@@ -142,28 +147,29 @@ decodeBitmap str = flip runGet str $ do
     case (bitPerPixel bmpHeader,
                 planes  bmpHeader,
                 bitmapCompression bmpHeader) of
-         (32, 1, 0) -> fail "Meuh"
+         (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
          (24, 1, 0) -> fail "Meuh"
          _          -> fail "Can't handle BMP file"
 
 -- | Write an image in a file use the bitmap format.
-writeBitmap :: (IArray UArray pixel, BmpEncodable pixel) 
+writeBitmap :: (BmpEncodable pixel) 
             => FilePath -> Image pixel -> IO ()
 writeBitmap filename img = B.writeFile filename $ encodeBitmap img
 
-linePadding :: Word16 -> Word32 -> Word32
+linePadding :: Int -> Int -> Int
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
     where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
 
 -- | Convert an image to a bytestring ready to be serialized.
-encodeBitmap :: forall pixel. (IArray UArray pixel, BmpEncodable pixel) 
-                 => Image pixel -> B.ByteString
+encodeBitmap :: forall pixel. (BmpEncodable pixel) 
+             => Image pixel -> B.ByteString
 encodeBitmap img = runPut $ put hdr >> put info >> bmpEncode img
-    where (_, (imgWidth, imgHeight)) = bounds img
+    where imgWidth = fromIntegral $ imageWidth img
+          imgHeight = fromIntegral $ imageHeight img
 
           bpp = bitsPerPixel (undefined :: pixel)
           padding = linePadding bpp (imgWidth + 1)
-          imagePixelSize = (imgWidth + 1 + padding) * (imgHeight + 1) * 4
+          imagePixelSize = fromIntegral $ (imgWidth + padding) * imgHeight * 4
           hdr = BmpHeader {
               magicIdentifier = bitmapMagicIdentifier,
               fileSize = sizeofBmpHeader + sizeofBmpInfo + imagePixelSize,
@@ -174,10 +180,10 @@ encodeBitmap img = runPut $ put hdr >> put info >> bmpEncode img
 
           info = BmpInfoHeader {
               size = sizeofBmpInfo,
-              width = imgWidth + 1,
-              height = imgHeight + 1,
+              width = fromIntegral $ imgWidth,
+              height = fromIntegral $ imgHeight,
               planes = 1,
-              bitPerPixel = bpp,
+              bitPerPixel = fromIntegral $ bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
               xResolution = 0,
