@@ -364,11 +364,11 @@ sampleCountOfImageType PngIndexedColor = 1
 sampleCountOfImageType PngGreyscaleWithAlpha = 2
 sampleCountOfImageType PngTrueColourWithAlpha = 4
 
-paletteRGBA1, paletteRGBA2, paletteRGBA4, paletteRGBA8 :: PngPalette
+paletteRGBA1, paletteRGBA2, paletteRGBA4 :: PngPalette
 paletteRGBA1 = generateGreyscalePalette 1
 paletteRGBA2 = generateGreyscalePalette 2
 paletteRGBA4 = generateGreyscalePalette 4
-paletteRGBA8 = generateGreyscalePalette 8
+--paletteRGBA8 = generateGreyscalePalette 8
 
 applyPalette :: PngPalette -> UArray Int Word8 -> UArray Int Word8
 applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
@@ -401,9 +401,8 @@ decodePng byte = do
             | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
             | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
-            | otherwise = unparse (Just paletteRGBA8) PngIndexedColor bytes
-            {-| otherwise = Right . ImageY8 . imager $ runSTUArray stArray-}
-                {-where stArray = S.evalStateT (deinterlacer ihdr) bytes-}
+            | otherwise = Right . ImageY8 . imager $ runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes
         unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
         unparse _ PngTrueColour          bytes =
             Right . ImageRGB8 . imager $ runSTUArray stArray

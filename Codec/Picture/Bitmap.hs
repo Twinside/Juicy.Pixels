@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 -- | Modules used for Bitmap file (.bmp) file loading and writing
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmap
@@ -55,7 +56,7 @@ instance Serialize BmpHeader where
             }
 
 
-data BmpInfoHeader = BmpInfoHeader 
+data BmpInfoHeader = BmpInfoHeader
     { size              :: !Word32 -- Header size in bytes
     , width             :: !Word32
     , height            :: !Word32
@@ -87,7 +88,7 @@ instance Serialize BmpInfoHeader where
         putWord32le $ colorCount hdr
         putWord32le $ importantColours hdr
 
-    get = do 
+    get = do
         readSize <- getWord32le
         readWidth <- getWord32le
         readHeight <- getWord32le
@@ -113,11 +114,29 @@ instance Serialize BmpInfoHeader where
             importantColours = readImportantColours
         }
 
+newtype BmpPalette = BmpPalette [(Word8, Word8, Word8, Word8)]
+
+putPalette :: BmpPalette -> Put
+putPalette (BmpPalette p) = mapM_ (\(r, g, b, a) -> put r >> put g >> put b >> put a) p
+
 -- | All the instance of this class can be written as a bitmap file
 -- using this library.
 class BmpEncodable pixel where
-    bitsPerPixel :: pixel -> Int
-    bmpEncode    :: Image pixel -> Put
+    bitsPerPixel   :: pixel -> Int
+    bmpEncode      :: Image pixel -> Put
+    defaultPalette :: pixel -> BmpPalette
+    defaultPalette _ = BmpPalette []
+
+instance BmpEncodable Pixel8 where
+    defaultPalette _ = BmpPalette [(x,x,x, 255) | x <- [0 .. 255]]
+    bitsPerPixel _ = 8
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
+      mapM_ putLine [h - 1, h - 2..0]
+        where stride = fromIntegral $ linePadding 8 w
+              putLine line = do
+                  let lineIdx = line * w
+                  mapM_ put [arr ! (lineIdx + col)  | col <- [0..w - 1]]
+                  replicateM_ stride $ put (0 :: Word8)
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
@@ -126,12 +145,12 @@ instance BmpEncodable PixelRGBA8 where
                                                , let lineIndex = line * w
                                                , col <- [0..w - 1]
                                                , let pixelIdx = lineIndex + col
-                                               , comp <- [3, 2, 1, 0]
+                                               , comp <- [2, 1, 0, 3]
                                                ]
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
       mapM_ putLine [h - 1, h - 2..0]
         where stride = fromIntegral . linePadding 24 $ w
               putLine line = do
@@ -152,7 +171,7 @@ decodeBitmap str = flip runGet str $ do
          _          -> fail "Can't handle BMP file"
 
 -- | Write an image in a file use the bitmap format.
-writeBitmap :: (BmpEncodable pixel) 
+writeBitmap :: (BmpEncodable pixel)
             => FilePath -> Image pixel -> IO ()
 writeBitmap filename img = B.writeFile filename $ encodeBitmap img
 
@@ -160,22 +179,28 @@ linePadding :: Int -> Int -> Int
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
     where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
 
+encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> B.ByteString
+encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
+
 -- | Convert an image to a bytestring ready to be serialized.
-encodeBitmap :: forall pixel. (BmpEncodable pixel) 
-             => Image pixel -> B.ByteString
-encodeBitmap img = runPut $ put hdr >> put info >> bmpEncode img
+encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)
+                        => BmpPalette -> Image pixel -> B.ByteString
+encodeBitmapWithPalette pal@(BmpPalette palette) img =
+  runPut $ put hdr >> put info >> putPalette pal >> bmpEncode img
     where imgWidth = fromIntegral $ imageWidth img
           imgHeight = fromIntegral $ imageHeight img
+
+          paletteSize = fromIntegral $ length palette
 
           bpp = bitsPerPixel (undefined :: pixel)
           padding = linePadding bpp (imgWidth + 1)
           imagePixelSize = fromIntegral $ (imgWidth + padding) * imgHeight * 4
           hdr = BmpHeader {
               magicIdentifier = bitmapMagicIdentifier,
-              fileSize = sizeofBmpHeader + sizeofBmpInfo + imagePixelSize,
+              fileSize = sizeofBmpHeader + sizeofBmpInfo + 4 * paletteSize + imagePixelSize,
               reserved1 = 0,
               reserved2 = 0,
-              dataOffset = sizeofBmpHeader + sizeofBmpInfo
+              dataOffset = sizeofBmpHeader + sizeofBmpInfo + 4 * paletteSize
           }
 
           info = BmpInfoHeader {
@@ -189,6 +214,6 @@ encodeBitmap img = runPut $ put hdr >> put info >> bmpEncode img
               xResolution = 0,
               yResolution = 0,
               colorCount = 0,
-              importantColours = 0
+              importantColours = paletteSize
           }
 
