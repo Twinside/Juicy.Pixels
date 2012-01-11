@@ -11,10 +11,14 @@ module Codec.Picture.Bitmap( -- * Functions
                            , BmpEncodable( )
                            ) where
 
-import Control.Monad( replicateM_, when )
-import Data.Array.Unboxed
-import Data.Serialize
-import Data.Word
+import Control.Monad( when )
+import Data.Array.Base( unsafeAt )
+import Data.Array.Unboxed( IArray )
+import Data.Serialize( Serialize( .. )
+                     , putWord8, putWord16le, putWord32le
+                     , getWord16le, getWord32le
+                     , Get, Put, runGet, runPut )
+import Data.Word( Word32, Word16, Word8 )
 
 import qualified Data.ByteString as B
 
@@ -127,36 +131,63 @@ class BmpEncodable pixel where
     defaultPalette :: pixel -> BmpPalette
     defaultPalette _ = BmpPalette []
 
+{-# INLINE (!!!) #-}
+(!!!) :: (IArray array e) => array Int e -> Int -> e
+(!!!) = unsafeAt -- (!)
+
+{-# INLINE stridePut #-}
+stridePut :: Int -> Put
+stridePut 0 = return ()
+stridePut 1 = putWord8 0
+stridePut n = putWord8 0 >> stridePut (n - 1)
+
 instance BmpEncodable Pixel8 where
     defaultPalette _ = BmpPalette [(x,x,x, 255) | x <- [0 .. 255]]
     bitsPerPixel _ = 8
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
-      mapM_ putLine [h - 1, h - 2..0]
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine $ h - 1
         where stride = fromIntegral $ linePadding 8 w
+
+              putLine line | line < 0 = return ()
               putLine line = do
                   let lineIdx = line * w
-                  mapM_ put [arr ! (lineIdx + col)  | col <- [0..w - 1]]
-                  replicateM_ stride $ put (0 :: Word8)
+                      inner col | col >= w = return ()
+                                | otherwise = put (arr !!! (lineIdx + col)) >> inner (col + 1)
+                  inner 0
+                  stridePut stride
+                  putLine (line - 1)
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
-        mapM_ put [arr ! (pixelIdx * 4 + comp) | line <- [h-1, h-2..0]
-                                               , let lineIndex = line * w
-                                               , col <- [0..w - 1]
-                                               , let pixelIdx = lineIndex + col
-                                               , comp <- [2, 1, 0, 3]
-                                               ]
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine (h - 1)
+      where putLine line | line < 0 = return ()
+            putLine line = do
+                let initialIndex = line * w * 4
+                    inner col _ | col >= w = return ()
+                    inner col readIdx = do
+                        put (arr !!! (readIdx + 2))
+                        put (arr !!! (readIdx + 1))
+                        put (arr !!! readIdx)
+                        put (arr !!! (readIdx + 3))
+                        inner (col + 1) (readIdx + 4)
+                inner 0 initialIndex
+                putLine (line - 1)
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
-      mapM_ putLine [h - 1, h - 2..0]
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine (h - 1)
         where stride = fromIntegral . linePadding 24 $ w
+              putLine line | line < 0 = return ()
               putLine line = do
-                  let lineIdx = line * w
-                  mapM_ put [arr ! ((lineIdx + col) * 3 + comp) | col <- [0..w - 1], comp <- [2, 1, 0]]
-                  replicateM_ stride $ put (0 :: Word8)
+                  let initialIndex = line * w * 3
+                      inner col _ | col >= w = return ()
+                      inner col readIdx = do
+                          put (arr !!! (readIdx + 2))
+                          put (arr !!! (readIdx + 1))
+                          put (arr !!! readIdx)
+                          inner (col + 1) (readIdx + 3)
+                  inner 0 initialIndex
+                  stridePut stride
+                  putLine (line - 1)
 
 -- | Try to decode a bitmap image
 decodeBitmap :: B.ByteString -> Either String DynamicImage
