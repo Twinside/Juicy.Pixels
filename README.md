@@ -26,6 +26,7 @@ Status
     * Writing
         - 32bits (RGBA) per pixel images
         - 24bits (RGB) per pixel images
+        - 8 bits greyscale (with palette)
 
  - Jpeg   (.jpg, .jpeg) 
     * Reading non-interlaced baseline DCT image, seems to be OK

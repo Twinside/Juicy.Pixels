@@ -104,11 +104,7 @@ greyScaleWitness = img 232 241
 main :: IO ()
 main = do 
     {-(fname: _args) <- getArgs-}
-    {-huffTest-}
-    {-convertJpegToBmp  fname-}
-    {-convertJpegToPng fname-}
-    {-writePng "witness.png" greyScaleWitness -}
-    {-exportBmpWitness-}
+    {-convertPngToBmp fname-}
     putStrLn ">>>> Valid instances"
     mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
     {-putStrLn "\n>>>> invalid instances"-}

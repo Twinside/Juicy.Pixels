@@ -100,6 +100,7 @@ getNextByte = do str <- S.get
 -- some prediction on the value.
 pngFiltering :: LineUnpacker s -> Int -> (Int, Int)    -- ^ Image size
              -> ByteReader s ()
+pngFiltering _ _ (imgWidth, imgHeight) | imgWidth <= 0 || imgHeight <= 0 = return ()
 pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
     thisLine <- lift $ newArray (0, beginZeroes + imgWidth - 1) 0
     otherLine <- lift $ newArray (0, beginZeroes + imgWidth - 1) 0
@@ -234,7 +235,7 @@ bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = ar
          (do val <- line .!!!. endLine
              let writeIdx n = lineIndex + (pixelToRead * 8 + n) * strideWidth + beginLeft
              forM_ [0 .. lineRest - 1] $ \bit ->
-                (arr .<-. writeIdx bit) $ ((val `shiftR` (7 - 2 * bit)) .&. 0x1))
+                (arr .<-. writeIdx bit) $ ((val `shiftR` (7 - bit)) .&. 0x1))
 
 
 -- | Unpack lines when bit depth is 2
