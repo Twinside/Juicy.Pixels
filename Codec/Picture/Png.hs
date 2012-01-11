@@ -198,14 +198,20 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
     let realTop = beginTop + h * strideHeight
         lineIndex = realTop * imgWidth
         pixelToRead = min (imgWidth - 1) $ (maxIdx - beginIdx) `div` sampleCount
-    forM_ [0 .. pixelToRead] $ \pixelIndex -> do
-        let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
-            destSampleIndex = destPixelIndex * sampleCount
-            srcPixelIndex = pixelIndex * sampleCount + beginIdx
-        forM_ [0 .. sampleCount - 1] $ \sample -> do
-            val <- line .!!!. (srcPixelIndex + sample)
-            let writeIdx = destSampleIndex + sample
-            (arr .<-. writeIdx) val
+        inner pixelIndex | pixelIndex > pixelToRead = return ()
+                         | otherwise = do
+            let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
+                destSampleIndex = destPixelIndex * sampleCount
+                srcPixelIndex = pixelIndex * sampleCount + beginIdx
+                perPixel sample | sample >= sampleCount = return ()
+                                | otherwise = (do
+                    val <- line .!!!. (srcPixelIndex + sample)
+                    let writeIdx = destSampleIndex + sample
+                    (arr .<-. writeIdx) val
+                    perPixel (sample + 1))
+            perPixel 0
+            inner (pixelIndex + 1)
+    inner 0
              
 
 -- | Unpack lines where bit depth is 1
