@@ -29,6 +29,8 @@ module Codec.Picture (
                      , readPng
                      , decodePng
                      , writePng
+                     , encodeDynamicPng
+                     , writeDynamicPng
 
                      -- * Image types and pixel types
                      -- ** Image
@@ -45,7 +47,8 @@ module Codec.Picture (
 import Control.Applicative( (<$>) )
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg( readJpeg, decodeJpeg )
-import Codec.Picture.Png( PngSavable( .. ), readPng, decodePng, writePng )
+import Codec.Picture.Png( PngSavable( .. ), readPng, decodePng, writePng
+                        , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Types
 
 import qualified Data.ByteString as B

@@ -4,6 +4,8 @@
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
                                , writePng
+                               , encodeDynamicPng
+                               , writeDynamicPng
                                ) where
 
 import Data.Serialize(encode)
@@ -75,3 +77,23 @@ instance PngSavable PixelRGB8 where
 instance PngSavable Pixel8 where
     encodePng = genericEncodePng PngGreyscale 1
 
+-- | Write a dynamic image in a .png image file if possible.
+-- The same restriction as encodeDynamicPng apply.
+writeDynamicPng :: FilePath -> DynamicImage -> IO (Either String Bool)
+writeDynamicPng path img = case encodeDynamicPng img of
+        Left err -> return $ Left err
+        Right b  -> B.writeFile path b >> return (Right True)
+
+-- | Encode a dynamic image in bmp if possible, supported pixel type are :
+--
+--   - RGB8
+--
+--   - RGBA8
+--
+--   - Y8
+--
+encodeDynamicPng :: DynamicImage -> Either String B.ByteString
+encodeDynamicPng (ImageRGB8 img) = Right $ encodePng img
+encodeDynamicPng (ImageRGBA8 img) = Right $ encodePng img
+encodeDynamicPng (ImageY8 img) = Right $ encodePng img
+encodeDynamicPng _ = Left "Unsupported image format for PNG export"

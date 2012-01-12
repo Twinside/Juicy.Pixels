@@ -16,6 +16,8 @@ module Codec.Picture.Png( -- * High level functions
                         , readPng
                         , decodePng
                         , writePng
+                        , encodeDynamicPng
+                        , writeDynamicPng
 
                         ) where
 
