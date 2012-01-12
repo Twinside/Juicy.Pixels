@@ -25,6 +25,25 @@ convertPngToBmp filePath = do
         Right (ImageYA8 img) -> writeBitmap (filePath ++ ".bmp") converted
             where converted = promoteImage img :: Image PixelRGBA8
 
+convertBitmapToPng :: FilePath -> IO ()
+convertBitmapToPng filePath = do
+    putStrLn $ "(BMP) Loading " ++ filePath
+    file <- B.readFile filePath
+    rez <- catch (return $ decodeBitmap file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")" ++ err
+        Right (ImageRGB8 img) -> do
+            putStrLn "(BMP->PNG) Write ImageRGB8"
+            writePng (filePath ++ ".png") img
+        Right (ImageRGBA8 img) -> do
+            putStrLn "(BMP->PNG) Write ImageRGBA8"
+            writePng (filePath ++ ".png") img
+        Right (ImageY8 img) -> do
+            putStrLn "(BMP->PNG) Write ImageY8"
+            writePng (filePath ++ ".png") img
+        Right _ -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")"
+
 convertJpegToPng :: FilePath -> IO ()
 convertJpegToPng filePath = do
     putStrLn $ "(JPG) Loading " ++ filePath
@@ -119,16 +138,17 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "sheep.jpg"
                  ]
  
+bmpValidTests :: [FilePath]
+bmpValidTests = ["simple_bitmap_24bits.bmp"]
+
 main :: IO ()
 main = do 
-    {-(fname: _args) <- getArgs-}
-    {-convertPngToBmp fname-}
     putStrLn ">>>> Valid instances"
+    mapM_ (convertBitmapToPng . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
     mapM_ (convertJpegToPng . (("tests" </> "jpeg") </>)) jpegValidTests
     mapM_ (convertJpegToBmp . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
-    {-putStr "\n"-}
 

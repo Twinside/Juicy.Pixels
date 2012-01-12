@@ -12,15 +12,16 @@ module Codec.Picture.Bitmap( -- * Functions
                              -- * Accepted formt in output
                            , BmpEncodable( )
                            ) where
-import Control.Monad( when )
-import Data.Array.Base( unsafeAt )
+import Control.Monad( when, forM_ )
+import Data.Array.Base( unsafeAt, unsafeWrite )
 import Data.Array.Unboxed( IArray )
 import Data.Serialize( Serialize( .. )
                      , putWord8, putWord16le, putWord32le
                      , getWord16le, getWord32le
-                     , Get, Put, runGet, runPut )
+                     , Get, Put, runGet, runPut
+                     , remaining, getBytes )
 import Data.Word( Word32, Word16, Word8 )
-
+import Data.Array.ST( MArray, runSTUArray, newArray, writeArray )
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types
@@ -190,17 +191,48 @@ instance BmpEncodable PixelRGB8 where
                   stridePut stride
                   putLine (line - 1)
 
+{-# INLINE (.<-.) #-}
+(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
+(.<-.) = unsafeWrite
+
+decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
+decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
+  where wi = fromIntegral w
+        hi = fromIntegral h
+        stArray = runSTUArray $ do
+            arr <- newArray (0, fromIntegral $ w * h * 3) 128
+            forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
+            return arr
+
+        stride = linePadding 24 wi
+        readLine arr line =
+            let readIndex = (wi * 3 + stride) * line
+                lastIndex = wi * (hi - 1 - line + 1) * 3
+                writeIndex = wi * (hi - 1 - line) * 3
+
+                inner _ writeIdx | writeIdx >= lastIndex = return ()
+                inner readIdx writeIdx = do
+                    (arr .<-.  writeIdx     ) (str `B.index` (readIdx + 2))
+                    (arr .<-. (writeIdx + 1)) (str `B.index` (readIdx + 1))
+                    (arr .<-. (writeIdx + 2)) (str `B.index`  readIdx)
+                    inner (readIdx + 3) (writeIdx + 3)
+
+            in inner readIndex writeIndex
+
+
 -- | Try to decode a bitmap image
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap str = flip runGet str $ do
-    _hdr      <- (get :: Get BmpHeader)
-    bmpHeader <- get
-    case (bitPerPixel bmpHeader,
-                planes  bmpHeader,
-                bitmapCompression bmpHeader) of
-         (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-         (24, 1, 0) -> fail "Meuh"
-         _          -> fail "Can't handle BMP file"
+  _hdr      <- (get :: Get BmpHeader)
+  bmpHeader <- (get :: Get BmpInfoHeader)
+  case (bitPerPixel bmpHeader, planes  bmpHeader,
+              bitmapCompression bmpHeader) of
+    -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
+    (24, 1, 0) -> do
+        rest <- remaining >>= getBytes
+        return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    _          -> fail "Can't handle BMP file"
+
 
 -- | Write an image in a file use the bitmap format.
 writeBitmap :: (BmpEncodable pixel)
@@ -238,6 +270,7 @@ encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
 
+
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)
                         => BmpPalette -> Image pixel -> B.ByteString
@@ -247,7 +280,6 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
           imgHeight = fromIntegral $ imageHeight img
 
           paletteSize = fromIntegral $ length palette
-
           bpp = bitsPerPixel (undefined :: pixel)
           padding = linePadding bpp (imgWidth + 1)
           imagePixelSize = fromIntegral $ (imgWidth + padding) * imgHeight * 4
@@ -272,4 +304,5 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
               colorCount = 0,
               importantColours = paletteSize
           }
+
 

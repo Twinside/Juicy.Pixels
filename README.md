@@ -22,7 +22,9 @@ Status
         - 8bits greyscale (non interleaved)
 
  - Bitmap (.bmp) (mainly used as a debug output format)
-    * Reading : none yet
+    * Reading
+        - 24bits (RGB) images
+
     * Writing
         - 32bits (RGBA) per pixel images
         - 24bits (RGB) per pixel images
