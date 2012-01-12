@@ -210,6 +210,8 @@ linePadding :: Int -> Int -> Int
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
     where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
 
+-- | Encode an image into a bytestring in .bmp format ready to be written
+-- on disk.
 encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> B.ByteString
 encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
 

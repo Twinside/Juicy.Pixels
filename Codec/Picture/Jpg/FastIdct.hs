@@ -1,16 +1,15 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- | Module providing a 'fast' implementation of IDCT
--- *******************************************************
+--
 -- inverse two dimensional DCT, Chen-Wang algorithm       
 -- (cf. IEEE ASSP-32, pp. 803-816, Aug. 1984)             
 -- 32-bit integer arithmetic (8 bit coefficients)         
 -- 11 mults, 29 adds per DCT                              
 --                                      sE, 18.8.91       
--- *******************************************************
+--
 -- coefficients extended to 12 bit for IEEE1180-1990      
 -- compliance                           sE,  2.1.94       
--- *******************************************************
-
+--
 -- this code assumes >> to be a two's-complement arithmetic
 -- right shift: (-2)>>1 == -1 , (-3)>>1 == -2               
 module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
@@ -73,9 +72,11 @@ w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 (.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
 (.<-.)  = unsafeWrite
 
+-- | Macroblock that can be transformed.
 type MutableMacroBlock s a = STUArray s Int a
 
 {-# INLINE createEmptyMutableMacroBlock #-}
+-- | Create a new macroblock with the good array size
 createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
 createEmptyMutableMacroBlock = newArray (0, 63) 0
 
@@ -226,6 +227,8 @@ idctCol blk idx = do
 
 
 {-# INLINE fastIdct #-}
+-- | Algorithm to call to perform an IDCT, return the same
+-- block that the one given as input.
 fastIdct :: MutableMacroBlock s Int16
          -> ST s (MutableMacroBlock s Int16)
 fastIdct block = do
@@ -234,6 +237,7 @@ fastIdct block = do
     return block
 
 {-# INLINE mutableLevelShift #-}
+-- | Perform a Jpeg level shift in a mutable fashion.
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
 mutableLevelShift block = do

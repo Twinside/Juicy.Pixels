@@ -1,9 +1,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Codec.Picture.Png.Export where
+-- | Module implementing a basic png export, no filtering is applyed, but
+-- export at least valid images.
+module Codec.Picture.Png.Export( PngSavable( .. )
+                               , writePng
+                               ) where
 
 import Data.Serialize(encode)
-import Data.Array.Unboxed(IArray, UArray, (!))
+import Data.Array.Unboxed((!))
 import Data.Word(Word8)
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
@@ -14,7 +18,8 @@ import Codec.Picture.Png.Type
 
 -- | Encode an image into a png if possible.
 class PngSavable a where
-    -- | Real encoding function.
+    -- | Transform an image into a png encoded bytestring, ready
+    -- to be writte as a file.
     encodePng :: Image a -> B.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr
@@ -28,8 +33,8 @@ preparePngHeader (Image { imageWidth = w, imageHeight = h }) imgType depth = Png
     , interlaceMethod   = PngNoInterlace
     }
 
-writePng :: (IArray UArray pixel, PngSavable pixel)
-             => FilePath -> Image pixel -> IO ()
+-- | Helper function to directly write an image as a png on disk.
+writePng :: (PngSavable pixel) => FilePath -> Image pixel -> IO ()
 writePng path img = B.writeFile path $ encodePng img
 
 endChunk :: PngRawChunk

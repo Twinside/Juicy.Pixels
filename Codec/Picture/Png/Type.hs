@@ -1,3 +1,4 @@
+-- | Low level png module, you should import 'Codec.Picture.Png' instead.
 module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngFilter( .. )
                              , PngInterlaceMethod( .. )
@@ -33,6 +34,8 @@ import Codec.Picture.Types
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
+
+-- | Value used to identify a png chunk, must be 4 bytes long.
 type ChunkSignature = B.ByteString
 
 -- | Generic header used in PNG images.
@@ -57,13 +60,16 @@ data PngImageType =
     | PngTrueColourWithAlpha
     deriving Show
 
+-- | Raw parsed image which need to be decoded.
 data PngRawImage = PngRawImage
     { header       :: PngIHdr
     , chunks       :: [PngRawChunk]
     }
 
+-- | Palette with indices beginning at 0 to elemcount - 1
 type PngPalette = Array Int PixelRGB8
 
+-- | Parse a palette from a png chunk.
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
@@ -88,7 +94,7 @@ data PngChunk = PngChunk
 -- | Low level access to PNG information
 data PngLowLevel a = PngLowLevel
     { pngImage  :: Image a      -- ^ The real uncompressed image
-    , pngChunks :: [PngChunk]
+    , pngChunks :: [PngChunk]   -- ^ List of raw chunk where some user data might be present.
     }
 
 -- | The pixels value should be :
@@ -255,11 +261,22 @@ pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 signature :: [Word8] -> ChunkSignature
 signature = B.pack . map (toEnum . fromEnum)
 
--- | Signature for all the critical chunks in a PNG image.
-iHDRSignature, iDATSignature, iENDSignature, pLTESignature :: ChunkSignature
+-- | Signature for the header chunk of png (must be the first)
+iHDRSignature :: ChunkSignature 
 iHDRSignature = signature [73, 72, 68, 82]
+
+-- | Signature for a palette chunk in the pgn file. Must
+-- occure before iDAT.
+pLTESignature :: ChunkSignature
 pLTESignature = signature [80, 76, 84, 69]
+
+-- | Signature for a data chuck (with image parts in it)
+iDATSignature :: ChunkSignature
 iDATSignature = signature [73, 68, 65, 84]
+
+-- | Signature for the last chunk of a png image, telling
+-- the end.
+iENDSignature :: ChunkSignature
 iENDSignature = signature [73, 69, 78, 68]
 
 instance Serialize PngImageType where

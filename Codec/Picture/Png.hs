@@ -395,6 +395,7 @@ applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
           pixels = concat [[r, g, b] | ipx <- elems img
                                      , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
 
+-- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
 readPng path = B.readFile path >>= return . decodePng
 

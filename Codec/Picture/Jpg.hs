@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+-- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))

@@ -11,32 +11,27 @@ module Codec.Picture.Types( -- * Types
                           , DynamicImage( .. )
                           , PixelType( .. )
                             -- ** Pixel types
-                          , Pixel2
                           , Pixel8
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
                           , PixelRGBA8( .. )
                           , PixelYCbCr8( .. )
-                            -- * Helper functions
-                          , swapBlueRed 
+
                           -- * Type classes
                           , ColorConvertible( .. )
                           , Pixel(..)
                           , ColorSpaceConvertible( .. )
                             -- * Helper functions
                           , canConvertTo
-                          {-, promotePixels-}
-                          {-, changeImageColorSpace-}
-                          , unsafeImageCast
                           ) where
 
-import Control.Applicative
+import Control.Applicative( (<$>), (<*>) )
 import Control.Monad.ST( ST )
-import Data.Word
-import Data.Array.Unboxed
-import Data.Array.Base
-import Data.Array.ST
-import Data.Serialize
+import Data.Word( Word8 )
+import Data.Array.Unboxed( UArray, (!) )
+import Data.Array.ST( MArray, STUArray
+                    , writeArray, newArray, runSTUArray, readArray )
+import Data.Serialize( Serialize, put, get )
 
 
 -- | Image or pixel buffer, the coordinates are assumed to start
@@ -53,10 +48,18 @@ data Image a = Image
     , imageData   :: UArray Int Word8
     }
 
+-- | Image or pixel buffer, the coordinates are assumed to start
+-- from the upper-left corner of the image, with the horizontal
+-- position first, then the vertical one. The image can be transformed in place.
 data MutableImage s a = MutableImage 
-    {
+    { -- | Width of the image in pixels
 	  mutableImageWidth  :: {-# UNPACK #-} !Int
+
+      -- | Height of the image in pixels.
 	, mutableImageHeight :: {-# UNPACK #-} !Int
+
+      -- | The real image, to extract pixels at some position
+      -- you should use the helpers functions.
     , mutableImageData   :: STUArray s Int Word8
     }
 
@@ -71,10 +74,8 @@ data DynamicImage =
      | ImageRGB8 (Image PixelRGB8)
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
-
+       -- | An image in the colorspace used by Jpeg images.
      | ImageYCbCr8 (Image PixelYCbCr8)
-
-type Pixel2 = Bool
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
@@ -155,17 +156,8 @@ instance Serialize PixelRGBA8 where
     {-# INLINE get #-}
     get = PixelRGBA8 <$> get <*> get <*> get <*> get
 
--- | Helper function to let put color in the "windows" order
--- used in the Bitmap file format.
-{-# INLINE swapBlueRed #-}
-swapBlueRed :: PixelRGBA8 -> PixelRGBA8
-swapBlueRed (PixelRGBA8 r g b a) = PixelRGBA8 b g r a
-
-unsafeImageCast :: Image a -> Image b
-unsafeImageCast (Image { imageWidth = w, imageHeight = h, imageData = d }) =
-    Image { imageWidth = w, imageHeight = h, imageData = d }
-
-data PixelType = PixelMonochromatic
+-- | Describe pixel kind at runtime
+data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
                | PixelGreyscale
                | PixelGreyscaleAlpha
                | PixelRedGreenBlue8
@@ -189,6 +181,7 @@ class (Serialize a) => Pixel a where
     pixelBaseIndex (Image { imageWidth = w }) x y =
             (x + y * w) * componentCount (undefined :: a)
 
+    -- | Calculate theindex for the begining of the pixel at position x y
     mutablePixelBaseIndex :: MutableImage s a -> Int -> Int -> Int
     mutablePixelBaseIndex (MutableImage { mutableImageWidth = w }) x y =
             (x + y * w) * componentCount (undefined :: a)
@@ -202,8 +195,10 @@ class (Serialize a) => Pixel a where
     -- bottom of the image
     pixelAt :: Image a -> Int -> Int -> a
 
+    -- | Same as pixelAt but for mutable images.
     readPixel :: MutableImage s a -> Int -> Int -> ST s a
 
+    -- | Write a pixel in a mutable image at position x y
     writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
 
 -- | Tell if you can convert between two pixel types, both arguments
@@ -234,13 +229,6 @@ class (Pixel a, Pixel b) => ColorConvertible a b where
                                         | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
                     return newArr
 
-    {-# INLINE fromRawData #-}
-    -- | Given a list of raw elements, convert them to a new type.
-    -- Usefull to unserialize some elements from more basic types.
-    fromRawData   :: [a] -> (Maybe b, [a])
-    fromRawData [] = (Nothing, [])
-    fromRawData (x:xs) = (Just $ promotePixel x, xs)
-
 -- | This class abstract colorspace conversion. This
 -- conversion can be lossy, which ColorConvertible cannot
 class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
@@ -266,10 +254,6 @@ instance (Pixel a) => ColorConvertible a a where
     {-# INLINE promoteImage #-}
     promoteImage = id
 
-{-# INLINE (!!!) #-}
-(!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) = (!) -- unsafeAt
-
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
 (.!!!.) = readArray -- unsafeRead
@@ -277,42 +261,6 @@ instance (Pixel a) => ColorConvertible a a where
 {-# INLINE (.<-.) #-}
 (.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
 (.<-.)  = writeArray -- unsafeWrite
-
---------------------------------------------------
-----            Pixel2 instances
---------------------------------------------------
-instance Pixel Pixel2 where
-    canPromoteTo _ _ = True
-    promotionType _  = PixelMonochromatic
-    componentCount _ = 1
-    pixelAt image@(Image { imageData = arr }) x y =
-        arr !!! (pixelBaseIndex image x y) /= 0
-
-    readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        (/= 0) <$> arr .!!!. (mutablePixelBaseIndex image x y)
-    
-    writePixel image@(MutableImage { mutableImageData = arr }) x y v =
-        (arr .<-. (mutablePixelBaseIndex image x y)) (if v then 255 else 0)
-
-instance ColorConvertible Pixel2 Pixel8 where
-    {-# INLINE promotePixel #-}
-    promotePixel a | a = 255
-                   | otherwise = 0
-
-instance ColorConvertible Pixel2 PixelYA8 where
-    {-# INLINE promotePixel #-}
-    promotePixel a | a = PixelYA8 255 255
-                   | otherwise = PixelYA8 0 255
-
-instance ColorConvertible Pixel2 PixelRGB8 where
-    {-# INLINE promotePixel #-}
-    promotePixel a | a = PixelRGB8 255 255 255
-                   | otherwise = PixelRGB8   0   0   0
-
-instance ColorConvertible Pixel2 PixelRGBA8 where
-    {-# INLINE promotePixel #-}
-    promotePixel a | a = PixelRGBA8 255 255 255 255
-                   | otherwise = PixelRGBA8   0   0   0 255
 
 --------------------------------------------------
 ----            Pixel8 instances
@@ -333,25 +281,13 @@ instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelYA8 c 255
 
-    {-# INLINE fromRawData #-}
-    fromRawData (y:a:xs) = (Just $ PixelYA8 y a, xs)
-    fromRawData _ = (Nothing, [])
-
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
 
-    {-# INLINE fromRawData #-}
-    fromRawData (r:g:b:xs) = (Just $ PixelRGB8 r g b, xs)
-    fromRawData _ = (Nothing, [])
-
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGBA8 c c c 255
-
-    {-# INLINE fromRawData #-}
-    fromRawData (r:g:b:a:xs) = (Just $ PixelRGBA8 r g b a, xs)
-    fromRawData _ = (Nothing, [])
 
 --------------------------------------------------
 ----            PixelYA8 instances

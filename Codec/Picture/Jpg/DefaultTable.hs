@@ -1,5 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
+-- | Module used by the jpeg decoder internally, shouldn't be used
+-- in user code.
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
 									 , MacroBlock
@@ -19,9 +21,10 @@ import Data.Array.Unboxed( IArray, UArray, listArray )
 import Data.Word( Word8 )
 import Data.List( foldl' )
 
-data HuffmanTree = Branch HuffmanTree HuffmanTree
-                 | Leaf Word8
-                 | Empty
+-- | Tree storing the code used for huffman encoding.
+data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the first subtree, if 1, the right.
+                 | Leaf Word8       -- ^ We should output the value
+                 | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
 -- | Represent a compact array of 8 * 8 values. The size
@@ -29,12 +32,16 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree
 -- used, everything should be fine size-wise
 type MacroBlock a = UArray Int a
 
+-- | Helper function to create pure macro block of the good size.
 makeMacroBlock :: (IArray UArray a) => [a] -> MacroBlock a
 makeMacroBlock = listArray (0, 63)
 
+-- | Enumeration used to search in the tables for different components.
 data DctComponent = DcComponent | AcComponent
     deriving (Eq, Show)
 
+-- | Transform parsed coefficients from the jpeg header to a
+-- tree which can be used to decode data.
 buildHuffmanTree :: [[Word8]] -> HuffmanTree
 buildHuffmanTree table = foldl' insertHuffmanVal Empty
                        . concatMap (\(i, t) -> map (i + 1,) t)
