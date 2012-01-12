@@ -60,8 +60,8 @@ genericEncodePng imgKind compCount
     where hdr = preparePngHeader image imgKind 8
           compBound = compCount - 1
           encodeLine line =
-            0 : [arr ! ((line * w + column) * 4 + comp) | column <- [0 .. w - 1]
-                                                        , comp <- [0 .. compBound]]
+            0 : [arr ! ((line * w + column) * compCount + comp) | column <- [0 .. w - 1]
+                                                                , comp <- [0 .. compBound]]
           imgEncodedData = Z.compress . Lb.pack 
                          $ concat [encodeLine line | line <- [0 .. h - 1]]
           strictEncoded = B.concat $ Lb.toChunks imgEncodedData
