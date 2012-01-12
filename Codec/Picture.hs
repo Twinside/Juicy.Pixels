@@ -8,7 +8,7 @@
 -- Generally, the read* functions read the images from a file and try to decode
 -- it, and the decode* functions try to decode a bytestring.
 module Codec.Picture ( 
-                     -- * Generic function
+                     -- * Generic functions
                        readImage
                      , decodeImage
                      -- * Specific image format functions
@@ -17,15 +17,19 @@ module Codec.Picture (
                      , writeBitmap
                      , encodeBitmap
                      , decodeBitmap
+                     , encodeDynamicBitmap 
+                     , writeDynamicBitmap 
 
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg 
 
                      -- ** Png handling
+                     , PngSavable( .. )
                      , readPng
                      , decodePng
-                     {-, writePng-}
+                     , writePng
+
                      -- * Image types and pixel types
                      -- ** Image
                      , Image
@@ -41,7 +45,7 @@ module Codec.Picture (
 import Control.Applicative( (<$>) )
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg( readJpeg, decodeJpeg )
-import Codec.Picture.Png( readPng, decodePng )
+import Codec.Picture.Png( PngSavable( .. ), readPng, decodePng, writePng )
 import Codec.Picture.Types
 
 import qualified Data.ByteString as B
@@ -64,7 +68,7 @@ readImage path = decodeImage <$> B.readFile path
 -- to decode in each known format and if one decoding succeed will return
 -- the decoded image in it's own colorspace
 decodeImage :: B.ByteString -> Either String DynamicImage
-decodeImage str = eitherLoad str [("Jpeg", \b -> ImageYCbCr8 <$> decodeJpeg b)
+decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
                                  ]
     

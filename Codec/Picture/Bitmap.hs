@@ -7,10 +7,11 @@ module Codec.Picture.Bitmap( -- * Functions
                              writeBitmap
                            , encodeBitmap
                            , decodeBitmap
+                           , encodeDynamicBitmap 
+                           , writeDynamicBitmap 
                              -- * Accepted formt in output
                            , BmpEncodable( )
                            ) where
-
 import Control.Monad( when )
 import Data.Array.Base( unsafeAt )
 import Data.Array.Unboxed( IArray )
@@ -214,6 +215,28 @@ linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
 -- on disk.
 encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> B.ByteString
 encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
+
+
+-- | Write a dynamic image in a .bmp image file if possible.
+-- The same restriction as encodeDynamicBitmap apply.
+writeDynamicBitmap :: FilePath -> DynamicImage -> IO (Either String Bool)
+writeDynamicBitmap path img = case encodeDynamicBitmap img of
+        Left err -> return $ Left err
+        Right b  -> B.writeFile path b >> return (Right True)
+
+-- | Encode a dynamic image in bmp if possible, supported pixel type are :
+--
+--   - RGB8
+--
+--   - RGBA8
+--
+--   - Y8
+--
+encodeDynamicBitmap :: DynamicImage -> Either String B.ByteString
+encodeDynamicBitmap (ImageRGB8 img) = Right $ encodeBitmap img
+encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
+encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
+encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
 
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)

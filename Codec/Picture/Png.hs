@@ -41,8 +41,6 @@ import qualified Data.ByteString.Lazy as Lb
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
-import Debug.Trace
-{-import Text.Printf-}
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
@@ -322,7 +320,7 @@ byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 t
 
 scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
                      -> ByteReader s ()
-scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker = trace ("Normal interleaving") $
+scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker =
     pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight)
         where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
               strideInfo | depth < 8 = 1
@@ -332,7 +330,7 @@ scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker = trace ("
 -- data for PNG's adam 7 method.
 adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
             -> ByteReader s ()
-adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = trace "Adam7 interleaving" $ sequence_
+adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
   [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) strideInfo (byteWidth, passHeight)
                 | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
                 , let passWidth = sizer imgWidth beginW incrW

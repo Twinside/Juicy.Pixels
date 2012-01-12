@@ -20,8 +20,8 @@ Cabal-version:       >=1.2
 Executable imageTest
   Main-Is: main.hs
   Extensions: CPP
-  Ghc-options: -Wall -cpp
-  -- -prof -auto-all -rtsopts -caf-all -fforce-recomp
+  Ghc-options: -O3 -Wall 
+  -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base, 
                  array,
                  bytestring,
@@ -30,23 +30,23 @@ Executable imageTest
                  zlib >= 0.5.3.1,
                  filepath >= 1.2,
                  transformers >= 0.2.2 && < 0.3
--- Library
---   -- Modules exported by the library.
---   Exposed-modules:  Codec.Picture,
---                     Codec.Picture.Bitmap,
---                     Codec.Picture.Png,
---                     Codec.Picture.Jpg,
---                     Codec.Picture.Types
---   Extensions: CPP
---   Ghc-options: -Wall -cpp
---   Build-depends: base, 
---                  array,
---                  bytestring,
---                  mtl >= 1.1,
---                  cereal >= 0.3.3.0 && < 0.4,
---                  zlib >= 0.5.3.1,
---                  transformers >= 0.2.2 && < 0.3
-  
-  -- Modules not exported by this package.
-  -- Other-modules:       
+Library
+  -- Modules exported by the library.
+  Exposed-modules:  Codec.Picture,
+                    Codec.Picture.Bitmap,
+                    Codec.Picture.Png,
+                    Codec.Picture.Jpg,
+                    Codec.Picture.Types
+  Extensions: CPP
+  Ghc-options: -Wall -cpp
+  Build-depends: base, 
+                 array,
+                 bytestring,
+                 mtl >= 1.1,
+                 cereal >= 0.3.3.0 && < 0.4,
+                 zlib >= 0.5.3.1,
+                 transformers >= 0.2.2 && < 0.3
+
+- Modules not exported by this package.
+- Other-modules:       
   

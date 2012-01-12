@@ -780,16 +780,20 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
 -- convert it to RGB using 'colorSpaceConversion'
-readJpeg :: FilePath -> IO (Either String (Image PixelYCbCr8))
+readJpeg :: FilePath -> IO (Either String DynamicImage)
 readJpeg f = decodeJpeg <$> B.readFile f
 
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
 -- convert it to RGB using 'colorSpaceConversion'
-decodeJpeg :: B.ByteString -> Either String (Image PixelYCbCr8)
+decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg file = case decode file of
   Left err -> Left err
-  Right img -> Right $ Image imgWidth imgHeight pixelData
+  Right img -> case compCount of
+                 1 -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
+                 3 -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
+                 _ -> Left "Wrong component count"
+
       where (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
             (_, scanInfo) = gatherScanInfo img
             compCount = length $ jpgComponents scanInfo
