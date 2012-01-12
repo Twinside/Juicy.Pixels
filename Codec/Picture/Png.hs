@@ -404,6 +404,17 @@ readPng path = B.readFile path >>= return . decodePng
 -- a transformation to RGBA8 is performed. This should change
 -- in the future.
 -- The resulting image let you manage the pixel types.
+--
+-- This function can output the following pixel types :
+--
+--    * PixelY8
+--
+--    * PixelYA8
+--
+--    * PixelRGB8
+--
+--    * PixelRGBA8
+--
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do
     rawImg <- runGet get byte

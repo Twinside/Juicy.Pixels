@@ -4,7 +4,19 @@ Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
 Description:         This library can load and store images in various image formats,
                      for now mainly in PNG/Bitmap and Jpeg (jpeg writing not
                      implemented yet though)
+                     Code sample:
+                     @
+                       import Codec.Picture( readImage )
+                       toPng :: FilePath -> FilePath -> IO ()
+                       toPng from to = do
+                          eitherImg <- readImage
+                          case eitherImg of
+                             Left _ -> return ()
+                             Right img -> writeDynamicPng to img
+                     @
 
+
+homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
 License-file:        LICENSE
 Author:              Vincent Berthoux
@@ -12,8 +24,6 @@ Maintainer:          vincent.berthoux@gmail.com
 Category:            Codec
 Build-type:          Simple
 
--- Extra files to be distributed with the package, such as examples or
--- a README.
 -- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
@@ -41,12 +51,12 @@ Executable imageTest
                  filepath >= 1.2,
                  transformers >= 0.2.2 && < 0.3
 Library
-  -- Modules exported by the library.
   Exposed-modules:  Codec.Picture,
                     Codec.Picture.Bitmap,
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Types
+
   Ghc-options: -O3 -Wall
   Build-depends: base, 
                  array,

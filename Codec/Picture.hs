@@ -7,6 +7,8 @@
 --
 -- Generally, the read* functions read the images from a file and try to decode
 -- it, and the decode* functions try to decode a bytestring.
+--
+-- For an easy image writing use the write* functions and writeDynamic* functions.
 module Codec.Picture ( 
                      -- * Generic functions
                        readImage

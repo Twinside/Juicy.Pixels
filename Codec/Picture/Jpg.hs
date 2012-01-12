@@ -786,6 +786,13 @@ readJpeg f = decodeJpeg <$> B.readFile f
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
 -- convert it to RGB using 'colorSpaceConversion'
+--
+-- This function can output the following pixel types :
+--
+--    * PixelY8
+--
+--    * PixelYCbCr8
+--
 decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg file = case decode file of
   Left err -> Left err

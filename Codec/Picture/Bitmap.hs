@@ -220,7 +220,11 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
             in inner readIndex writeIndex
 
 
--- | Try to decode a bitmap image
+-- | Try to decode a bitmap image.
+-- Right now this function can output the following pixel types :
+--
+--    * PixelRGB8
+--
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap str = flip runGet str $ do
   _hdr      <- (get :: Get BmpHeader)
