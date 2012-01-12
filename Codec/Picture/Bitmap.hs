@@ -21,7 +21,7 @@ import Data.Serialize( Serialize( .. )
                      , Get, Put, runGet, runPut
                      , remaining, getBytes )
 import Data.Word( Word32, Word16, Word8 )
-import Data.Array.ST( MArray, runSTUArray, newArray, writeArray )
+import Data.Array.ST( MArray, runSTUArray, newArray )
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types

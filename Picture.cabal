@@ -1,12 +1,14 @@
 Name:                JuicyPixels
-Version:             0.1
+Version:             1.0
 Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
--- Description:         
+Description:         This library can load and store images in various image formats,
+                     for now mainly in PNG/Bitmap and Jpeg (jpeg writing not
+                     implemented yet though)
+
 License:             BSD3
 License-file:        LICENSE
 Author:              Vincent Berthoux
 Maintainer:          vincent.berthoux@gmail.com
--- Copyright:           
 Category:            Codec
 Build-type:          Simple
 
@@ -15,11 +17,19 @@ Build-type:          Simple
 -- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       >=1.2
+Cabal-version:       >=1.6
+
+Source-Repository head
+    Type:      git
+    Location:  git://github.com/Twinside/Juicy.Pixels.git
+
+Source-Repository this
+    Type:      git
+    Location:  git://github.com/Twinside/Juicy.Pixels.git
+    Tag:       v1.0
 
 Executable imageTest
   Main-Is: main.hs
-  Extensions: CPP
   Ghc-options: -O3 -Wall 
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base, 
@@ -37,8 +47,7 @@ Library
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Types
-  Extensions: CPP
-  Ghc-options: -Wall -cpp
+  Ghc-options: -O3 -Wall
   Build-depends: base, 
                  array,
                  bytestring,
@@ -47,6 +56,10 @@ Library
                  zlib >= 0.5.3.1,
                  transformers >= 0.2.2 && < 0.3
 
-- Modules not exported by this package.
-- Other-modules:       
+-- Modules not exported by this package.
+  Other-modules: Codec.Picture.Jpg.DefaultTable,
+                 Codec.Picture.Jpg.FastIdct,
+                 Codec.Picture.Png.Export,
+                 Codec.Picture.Png.Type
+
   

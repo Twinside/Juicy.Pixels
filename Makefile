@@ -34,3 +34,6 @@ test:
 
 lint:
 	hlint Codec
+
+sdist:
+	runhaskell Setup.hs sdist
