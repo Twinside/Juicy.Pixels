@@ -10,7 +10,7 @@ License:             BSD3
 License-file:        LICENSE
 Author:              Vincent Berthoux
 Maintainer:          vincent.berthoux@gmail.com
-Category:            Codec
+Category:            Codec, Graphics
 Build-type:          Simple
 
 -- Extra-source-files:  
