@@ -1,21 +1,10 @@
 Name:                JuicyPixels
 Version:             1.0
 Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
-Description:         This library can load and store images in various image formats,
-                     for now mainly in PNG/Bitmap and Jpeg (jpeg writing not
-                     implemented yet though)
-                     Code sample:
-                     @
-                       import Codec.Picture( readImage )
-                       toPng :: FilePath -> FilePath -> IO ()
-                       toPng from to = do
-                          eitherImg <- readImage
-                          case eitherImg of
-                             Left _ -> return ()
-                             Right img -> writeDynamicPng to img
-                     @
-
-
+Description:
+    This library can load and store images in various image formats,
+ for now mainly in PNG/Bitmap and Jpeg (jpeg writing not
+ implemented yet though)
 homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
 License-file:        LICENSE
@@ -46,7 +35,7 @@ Library
                     Codec.Picture.Types
 
   Ghc-options: -O3 -Wall
-  Build-depends: base, 
+  Build-depends: base >= 4 && < 5,
                  array,
                  bytestring,
                  mtl >= 1.1,
