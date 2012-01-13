@@ -39,6 +39,7 @@ module Codec.Picture (
                      , Image
                      , DynamicImage( .. )
                      -- ** Pixels
+                     , Pixel( .. )
                      , Pixel8
                      , PixelYA8( .. )
                      , PixelRGB8( .. )
