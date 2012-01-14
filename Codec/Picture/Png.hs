@@ -1,7 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE BangPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files. The API has two layers, the high level, which load the image without
 -- looking deeply about it and the low level, allowing access to data chunks contained
@@ -21,7 +19,7 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( foldM_, forM_, when )
+import Control.Monad( foldM_, forM_, when, liftM )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
@@ -205,11 +203,11 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
                 destSampleIndex = destPixelIndex * sampleCount
                 srcPixelIndex = pixelIndex * sampleCount + beginIdx
                 perPixel sample | sample >= sampleCount = return ()
-                                | otherwise = (do
+                                | otherwise = do
                     val <- line .!!!. (srcPixelIndex + sample)
                     let writeIdx = destSampleIndex + sample
                     (arr .<-. writeIdx) val
-                    perPixel (sample + 1))
+                    perPixel (sample + 1)
             perPixel 0
             inner (pixelIndex + 1)
     inner 0
@@ -235,7 +233,7 @@ bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = ar
          (do val <- line .!!!. endLine
              let writeIdx n = lineIndex + (pixelToRead * 8 + n) * strideWidth + beginLeft
              forM_ [0 .. lineRest - 1] $ \bit ->
-                (arr .<-. writeIdx bit) $ ((val `shiftR` (7 - bit)) .&. 0x1))
+                (arr .<-. writeIdx bit) ((val `shiftR` (7 - bit)) .&. 0x1))
 
 
 -- | Unpack lines when bit depth is 2
@@ -262,7 +260,7 @@ twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData 
          (do val <- line .!!!. endLine
              let writeIdx n = lineIndex + (pixelToRead * 4 + n) * strideWidth + beginLeft
              forM_ [0 .. lineRest - 1] $ \bit ->
-                (arr .<-. writeIdx bit) $ ((val `shiftR` (6 - 2 * bit)) .&. 0x3))
+                (arr .<-. writeIdx bit) ((val `shiftR` (6 - 2 * bit)) .&. 0x3))
 
 halfByteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
@@ -397,7 +395,7 @@ applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
 
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
-readPng path = B.readFile path >>= return . decodePng
+readPng path = liftM decodePng (B.readFile path)
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,

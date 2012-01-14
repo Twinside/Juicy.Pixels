@@ -619,7 +619,7 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y 
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block = do
+                 block =
   forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
       let xPos = (i + x * 8) * wCoeff + wDup
           yPos = (j + y * 8) * hCoeff + hDup

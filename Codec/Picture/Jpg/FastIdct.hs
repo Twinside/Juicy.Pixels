@@ -168,11 +168,11 @@ idctRow blk idx = do
 --
 idctCol :: MutableMacroBlock s Int16 -> Int -> ST s ()
 idctCol blk idx = do
-  xx0 <- blk .!!!. (8 * 0 + idx)
+  xx0 <- blk .!!!. (    0 + idx)
   xx1 <- blk .!!!. (8 * 4 + idx)
   xx2 <- blk .!!!. (8 * 6 + idx)
   xx3 <- blk .!!!. (8 * 2 + idx)
-  xx4 <- blk .!!!. (8 * 1 + idx)
+  xx4 <- blk .!!!. (8     + idx)
   xx5 <- blk .!!!. (8 * 7 + idx)
   xx6 <- blk .!!!. (8 * 5 + idx)
   xx7 <- blk .!!!. (8 * 3 + idx)
@@ -217,7 +217,7 @@ idctCol blk idx = do
 
       f = thirdStage . secondStage $ firstStage initialState
   (blk .<-. (idx + 8*0)) $ iclip !!! ((x7 f + x1 f) .>>. 14)
-  (blk .<-. (idx + 8*1)) $ iclip !!! ((x3 f + x2 f) .>>. 14)
+  (blk .<-. (idx + 8  )) $ iclip !!! ((x3 f + x2 f) .>>. 14)
   (blk .<-. (idx + 8*2)) $ iclip !!! ((x0 f + x4 f) .>>. 14)
   (blk .<-. (idx + 8*3)) $ iclip !!! ((x8 f + x6 f) .>>. 14)
   (blk .<-. (idx + 8*4)) $ iclip !!! ((x8 f - x6 f) .>>. 14)

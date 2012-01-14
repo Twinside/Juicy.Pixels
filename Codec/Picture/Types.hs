@@ -272,10 +272,10 @@ instance Pixel Pixel8 where
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. (mutablePixelBaseIndex image x y)
+        arr .!!!. mutablePixelBaseIndex image x y
     
-    writePixel image@(MutableImage { mutableImageData = arr }) x y v =
-        (arr .<-. (mutablePixelBaseIndex image x y)) v
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr .<-. mutablePixelBaseIndex image x y
 
 instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}

@@ -227,8 +227,8 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap str = flip runGet str $ do
-  _hdr      <- (get :: Get BmpHeader)
-  bmpHeader <- (get :: Get BmpInfoHeader)
+  _hdr      <- get :: Get BmpHeader
+  bmpHeader <- get :: Get BmpInfoHeader
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
@@ -297,10 +297,10 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
 
           info = BmpInfoHeader {
               size = sizeofBmpInfo,
-              width = fromIntegral $ imgWidth,
-              height = fromIntegral $ imgHeight,
+              width = fromIntegral imgWidth,
+              height = fromIntegral imgHeight,
               planes = 1,
-              bitPerPixel = fromIntegral $ bpp,
+              bitPerPixel = fromIntegral bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
               xResolution = 0,
