@@ -17,7 +17,8 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
                                      -}
 									 ) where
 
-import Data.Array.Unboxed( IArray, UArray, listArray )
+import Foreign.Storable ( Storable )
+import qualified Data.Vector.Storable as V
 import Data.Word( Word8 )
 import Data.List( foldl' )
 
@@ -30,11 +31,11 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the firs
 -- | Represent a compact array of 8 * 8 values. The size
 -- is not guarenteed by type system, but if makeMacroBlock is
 -- used, everything should be fine size-wise
-type MacroBlock a = UArray Int a
+type MacroBlock a = V.Vector a
 
 -- | Helper function to create pure macro block of the good size.
-makeMacroBlock :: (IArray UArray a) => [a] -> MacroBlock a
-makeMacroBlock = listArray (0, 63)
+makeMacroBlock :: (Storable a) => [a] -> MacroBlock a
+makeMacroBlock = V.fromListN 64
 
 -- | Enumeration used to search in the tables for different components.
 data DctComponent = DcComponent | AcComponent

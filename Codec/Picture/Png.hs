@@ -20,23 +20,21 @@ module Codec.Picture.Png( -- * High level functions
                         ) where
 
 import Control.Monad( foldM_, forM_, when, liftM )
-import Control.Monad.ST( ST )
+import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
+import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
 import Data.Serialize( Serialize, runGet, get)
 
-import Data.Array.Base( unsafeAt, unsafeRead, unsafeWrite )
--- import Data.Array.Unboxed( (!) )
--- import Data.Array.ST( readArray, writeArray )
-
-import Data.Array.Unboxed( IArray, UArray, listArray, bounds, elems )
-import Data.Array.ST( STUArray, runSTUArray, MArray, newArray, getBounds )
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
 import Data.Bits( (.&.), (.|.), shiftL, shiftR )
 import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
+import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
@@ -82,16 +80,20 @@ getNextByte = do str <- S.get
                     Nothing -> return 0
 
 {-# INLINE (!!!) #-}
-(!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) = unsafeAt
+(!!!) :: (Storable e) => V.Vector e -> Int -> e
+(!!!) = V.unsafeIndex
 
 {-# INLINE (.!!!.) #-}
-(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) = unsafeRead
+(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
+(.!!!.) = M.unsafeRead
 
 {-# INLINE (.<-.) #-}
-(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.) = unsafeWrite
+(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
+(.<-.) = M.unsafeWrite
+
+{-# INLINE getBounds #-}
+getBounds :: (Monad m, Storable a) => M.STVector s a -> m (Int, Int)
+getBounds v = return (0, M.length v - 1)
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line, using the previous line (the one above it) to perform
@@ -100,8 +102,8 @@ pngFiltering :: LineUnpacker s -> Int -> (Int, Int)    -- ^ Image size
              -> ByteReader s ()
 pngFiltering _ _ (imgWidth, imgHeight) | imgWidth <= 0 || imgHeight <= 0 = return ()
 pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
-    thisLine <- lift $ newArray (0, beginZeroes + imgWidth - 1) 0
-    otherLine <- lift $ newArray (0, beginZeroes + imgWidth - 1) 0
+    thisLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
+    otherLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
     foldM_ (\(previousLine, currentLine) lineIndex -> do
                byte <- getNextByte
                let lineFilter = case unparsePngFilter byte of
@@ -181,7 +183,7 @@ paeth a b c
           pb = abs $ p - b'
           pc = abs $ p - c'
 
-type PngLine s = STUArray s Int Word8
+type PngLine s = M.STVector s Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
 
 type StrideInfo  = (Int, Int)
@@ -351,7 +353,7 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
-deinterlacer :: PngIHdr -> ByteReader s (STUArray s Int Word8)
+deinterlacer :: PngIHdr -> ByteReader s (M.STVector s Word8)
 deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
                       , interlaceMethod = method, bitDepth = depth  }) = do
     let compCount = sampleCountOfImageType imgKind 
@@ -360,7 +362,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
             PngNoInterlace -> scanLineInterleaving
             PngInterlaceAdam7 -> adam7Unpack
         iBitDepth = fromIntegral depth
-    imgArray <- lift $ newArray (0, arraySize - 1) 0
+    imgArray <- lift $ M.replicate arraySize 0
     let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
     deinterlaceFunction iBitDepth 
                         (fromIntegral compCount)
@@ -370,7 +372,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = listArray (0, fromIntegral possibilities) pixels
+generateGreyscalePalette times = V.fromListN (fromIntegral possibilities) pixels
     where possibilities = 2 ^ times - 1
           pixels = [PixelRGB8 i i i | n <- [0..possibilities]
                                     , let i = n * (255 `div` possibilities)]
@@ -387,10 +389,14 @@ paletteRGBA1 = generateGreyscalePalette 1
 paletteRGBA2 = generateGreyscalePalette 2
 paletteRGBA4 = generateGreyscalePalette 4
 
-applyPalette :: PngPalette -> UArray Int Word8 -> UArray Int Word8
-applyPalette pal img = listArray (0, (initSize + 1) * 3 - 1) pixels
+{-# INLINE bounds #-}
+bounds :: Storable a => V.Vector a -> (Int, Int)
+bounds v = (0, V.length v - 1)
+
+applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
+applyPalette pal img = V.fromListN ((initSize + 1) * 3 - 1) pixels
     where (_, initSize) = bounds img
-          pixels = concat [[r, g, b] | ipx <- elems img
+          pixels = concat [[r, g, b] | ipx <- V.toList img
                                      , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
 
 -- | Helper function trying to load a png file from a file on disk.
@@ -430,22 +436,22 @@ decodePng byte = do
             | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
             | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
-            | otherwise = Right . ImageY8 . imager $ runSTUArray stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+            | otherwise = Right . ImageY8 . imager $ runST stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
         unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
         unparse _ PngTrueColour          bytes =
-            Right . ImageRGB8 . imager $ runSTUArray stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+            Right . ImageRGB8 . imager $ runST stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
         unparse _ PngGreyscaleWithAlpha  bytes =
-            Right . ImageYA8 . imager $ runSTUArray stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+            Right . ImageYA8 . imager $ runST stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
         unparse _ PngTrueColourWithAlpha bytes =
-            Right . ImageRGBA8 . imager $ runSTUArray stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
+            Right . ImageRGBA8 . imager $ runST stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
         unparse (Just plte) PngIndexedColor bytes =
             Right . ImageRGB8 . imager $ applyPalette plte uarray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes
-                      uarray = runSTUArray stArray
+                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                      uarray = runST stArray
 
     if B.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
