@@ -25,6 +25,7 @@ import Data.Serialize( Serialize(..), Get, get, runGet, runPut
                      , putWord32be, getWord32be
                      , getByteString, putByteString )
 import Data.Array.Unboxed( Array, UArray, listArray, (!) )
+import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
 import qualified Data.ByteString as B
@@ -67,13 +68,13 @@ data PngRawImage = PngRawImage
     }
 
 -- | Palette with indices beginning at 0 to elemcount - 1
-type PngPalette = Array Int PixelRGB8
+type PngPalette = V.Vector PixelRGB8
 
 -- | Parse a palette from a png chunk.
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
- | otherwise = listArray (0, pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
+ | otherwise = V.fromListN (pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
     where pixelUnpacker = replicateM (fromIntegral pixelCount) get
           pixelCount = fromIntegral $ chunkLength plte `div` 3
 

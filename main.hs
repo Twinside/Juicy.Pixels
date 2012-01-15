@@ -8,6 +8,7 @@ import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
 import Codec.Picture.Types
+import qualified Data.Vector.Storable as V
 
 convertPngToBmp :: FilePath -> IO ()
 convertPngToBmp filePath = do
@@ -123,7 +124,7 @@ invalidTests = ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", 
 
 greyScaleWitness :: Image Pixel8
 greyScaleWitness = img 232 241
-    where img w h = Image w h $ listArray (0, w * h - 1) $ pixels w h
+    where img w h = Image w h $ V.fromListN (w * h) $ pixels w h
           pixels w h = [pixel x y | y <- [0 .. h-1], x <- [0 .. w-1] ]
           pixel x y = truncate $ sqrt dist
                 where xf = fromIntegral $ x - 100 :: Int
