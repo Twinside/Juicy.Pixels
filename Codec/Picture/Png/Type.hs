@@ -24,7 +24,7 @@ import Data.Serialize( Serialize(..), Get, get, runGet, runPut
                      , putWord8, getWord8
                      , putWord32be, getWord32be
                      , getByteString, putByteString )
-import Data.Array.Unboxed( Array, UArray, listArray, (!) )
+import Data.Array.Unboxed( UArray, listArray, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
