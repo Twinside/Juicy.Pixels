@@ -74,7 +74,7 @@ type PngPalette = V.Vector PixelRGB8
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
- | otherwise = V.fromListN (pixelCount - 1) <$> runGet pixelUnpacker (chunkData plte)
+ | otherwise = V.fromListN pixelCount <$> runGet pixelUnpacker (chunkData plte)
     where pixelUnpacker = replicateM (fromIntegral pixelCount) get
           pixelCount = fromIntegral $ chunkLength plte `div` 3
 

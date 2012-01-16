@@ -372,7 +372,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = V.fromListN (fromIntegral possibilities) pixels
+generateGreyscalePalette times = V.fromListN (fromIntegral possibilities + 1) pixels
     where possibilities = 2 ^ times - 1
           pixels = [PixelRGB8 i i i | n <- [0..possibilities]
                                     , let i = n * (255 `div` possibilities)]
@@ -394,7 +394,7 @@ bounds :: Storable a => V.Vector a -> (Int, Int)
 bounds v = (0, V.length v - 1)
 
 applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
-applyPalette pal img = V.fromListN ((initSize + 1) * 3 - 1) pixels
+applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- V.toList img
                                      , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
