@@ -12,16 +12,18 @@ module Codec.Picture.Bitmap( -- * Functions
                              -- * Accepted formt in output
                            , BmpEncodable( )
                            ) where
+import Foreign.Storable ( Storable )
 import Control.Monad( when, forM_ )
-import Data.Array.Base( unsafeAt, unsafeWrite )
-import Data.Array.Unboxed( IArray )
+import Control.Monad.ST ( runST )
+import Control.Monad.Primitive ( PrimMonad, PrimState )
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
 import Data.Serialize( Serialize( .. )
                      , putWord8, putWord16le, putWord32le
                      , getWord16le, getWord32le
                      , Get, Put, runGet, runPut
                      , remaining, getBytes )
 import Data.Word( Word32, Word16, Word8 )
-import Data.Array.ST( MArray, runSTUArray, newArray )
 import qualified Data.ByteString as B
 
 import Codec.Picture.Types
@@ -134,8 +136,8 @@ class BmpEncodable pixel where
     defaultPalette _ = BmpPalette []
 
 {-# INLINE (!!!) #-}
-(!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) = unsafeAt -- (!)
+(!!!) :: (Storable e) => V.Vector e -> Int -> e
+(!!!) = V.unsafeIndex
 
 {-# INLINE stridePut #-}
 stridePut :: Int -> Put
@@ -192,17 +194,17 @@ instance BmpEncodable PixelRGB8 where
                   putLine (line - 1)
 
 {-# INLINE (.<-.) #-}
-(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.) = unsafeWrite
+(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
+(.<-.) = M.unsafeWrite
 
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
   where wi = fromIntegral w
         hi = fromIntegral h
-        stArray = runSTUArray $ do
-            arr <- newArray (0, fromIntegral $ w * h * 3) 128
+        stArray = runST $ do
+            arr <- M.replicate (fromIntegral $ w * h * 3) 128
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
-            return arr
+            V.unsafeFreeze arr
 
         stride = linePadding 24 wi
         readLine arr line =
