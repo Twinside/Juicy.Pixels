@@ -27,13 +27,7 @@ import Data.Bits( shiftL, shiftR )
 import Data.Int( Int16 )
 import Foreign.Storable ( Storable )
 
-{-
-{-# INLINE iclip #-}
-iclip :: Int -> Int16
-iclip i | fromIntegral i < (-256) = -256
-        | fromIntegral i >   256  =  256
-        | otherwise               =  fromIntegral i
--}
+import Codec.Picture.Jpg.Types
 
 iclip :: V.Vector Int16
 iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]
@@ -79,14 +73,6 @@ w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
 (.<-.) = M.unsafeWrite
-
--- | Macroblock that can be transformed.
-type MutableMacroBlock s a = M.STVector s a
-
-{-# INLINE createEmptyMutableMacroBlock #-}
--- | Create a new macroblock with the good array size
-createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
-createEmptyMutableMacroBlock = M.replicate 64 0
 
 -- row (horizontal) IDCT
 --

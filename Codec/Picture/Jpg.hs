@@ -31,6 +31,7 @@ import Foreign.Storable ( Storable )
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
+import Codec.Picture.Jpg.FastDct
 
 
 --------------------------------------------------
