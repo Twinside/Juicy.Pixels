@@ -108,7 +108,7 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
                            {-# UNPACK #-} !Word8 -- Blue
 
 -- | Pixel storing data in the YCbCr colorspace,
--- value are stored in teh following order :
+-- value are stored in the following order :
 --
 --  * Y (luminance)
 --
