@@ -2,8 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
-module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
+module Codec.Picture.Jpg( readJpeg, decodeJpeg, encodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
@@ -460,6 +461,14 @@ type BoolState = (Int, Word8, B.ByteString)
 
 type BoolReader s a = S.StateT BoolState (ST s) a
 
+type BoolWriteState = (B.ByteString, Word8, Int)
+type BoolWriter s a = S.StateT BoolWriteState (ST s) a
+
+writeBits :: Int32 -> Int -> BoolWriter s ()
+writeBits _data _bitCount = do
+    (str, currentWord, count) <- S.get
+    return ()
+
 {-# INLINE (!!!) #-}
 (!!!) :: (Storable e) => V.Vector e -> Int -> e
 (!!!) = V.unsafeIndex
@@ -536,6 +545,17 @@ packInt = foldl' bitStep 0
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int32 -> BoolReader s Int32
 unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBit
+
+powerOf :: Int32 -> Int32
+powerOf 0 = 0
+powerOf n = limit initial 1
+    where initial = if n < 0 then (-1) else 1
+          limit range i | range < n = i
+          limit range i = limit (2 * range) (i + 1)
+
+{-encodeInt :: Int32 -> BoolWriter s ()-}
+{-encodeInt codeTable n =-}
+    {-where ssss = powerOf n-}
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
@@ -819,4 +839,60 @@ decodeJpeg file = case decode file of
                 setDecodedString imgData
                 decodeImage compCount (buildJpegImageDecoder img) wrapped
                 return resultImage) (-1, 0, B.empty)
+
+extractBlock :: Image PixelYCbCr8       -- ^ Source image
+             -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
+             -> Int                     -- ^ Plane
+             -> Int                     -- ^ X sampling factor
+             -> Int                     -- ^ Y sampling factor
+             -> Int                     -- ^ Sample per pixel
+             -> Int                     -- ^ Block x
+             -> Int                     -- ^ Block y
+             -> ST s (MutableMacroBlock s Int16)
+extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
+             block 1 1 sampCount plane bx by | (bx * 8) + 7 < w && (by * 8) + 7 < h = do
+    let baseReadIdx = (by * 8 * w) + bx * 8
+    sequence_ [(block .<-. (y * 8 + x)) val
+                        | y <- [0 .. 7]
+                        , let blockReadIdx = baseReadIdx + y * w
+                        , x <- [0 .. 7]
+                        , let val = fromIntegral $ src !!! ((blockReadIdx + x) * sampCount + plane)
+                        ]
+    return block
+extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
+             block sampWidth sampHeight sampCount plane bx by = do
+    let accessPixel x y | x < w && y < h = src !!! ((y * w + x) * sampCount + plane)
+                        | x >= w = accessPixel (w - 1) y
+                        | otherwise = accessPixel x (h - 1)
+
+        pixelPerCoeff = fromIntegral $ sampWidth * sampCount
+
+        blockVal x y = sum [fromIntegral $ accessPixel (blockXBegin + x + dx)   
+                                                     (blockYBegin + y + dy)
+                                | dy <- [0 .. sampHeight - 1]
+                                , dx <- [0 .. sampWidth - 1] ] `div` pixelPerCoeff
+
+        blockXBegin = bx * 8 * sampWidth
+        blockYBegin = by * 8 * sampHeight
+
+    sequence_ [(block .<-. (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
+    return block
+
+
+encodeMacroBlock :: QuantificationTable
+                 -> MutableMacroBlock s Int16
+                 -> ST s (MutableMacroBlock s Int16)
+encodeMacroBlock quantTable block = do
+ workData <- M.new 64
+ fastDct workData block
+
+ forM_ [0 .. 63] $ \idx -> do
+     val <- workData .!!!. idx
+     (workData .<-. idx) $ val `div` (quantTable V.! idx)
+
+ return workData
+
+encodeJpeg :: Image PixelYCbCr8 -> B.ByteString
+encodeJpeg (Image { imageWidth = _w, imageHeight = _h }) =
+    error "meh"
 
