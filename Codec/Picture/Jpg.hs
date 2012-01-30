@@ -10,7 +10,6 @@ import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
-import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.List( find, foldl' )
@@ -21,15 +20,17 @@ import Data.Serialize( Serialize(..), Get, Put
                      , getWord8, putWord8
                      , getWord16be, putWord16be
                      , remaining, lookAhead, skip
-                     , getBytes, decode )
+                     , getBytes, decode, runPut
+                     , encode
+                     )
 import Data.Maybe( fromJust )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Array.Unboxed( Array, UArray, elems, listArray)
 import qualified Data.ByteString as B
-import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
+import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
@@ -82,6 +83,10 @@ data JpgFrameHeader = JpgFrameHeader
     }
     deriving Show
 
+instance SizeCalculable JpgFrameHeader where
+    calculateSize hdr = 2 + 1 + 2 + 2 + 1 
+                      + sum [calculateSize c | c <- jpgComponents hdr]
+
 data JpgComponent = JpgComponent
     { componentIdentifier       :: !Word8
       -- | Stored with 4 bits
@@ -91,6 +96,9 @@ data JpgComponent = JpgComponent
     , quantizationTableDest     :: !Word8
     }
     deriving Show
+
+instance SizeCalculable JpgComponent where
+    calculateSize _ = 3
 
 data JpgImage = JpgImage { jpgFrame :: [JpgFrame]}
     deriving Show
@@ -104,6 +112,9 @@ data JpgScanSpecification = JpgScanSpecification
 
     }
     deriving Show
+
+instance SizeCalculable JpgScanSpecification where
+    calculateSize _ = 2
 
 data JpgScanHeader = JpgScanHeader
     { scanLength :: !Word16
@@ -121,6 +132,12 @@ data JpgScanHeader = JpgScanHeader
     }
     deriving Show
 
+instance SizeCalculable JpgScanHeader where
+    calculateSize hdr = 2 + 1
+                      + sum [calculateSize c | c <- scans hdr]
+                      + 2
+                      + 1
+    
 data JpgQuantTableSpec = JpgQuantTableSpec
     { -- | Stored on 4 bits
       quantPrecision     :: !Word8
@@ -461,39 +478,42 @@ type BoolState = (Int, Word8, B.ByteString)
 
 type BoolReader s a = S.StateT BoolState (ST s) a
 
-type BoolWriteState = (B.ByteString, Word8, Int)
+type BoolWriteState = (Put, Word8, Int)
 type BoolWriter s a = S.StateT BoolWriteState (ST s) a
 
-writeBits :: Int32 -> Int -> BoolWriter s ()
-writeBits _data _bitCount = do
-    (str, currentWord, count) <- S.get
-    return ()
+writeBits :: Word32 -> Int -> BoolWriter s ()
+writeBits bitData bitCount = S.get >>= serialize
+  where serialize (str, currentWord, count)
+            | bitCount + count == 8 =
+                let newVal = fromIntegral $ (currentWord `shiftR` bitCount) .|. fromIntegral bitData
+                in S.put (str >> putWord8 newVal, 0, 0)
 
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = V.unsafeIndex
+            | bitCount + count < 8 =
+                let newVal = fromIntegral $ (currentWord `shiftR` bitCount)
+                in S.put (str, newVal .|. fromIntegral bitData, count + bitCount)
 
-{-# INLINE (.!!!.) #-}
-(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.unsafeRead
+            | otherwise =
+                let leftBitCount = 8 - count
+                    highPart = fromIntegral $ bitCount `shiftL` (bitCount - leftBitCount)
+                    prevPart = currentWord `shiftR` leftBitCount
 
-{-# INLINE (.<-.) #-}
-(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite
+                    nextMask = 1 `shiftR` (bitCount - leftBitCount) - 1
+                    newData = bitData .&. nextMask
+                    newCount = bitCount - leftBitCount
+
+                    toWrite = fromIntegral $ prevPart .|. highPart
+                in S.put (str >> putWord8 toWrite, 0, 0) 
+                        >> writeBits newData newCount
+    
+quantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
+         -> ST s (MutableMacroBlock s Int16)
+quantize table = mutate (\idx val -> val `div` (table !!! idx))
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
 deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
            -> ST s (MutableMacroBlock s Int16)
-deQuantize table block = dequant 0 >> return block
-    where updateVal i = do
-              val <- block .!!!. i
-              let quantCoeff = table !!! i
-                  newVal = val * quantCoeff
-              (block .<-. i) newVal
-
-          dequant 63 = updateVal 63
-          dequant n  = updateVal  n >> dequant (n + 1)
+deQuantize table = mutate (\ix val -> val * (table !!! ix))
 
 inverseDirectCosineTransform :: MutableMacroBlock s Int16
                              -> ST s (MutableMacroBlock s Int16)
@@ -553,9 +573,9 @@ powerOf n = limit initial 1
           limit range i | range < n = i
           limit range i = limit (2 * range) (i + 1)
 
-{-encodeInt :: Int32 -> BoolWriter s ()-}
-{-encodeInt codeTable n =-}
-    {-where ssss = powerOf n-}
+encodeInt :: HuffmanWriterCode -> Int32 -> BoolWriter s ()
+encodeInt _codeTable n = writeBits (fromIntegral ssss) 4
+    where ssss = powerOf n
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
@@ -878,21 +898,106 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
     sequence_ [(block .<-. (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
     return block
 
+serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode -> MutableMacroBlock s Int16
+                    -> BoolWriter s ()
+serializeMacroBlock dcCode _acCode _blk = do
+    encodeInt dcCode 0
 
 encodeMacroBlock :: QuantificationTable
                  -> MutableMacroBlock s Int16
                  -> ST s (MutableMacroBlock s Int16)
-encodeMacroBlock quantTable block = do
+encodeMacroBlock quantTableOfComponent block = do
  workData <- M.new 64
- fastDct workData block
+ let inverseLevelShift = mutate (\_ v -> v - 128)
+ -- inverse level shift
+ inverseLevelShift block
+        >>= fastDct workData
+        >>= quantize quantTableOfComponent
 
- forM_ [0 .. 63] $ \idx -> do
-     val <- workData .!!!. idx
-     (workData .<-. idx) $ val `div` (quantTable V.! idx)
+divUpward :: (Integral a) => a -> a -> a
+divUpward n dividor = val + (if rest /= 0 then 1 else 0)
+    where (val, rest) = n `divMod` dividor
 
- return workData
+-- | Function to call to encode an image to jpeg
+encodeJpeg :: Image PixelYCbCr8 -> Word8 -> B.ByteString
+encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = encode finalImage
+  where finalImage = JpgImage [ JpgHuffmanTable huffTables
+                              , JpgQuantTable quantTables
+                              , JpgScans JpgBaselineDCTHuffman hdr
+                              , JpgScanBlob scanHeader $ runPut encodedImage
+                              ]
 
-encodeJpeg :: Image PixelYCbCr8 -> B.ByteString
-encodeJpeg (Image { imageWidth = _w, imageHeight = _h }) =
-    error "meh"
+        huffTables = undefined
+
+        outputComponentCount = 3
+
+        scanHeader = JpgScanHeader
+            { scanLength = fromIntegral $ calculateSize scanHeader
+            , scanComponentCount = outputComponentCount
+            , scans = []
+            , spectralSelection = (0, 0) -- TODO find good values
+            , successiveApproxHigh = 0   -- TODO find good values
+            , successiveApproxLow  = 0   -- TODO find good values
+            }
+        hdr = (JpgFrameHeader { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr
+                              , jpgSamplePrecision     = 0
+                              , jpgHeight              = fromIntegral h
+                              , jpgWidth               = fromIntegral w
+                              , jpgImageComponentCount = outputComponentCount
+                              , jpgComponents          = [
+                                    JpgComponent { componentIdentifier      = 1
+                                                 , horizontalSamplingFactor = 2
+                                                 , verticalSamplingFactor   = 2
+                                                 , quantizationTableDest    = 0
+                                                 }
+                                  , JpgComponent { componentIdentifier      = 2
+                                                 , horizontalSamplingFactor = 1
+                                                 , verticalSamplingFactor   = 1
+                                                 , quantizationTableDest    = 1
+                                                 }
+                                  , JpgComponent { componentIdentifier      = 3
+                                                 , horizontalSamplingFactor = 1
+                                                 , verticalSamplingFactor   = 1
+                                                 , quantizationTableDest    = 1
+                                                 }
+                                  ]
+                              })
+
+        quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
+                                          , quantTable = defaultLumaQuantizationTable }
+                      , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
+                                          , quantTable = defaultChromaQuantizationTable }
+                      ]
+
+        (encodedImage, _, _) = runST toExtract
+        toExtract = flip S.execStateT (return (), 0, 0) $ do
+            let horizontalMetaBlockCount = w `divUpward` (8 * maxSampling)
+                verticalMetaBlockCount = h `divUpward` (8 * maxSampling)
+                maxSampling = 2
+                lumaSamplingSize = ( maxSampling, maxSampling, defaultLumaQuantizationTable
+                                   , makeInverseTable defaultDcLumaHuffmanTree
+                                   , makeInverseTable defaultAcLumaHuffmanTree)
+                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, defaultChromaQuantizationTable
+                                     , makeInverseTable defaultDcChromaHuffmanTree
+                                     , makeInverseTable defaultAcChromaHuffmanTree)
+                componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
+  
+                imageComponentCount = length componentDef
+            block <- lift $ M.new 64
+            let blockList = [(table, dc, ac, extractBlock img block comp xSamplingFactor ySamplingFactor
+                                                  imageComponentCount blockX blockY)
+                                    | my <- [0 .. verticalMetaBlockCount - 1]
+                                    , mx <- [0 .. horizontalMetaBlockCount - 1]
+                                    , (comp, (sizeX, sizeY, table, dc, ac)) <- zip [0..] componentDef
+                                    , subY <- [0 .. sizeY - 1]
+                                    , subX <- [0 .. sizeX - 1]
+                                    , let blockX = mx * sizeX + subX
+                                          blockY = my * sizeY + subY
+                                          xSamplingFactor = maxSampling - sizeX + 1
+                                          ySamplingFactor = maxSampling - sizeY + 1
+                                    ]
+  
+            forM_ blockList $ \(table, dc, ac, extractor) -> do
+                lift (extractor >>= encodeMacroBlock table)
+                    >>= serializeMacroBlock dc ac
 

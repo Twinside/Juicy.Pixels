@@ -59,10 +59,8 @@ import Data.Int( Int16 )
 import Data.Bits( shiftL, shiftR )
 import Control.Monad.ST( ST )
 
-import Control.Monad.Primitive ( PrimMonad, PrimState)
 import qualified Data.Vector.Storable.Mutable as M
 
-import Foreign.Storable ( Storable )
 import Codec.Picture.Jpg.Types
 
 {-# INLINE (.<<.) #-}
@@ -97,20 +95,6 @@ fIX_1_961570560 = 16069 -- FIX(1.961570560)
 fIX_2_053119869 = 16819 -- FIX(2.053119869)
 fIX_2_562915447 = 20995 -- FIX(2.562915447)
 fIX_3_072711026 = 25172 -- FIX(3.072711026)
-
--- {-# INLINE (!!!) #-}
-{-(!!!) :: (Storable e) => V.Vector e -> Int -> e-}
-{-(!!!) = (V.!) -- V.unsafeIndex-}
-
-{-# INLINE (.!!!.) #-}
-(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.read -- M.unsafeRead
-
-
-{-# INLINE (.<-.) #-}
-(.<-.) :: (PrimMonad m, Storable a)
-       => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.write -- M.unsafeWrite
 
 -- int data[64];
 fastDct :: MutableMacroBlock s Int16

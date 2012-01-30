@@ -6,6 +6,7 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
 									 , MacroBlock
 									 , QuantificationTable
+									 , HuffmanWriterCode 
 									 , makeMacroBlock
 									 , makeInverseTable
 									 , buildHuffmanTree
@@ -41,7 +42,9 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the firs
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
-makeInverseTable :: HuffmanTree -> V.Vector (Word8, Word8)
+type HuffmanWriterCode = V.Vector (Word8, Word8)
+
+makeInverseTable :: HuffmanTree -> HuffmanWriterCode
 makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
   where inner _     _     Empty   = []
         inner depth code (Leaf v) = [(fromIntegral v, (depth, code))]

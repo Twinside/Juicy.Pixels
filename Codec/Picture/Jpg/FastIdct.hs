@@ -19,13 +19,10 @@ module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
                                  ) where
 
 import qualified Data.Vector.Storable as V
-import qualified Data.Vector.Storable.Mutable as M
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
-import Control.Monad.Primitive ( PrimMonad, PrimState)
 import Data.Bits( shiftL, shiftR )
 import Data.Int( Int16 )
-import Foreign.Storable ( Storable )
 
 import Codec.Picture.Jpg.Types
 
@@ -60,19 +57,6 @@ w3 = 2408 -- 2048*sqrt(2)*cos(3*pi/16)
 w5 = 1609 -- 2048*sqrt(2)*cos(5*pi/16)
 w6 = 1108 -- 2048*sqrt(2)*cos(6*pi/16)
 w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
-
-
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) a i = V.unsafeIndex a (i + 512)
-
-{-# INLINE (.!!!.) #-}
-(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.unsafeRead
-
-{-# INLINE (.<-.) #-}
-(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite
 
 -- row (horizontal) IDCT
 --
@@ -234,9 +218,5 @@ fastIdct block = do
 -- | Perform a Jpeg level shift in a mutable fashion.
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
-mutableLevelShift block = do
-    forM_ [0..63] (\i -> do
-        v <- block .!!!. i
-        (block .<-. i) $ v + 128)
-    return block
+mutableLevelShift = mutate (\_ v -> v + 128)
 
