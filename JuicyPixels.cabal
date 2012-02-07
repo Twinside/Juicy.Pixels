@@ -1,5 +1,5 @@
 Name:                JuicyPixels
-Version:             1.0
+Version:             1.1
 Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
 Description:
     This library can load and store images in various image formats,
@@ -25,20 +25,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v1.0
-
-Executable imageTest
-  Main-Is: main.hs
-  Ghc-options: -O3 -Wall
-  -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
-  Build-depends: base,
-                 array,
-                 bytestring,
-                 mtl >= 1.1,
-                 cereal >= 0.3.3.0 && < 0.4,
-                 zlib >= 0.5.3.1,
-                 filepath >= 1.2,
-                 transformers >= 0.2.2 && < 0.3
+    Tag:       v1.1
 
 Library
   Exposed-modules:  Codec.Picture,

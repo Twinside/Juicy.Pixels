@@ -141,6 +141,27 @@ instance Serialize PixelYA8 where
     {-# INLINE get #-}
     get = PixelYA8 <$> get <*> get
 
+instance Storable PixelYA8 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOf (undefined :: Word8) * 2
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Word8)
+    {-# INLINE peek #-}
+    peek ptr = do
+      let __   = undefined :: Word8
+          yOff = sizeOf __ * 0
+          aOff = sizeOf __ * 1
+      y <- peek $ ptr `plusPtr` yOff
+      a <- peek $ ptr `plusPtr` aOff
+      return (PixelYA8 y a)
+    {-# INLINE poke #-}
+    poke ptr (PixelYA8 y a) = do
+      let __   = undefined :: Word8
+          yOff = sizeOf __ * 0
+          aOff = sizeOf __ * 1
+      poke (ptr `plusPtr` yOff) y
+      poke (ptr `plusPtr` aOff) a
+
 instance Serialize PixelRGB8 where
     {-# INLINE put #-}
     put (PixelRGB8 r g b) = put r >> put g >> put b
@@ -178,11 +199,65 @@ instance Serialize PixelYCbCr8 where
     {-# INLINE get #-}
     get = PixelYCbCr8 <$> get <*> get <*> get
 
+instance Storable PixelYCbCr8 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOf (undefined :: Word8) * 3
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Word8)
+    {-# INLINE peek #-}
+    peek ptr = do
+      let __   = undefined :: Word8
+          yOff = sizeOf __ * 0
+          cbOff = sizeOf __ * 1
+          crOff = sizeOf __ * 2
+      y  <- peek $ ptr `plusPtr` yOff
+      cb <- peek $ ptr `plusPtr` cbOff
+      cr <- peek $ ptr `plusPtr` crOff
+      return (PixelYCbCr8 y cb cr)
+    {-# INLINE poke #-}
+    poke ptr (PixelYCbCr8 y cb cr) = do
+      let __   = undefined :: Word8
+          yOff  = sizeOf __ * 0
+          cbOff = sizeOf __ * 1
+          crOff = sizeOf __ * 2
+      poke (ptr `plusPtr`  yOff) y
+      poke (ptr `plusPtr` cbOff) cb
+      poke (ptr `plusPtr` crOff) cr
+
 instance Serialize PixelRGBA8 where
     {-# INLINE put #-}
     put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
     {-# INLINE get #-}
     get = PixelRGBA8 <$> get <*> get <*> get <*> get
+
+instance Storable PixelRGBA8 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOf (undefined :: Word8) * 4
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Word8)
+    {-# INLINE peek #-}
+    peek ptr = do
+      let __   = undefined :: Word8
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+          aOff = sizeOf __ * 3
+      r <- peek $ ptr `plusPtr` rOff
+      g <- peek $ ptr `plusPtr` gOff
+      b <- peek $ ptr `plusPtr` bOff
+      a <- peek $ ptr `plusPtr` aOff
+      return (PixelRGBA8 r g b a)
+    {-# INLINE poke #-}
+    poke ptr (PixelRGBA8 r g b a) = do
+      let __   = undefined :: Word8
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+          aOff = sizeOf __ * 3
+      poke (ptr `plusPtr` rOff) r
+      poke (ptr `plusPtr` gOff) g
+      poke (ptr `plusPtr` bOff) b
+      poke (ptr `plusPtr` aOff) a
 
 -- | Describe pixel kind at runtime
 data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
