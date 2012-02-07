@@ -48,11 +48,13 @@ module Codec.Picture (
                      ) where
 
 import Control.Applicative( (<$>) )
+import Control.Exception
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg( readJpeg, decodeJpeg )
 import Codec.Picture.Png( PngSavable( .. ), readPng, decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Types
+import Prelude hiding(catch)
 
 import qualified Data.ByteString as B
 
@@ -67,7 +69,8 @@ eitherLoad v = inner ""
 -- | Load an image file without even thinking about it, it does everything
 -- as 'decodeImage'
 readImage :: FilePath -> IO (Either String DynamicImage)
-readImage path = decodeImage <$> B.readFile path
+readImage path = catch (decodeImage <$> B.readFile path)
+                    (\e -> return . Left $ show (e :: IOException))
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
