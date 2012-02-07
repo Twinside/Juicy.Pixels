@@ -18,21 +18,28 @@ module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
                                  , createEmptyMutableMacroBlock
                                  ) where
 
-import Data.Array.Base( IArray, UArray, unsafeAt
-                      , unsafeRead, unsafeWrite, listArray )
-import Data.Array.ST( MArray, STUArray, newArray )
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
+import Control.Monad.Primitive ( PrimMonad, PrimState)
 import Data.Bits( shiftL, shiftR )
 import Data.Int( Int16 )
+import Foreign.Storable ( Storable )
 
-iclip :: UArray Int Int16
-iclip = listArray (-512, 512) [ val i| i <- [(-512) .. 511]]
+{-
+{-# INLINE iclip #-}
+iclip :: Int -> Int16
+iclip i | fromIntegral i < (-256) = -256
+        | fromIntegral i >   256  =  256
+        | otherwise               =  fromIntegral i
+-}
+
+iclip :: V.Vector Int16
+iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]
     where val i | i < (-256) = -256
-                | i > 255     = 255
-                | otherwise   = i
-
-
+                | i > 255    =  255
+                | otherwise  =  i
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
@@ -60,25 +67,26 @@ w5 = 1609 -- 2048*sqrt(2)*cos(5*pi/16)
 w6 = 1108 -- 2048*sqrt(2)*cos(6*pi/16)
 w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
 
+
 {-# INLINE (!!!) #-}
-(!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) a i = unsafeAt a (i + 512)
+(!!!) :: (Storable e) => V.Vector e -> Int -> e
+(!!!) a i = V.unsafeIndex a (i + 512)
 
 {-# INLINE (.!!!.) #-}
-(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) = unsafeRead
+(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
+(.!!!.) = M.unsafeRead
 
 {-# INLINE (.<-.) #-}
-(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.)  = unsafeWrite
+(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
+(.<-.) = M.unsafeWrite
 
 -- | Macroblock that can be transformed.
-type MutableMacroBlock s a = STUArray s Int a
+type MutableMacroBlock s a = M.STVector s a
 
 {-# INLINE createEmptyMutableMacroBlock #-}
 -- | Create a new macroblock with the good array size
 createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
-createEmptyMutableMacroBlock = newArray (0, 63) 0
+createEmptyMutableMacroBlock = M.replicate 64 0
 
 -- row (horizontal) IDCT
 --
@@ -168,11 +176,11 @@ idctRow blk idx = do
 --
 idctCol :: MutableMacroBlock s Int16 -> Int -> ST s ()
 idctCol blk idx = do
-  xx0 <- blk .!!!. (8 * 0 + idx)
+  xx0 <- blk .!!!. (    0 + idx)
   xx1 <- blk .!!!. (8 * 4 + idx)
   xx2 <- blk .!!!. (8 * 6 + idx)
   xx3 <- blk .!!!. (8 * 2 + idx)
-  xx4 <- blk .!!!. (8 * 1 + idx)
+  xx4 <- blk .!!!. (8     + idx)
   xx5 <- blk .!!!. (8 * 7 + idx)
   xx6 <- blk .!!!. (8 * 5 + idx)
   xx7 <- blk .!!!. (8 * 3 + idx)
@@ -217,7 +225,7 @@ idctCol blk idx = do
 
       f = thirdStage . secondStage $ firstStage initialState
   (blk .<-. (idx + 8*0)) $ iclip !!! ((x7 f + x1 f) .>>. 14)
-  (blk .<-. (idx + 8*1)) $ iclip !!! ((x3 f + x2 f) .>>. 14)
+  (blk .<-. (idx + 8  )) $ iclip !!! ((x3 f + x2 f) .>>. 14)
   (blk .<-. (idx + 8*2)) $ iclip !!! ((x0 f + x4 f) .>>. 14)
   (blk .<-. (idx + 8*3)) $ iclip !!! ((x8 f + x6 f) .>>. 14)
   (blk .<-. (idx + 8*4)) $ iclip !!! ((x8 f - x6 f) .>>. 14)

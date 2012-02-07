@@ -7,11 +7,11 @@ module Codec.Picture.Jpg( readJpeg, decodeJpeg ) where
 
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
-import Control.Monad.ST( ST )
+import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
+import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
 
-import Data.Array.Base( unsafeAt, unsafeRead, unsafeWrite )
 import Data.List( find, foldl' )
 import Data.Bits( (.|.), (.&.), shiftL, shiftR )
 import Data.Int( Int16, Int32 )
@@ -22,9 +22,11 @@ import Data.Serialize( Serialize(..), Get, Put
                      , remaining, lookAhead, skip
                      , getBytes, decode )
 import Data.Maybe( fromJust )
-import Data.Array.Unboxed( IArray, Array, UArray, elems, listArray)
-import Data.Array.ST( STUArray, MArray, newArray, runSTUArray )
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
+import Data.Array.Unboxed( Array, UArray, elems, listArray)
 import qualified Data.ByteString as B
+import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
 import Codec.Picture.Jpg.DefaultTable
@@ -157,7 +159,7 @@ instance Serialize JpgQuantTableSpec where
     put table = do
         let precision = quantPrecision table
         put4BitsOfEach precision (quantDestination table)
-        forM_ (elems $ quantTable table) $ \coeff ->
+        forM_ (V.toList $ quantTable table) $ \coeff ->
             if precision == 0 then putWord8 $ fromIntegral coeff
                              else putWord16be $ fromIntegral coeff
 
@@ -169,7 +171,7 @@ instance Serialize JpgQuantTableSpec where
         return JpgQuantTableSpec
             { quantPrecision = precision
             , quantDestination = dest
-            , quantTable = listArray (0, 63) coeffs
+            , quantTable = V.fromListN 64 coeffs
             }
 
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
@@ -458,16 +460,16 @@ type BoolState = (Int, Word8, B.ByteString)
 type BoolReader s a = S.StateT BoolState (ST s) a
 
 {-# INLINE (!!!) #-}
-(!!!) :: (IArray array e) => array Int e -> Int -> e
-(!!!) = unsafeAt
+(!!!) :: (Storable e) => V.Vector e -> Int -> e
+(!!!) = V.unsafeIndex
 
 {-# INLINE (.!!!.) #-}
-(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) = unsafeRead
+(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
+(.!!!.) = M.unsafeRead
 
 {-# INLINE (.<-.) #-}
-(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.)  = unsafeWrite
+(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
+(.<-.) = M.unsafeWrite
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -502,7 +504,7 @@ zigZagOrder = makeMacroBlock $ concat
 
 zigZagReorder :: MutableMacroBlock s Int16 -> ST s (MutableMacroBlock s Int16)
 zigZagReorder block = do
-    zigzaged <- newArray (0, 63) 0
+    zigzaged <- M.replicate 64 0
     let update i =  do
             let idx = zigZagOrder !!! i
             v <- block .!!!. fromIntegral idx
@@ -619,7 +621,7 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y 
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block = do
+                 block =
   forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
       let xPos = (i + x * 8) * wCoeff + wDup
           yPos = (j + y * 8) * hCoeff + hDup
@@ -664,7 +666,7 @@ decodeImage compCount decoder img = do
 
         folder f = foldM_ f blockBeforeRestart blockIndices
 
-    dcArray <- lift (newArray (0, compCount - 1) 0  :: ST s (STUArray s Int DcCoefficient))
+    dcArray <- lift (M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient))
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $
@@ -808,10 +810,10 @@ decodeJpeg file = case decode file of
             imgWidth = fromIntegral $ jpgWidth scanInfo
             imgHeight = fromIntegral $ jpgHeight scanInfo
 
-            imageSize = (0, imgWidth * imgHeight * compCount - 1)
+            imageSize = imgWidth * imgHeight * compCount
 
-            pixelData = runSTUArray $ S.evalStateT (do
-                resultImage <- lift $ newArray imageSize 0
+            pixelData = runST $ V.unsafeFreeze =<< S.evalStateT (do
+                resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedString imgData
                 decodeImage compCount (buildJpegImageDecoder img) wrapped

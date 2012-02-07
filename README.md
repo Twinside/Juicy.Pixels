@@ -36,3 +36,5 @@ Status
 
 _I love juicy pixels_
 
+You can make [donations on this page](http://twinside.github.com/Juicy.Pixels/).
+

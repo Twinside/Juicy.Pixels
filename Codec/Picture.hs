@@ -76,5 +76,6 @@ readImage path = decodeImage <$> B.readFile path
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
+                                 ,("Bitmap", decodeBitmap)
                                  ]
     

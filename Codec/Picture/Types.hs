@@ -26,11 +26,14 @@ module Codec.Picture.Types( -- * Types
                           ) where
 
 import Control.Applicative( (<$>), (<*>) )
-import Control.Monad.ST( ST )
+import Control.Monad.ST( ST, runST )
+import Control.Monad.Primitive ( PrimMonad, PrimState )
+import Foreign.Storable ( Storable, sizeOf, alignment, peek, poke )
+import Foreign.Ptr ( plusPtr )
 import Data.Word( Word8 )
-import Data.Array.Unboxed( UArray, (!) )
-import Data.Array.ST( MArray, STUArray
-                    , writeArray, newArray, runSTUArray, readArray )
+import Data.Vector.Storable ( (!) )
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
 import Data.Serialize( Serialize, put, get )
 
 
@@ -45,7 +48,7 @@ data Image a = Image
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
-    , imageData   :: UArray Int Word8
+    , imageData   :: V.Vector Word8
     }
 
 -- | Image or pixel buffer, the coordinates are assumed to start
@@ -60,7 +63,7 @@ data MutableImage s a = MutableImage
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
-    , mutableImageData   :: STUArray s Int Word8
+    , mutableImageData   :: M.STVector s Word8
     }
 
 -- | Type allowing the loading of an image with different pixel
@@ -105,7 +108,7 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
                            {-# UNPACK #-} !Word8 -- Blue
 
 -- | Pixel storing data in the YCbCr colorspace,
--- value are stored in teh following order :
+-- value are stored in the following order :
 --
 --  * Y (luminance)
 --
@@ -143,6 +146,31 @@ instance Serialize PixelRGB8 where
     put (PixelRGB8 r g b) = put r >> put g >> put b
     {-# INLINE get #-}
     get = PixelRGB8 <$> get <*> get <*> get
+
+instance Storable PixelRGB8 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOf (undefined :: Word8) * 3
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Word8)
+    {-# INLINE peek #-}
+    peek ptr = do
+      let __   = undefined :: Word8
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+      r <- peek $ ptr `plusPtr` rOff
+      g <- peek $ ptr `plusPtr` gOff
+      b <- peek $ ptr `plusPtr` bOff
+      return (PixelRGB8 r g b)
+    {-# INLINE poke #-}
+    poke ptr (PixelRGB8 r g b) = do
+      let __   = undefined :: Word8
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+      poke (ptr `plusPtr` rOff) r
+      poke (ptr `plusPtr` gOff) g
+      poke (ptr `plusPtr` bOff) b
 
 instance Serialize PixelYCbCr8 where
     {-# INLINE put #-}
@@ -220,14 +248,17 @@ class (Pixel a, Pixel b) => ColorConvertible a b where
     promoteImage :: Image a -> Image b
     promoteImage image@(Image { imageWidth = w, imageHeight = h }) =
         Image w h pixels
-         where pixels = runSTUArray $ do
-                    newArr <- newArray (0, w * h * componentCount (undefined :: b) - 1) 0
+         where pixels = runST $ do
+                    newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
                     let wrapped = MutableImage w h newArr
                         promotedPixel :: Int -> Int -> b
-                        promotedPixel x y = promotePixel $ pixelAt image x y 
+                        promotedPixel x y = promotePixel $ pixelAt image x y
                     sequence_ [writePixel wrapped x y $ promotedPixel x y
                                         | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
-                    return newArr
+                    -- unsafeFreeze avoids making a second copy and it will be
+                    -- safe because newArray can't be referenced as a mutable array
+                    -- outside of this where block
+                    V.unsafeFreeze newArr
 
 -- | This class abstract colorspace conversion. This
 -- conversion can be lossy, which ColorConvertible cannot
@@ -237,14 +268,17 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     convertImage :: Image a -> Image b
     convertImage image@(Image { imageWidth = w, imageHeight = h }) =
         Image w h pixels
-         where pixels = runSTUArray $ do
-                    newArr <- newArray (0, w * h * componentCount (undefined :: b) - 1) 0
+         where pixels = runST $ do
+                    newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
                     let wrapped = MutableImage w h newArr
                         promotedPixel :: Int -> Int -> b
-                        promotedPixel x y = convertPixel $ pixelAt image x y 
+                        promotedPixel x y = convertPixel $ pixelAt image x y
                     sequence_ [writePixel wrapped x y $ promotedPixel x y
                                         | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
-                    return newArr
+                    -- unsafeFreeze avoids making a second copy and it will be
+                    -- safe because newArray can't be referenced as a mutable array
+                    -- outside of this where block
+                    V.unsafeFreeze newArr
 
 -- | Free promotion for identic pixel types
 instance (Pixel a) => ColorConvertible a a where
@@ -255,12 +289,12 @@ instance (Pixel a) => ColorConvertible a a where
     promoteImage = id
 
 {-# INLINE (.!!!.) #-}
-(.!!!.) :: (MArray array e m) => array Int e -> Int -> m e
-(.!!!.) = readArray -- unsafeRead
+(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
+(.!!!.) = M.read -- unsafeRead
 
 {-# INLINE (.<-.) #-}
-(.<-.) :: (MArray array e m) => array Int e -> Int -> e -> m ()
-(.<-.)  = writeArray -- unsafeWrite
+(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
+(.<-.)  = M.write -- unsafeWrite
 
 --------------------------------------------------
 ----            Pixel8 instances
@@ -272,10 +306,10 @@ instance Pixel Pixel8 where
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. (mutablePixelBaseIndex image x y)
+        arr .!!!. mutablePixelBaseIndex image x y
     
-    writePixel image@(MutableImage { mutableImageData = arr }) x y v =
-        (arr .<-. (mutablePixelBaseIndex image x y)) v
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr .<-. mutablePixelBaseIndex image x y
 
 instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
