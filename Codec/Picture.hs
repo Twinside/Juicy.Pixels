@@ -36,7 +36,7 @@ module Codec.Picture (
 
                      -- * Image types and pixel types
                      -- ** Image
-                     , Image
+                     , Image( .. )
                      , DynamicImage( .. )
                      -- ** Pixels
                      , Pixel( .. )
