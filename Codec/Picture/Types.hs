@@ -26,6 +26,7 @@ module Codec.Picture.Types( -- * Types
                           ) where
 
 import Control.Applicative( (<$>), (<*>) )
+import Control.DeepSeq
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable, sizeOf, alignment, peek, poke )
@@ -51,6 +52,12 @@ data Image a = Image
     , imageData   :: V.Vector Word8
     }
 
+instance NFData (Image a) where
+    rnf (Image width height dat) = width       `seq`
+                                   height      `seq`
+                                   V.force dat `seq`
+                                   ()
+
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
 -- position first, then the vertical one. The image can be transformed in place.
@@ -66,6 +73,12 @@ data MutableImage s a = MutableImage
     , mutableImageData   :: M.STVector s Word8
     }
 
+instance NFData (MutableImage s a) where
+    rnf (MutableImage width height dat) = width  `seq`
+                                          height `seq`
+                                          dat    `seq`
+                                          ()
+
 -- | Type allowing the loading of an image with different pixel
 -- structures
 data DynamicImage =
@@ -79,6 +92,13 @@ data DynamicImage =
      | ImageRGBA8 (Image PixelRGBA8)
        -- | An image in the colorspace used by Jpeg images.
      | ImageYCbCr8 (Image PixelYCbCr8)
+
+instance NFData DynamicImage where
+    rnf (ImageY8 img)     = rnf img
+    rnf (ImageYA8 img)    = rnf img
+    rnf (ImageRGB8 img)   = rnf img
+    rnf (ImageRGBA8 img)  = rnf img
+    rnf (ImageYCbCr8 img) = rnf img
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
