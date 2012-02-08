@@ -70,7 +70,7 @@ eitherLoad v = inner ""
 -- | Load an image file without even thinking about it, it does everything
 -- as 'decodeImage'
 readImage :: FilePath -> IO (Either String DynamicImage)
-readImage path = catch (force <$> decodeImage <$> B.readFile path)
+readImage path = catch (force . decodeImage <$> B.readFile path)
                     (\e -> return . Left $ show (e :: IOException))
 
 -- | If you want to decode an image in a bytestring without even thinking
