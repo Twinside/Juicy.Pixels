@@ -53,9 +53,9 @@ data Image a = Image
     }
 
 instance NFData (Image a) where
-    rnf (Image width height dat) = width       `seq`
-                                   height      `seq`
-                                   V.force dat `seq`
+    rnf (Image width height dat) = width  `seq`
+                                   height `seq`
+                                   dat    `seq`
                                    ()
 
 -- | Image or pixel buffer, the coordinates are assumed to start
