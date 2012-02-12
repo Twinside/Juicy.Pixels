@@ -29,6 +29,7 @@ import qualified Data.Vector.Storable.Mutable as M
 import Data.Array.Unboxed( Array, UArray, elems, listArray)
 import qualified Data.ByteString as B
 
+import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
@@ -217,33 +218,6 @@ huffmanDecode originalTree = getNextBit >>= huffDecode originalTree
         huffDecode (Branch _ (Leaf v)) True  = return v
         huffDecode (Branch _       r ) True  = getNextBit >>= huffDecode r
         huffDecode (Leaf v) _ = return v
-
--- |  Drop all bit until the bit of indice 0, usefull to parse restart
--- marker, as they are byte aligned, but Huffman might not.
-byteAlign :: BoolReader s ()
-byteAlign = do
-  (idx, _, chain) <- S.get
-  when (idx /= 7) (setDecodedString chain)
-
--- | Bitify a list of things to decode.
-setDecodedString :: B.ByteString -> BoolReader s ()
-setDecodedString str = case B.uncons str of
-     Nothing        -> S.put (maxBound, 0, B.empty)
-     Just (0xFF, rest) -> case B.uncons rest of
-            Nothing                  -> S.put (maxBound, 0, B.empty)
-            Just (0x00, afterMarker) -> S.put (7, 0xFF, afterMarker)
-            Just (_   , afterMarker) -> setDecodedString afterMarker
-     Just (v, rest) -> S.put (       7, v,    rest)
-
-{-# INLINE getNextBit #-}
-getNextBit :: BoolReader s Bool
-getNextBit = do
-    (idx, v, chain) <- S.get
-    let val = (v .&. (1 `shiftL` idx)) /= 0
-    if idx == 0
-      then setDecodedString chain
-      else S.put (idx - 1, v, chain)
-    return val
 
 --------------------------------------------------
 ----            Serialization instances
@@ -473,38 +447,6 @@ instance Serialize JpgScanHeader where
         put . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
--- | Current bit index, current value, string
-type BoolState = (Int, Word8, B.ByteString)
-
-type BoolReader s a = S.StateT BoolState (ST s) a
-
-type BoolWriteState = (Put, Word8, Int)
-type BoolWriter s a = S.StateT BoolWriteState (ST s) a
-
-writeBits :: Word32 -> Int -> BoolWriter s ()
-writeBits bitData bitCount = S.get >>= serialize
-  where serialize (str, currentWord, count)
-            | bitCount + count == 8 =
-                let newVal = fromIntegral $ (currentWord `shiftR` bitCount) .|. fromIntegral bitData
-                in S.put (str >> putWord8 newVal, 0, 0)
-
-            | bitCount + count < 8 =
-                let newVal = fromIntegral $ (currentWord `shiftR` bitCount)
-                in S.put (str, newVal .|. fromIntegral bitData, count + bitCount)
-
-            | otherwise =
-                let leftBitCount = 8 - count
-                    highPart = fromIntegral $ bitCount `shiftL` (bitCount - leftBitCount)
-                    prevPart = currentWord `shiftR` leftBitCount
-
-                    nextMask = 1 `shiftR` (bitCount - leftBitCount) - 1
-                    newData = bitData .&. nextMask
-                    newCount = bitCount - leftBitCount
-
-                    toWrite = fromIntegral $ prevPart .|. highPart
-                in S.put (str >> putWord8 toWrite, 0, 0) 
-                        >> writeBits newData newCount
-    
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
          -> ST s (MutableMacroBlock s Int16)
 quantize table = mutate (\idx val -> val `div` (table !!! idx))

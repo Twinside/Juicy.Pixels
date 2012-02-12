@@ -68,7 +68,7 @@ convertJpegToBmp filePath = do
     file <- B.readFile filePath
     rez <- catch (return $ decodeJpeg file)
                  (\err -> return $ Left (show err))
-    putStrLn "(JPG->PNG) Bmp"
+    putStrLn "(JPG->BMP) Bmp"
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
         Right (ImageYCbCr8 img) -> writeBitmap (filePath ++ ".bmp") rgbImage
