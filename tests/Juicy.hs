@@ -20,6 +20,7 @@ writerTest = test
     , "Multi 1"     ~: [0xF0] ~=? testBoolWriter (writeBits 0xF 4)
     , "Multi 1010"  ~: [0xA0] ~=? testBoolWriter (writeBits 0xA 4)
     , "8 bits"      ~: [0xFF] ~=? testBoolWriter (writeBits 0xFF 8)
+    , "0 bits"      ~: []     ~=? testBoolWriter (writeBits 0xFF 0)
     , "8 bits + 2"
         ~: [0xFF, 0x40] ~=? testBoolWriter (writeBits 0xFF 8 >> writeBits 01 2)
 
