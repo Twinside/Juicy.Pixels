@@ -48,7 +48,7 @@ module Codec.Picture (
                      ) where
 
 import Control.Applicative( (<$>) )
-import Control.DeepSeq
+import Control.DeepSeq( deepseq )
 import Control.Exception
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg( readJpeg, decodeJpeg )
@@ -75,6 +75,9 @@ readImage path = catch doit
                     (\e -> return . Left $ show (e :: IOException))
     where doit = withFile path ReadMode $ \h ->
                     force . decodeImage <$> B.hGetContents h
+          -- force appeared in deepseq 1.3, Haskell Platform
+          -- provide 1.1
+          force x = x `deepseq` x
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
