@@ -6,6 +6,7 @@
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( readJpeg, decodeJpeg, encodeJpeg ) where
 
+import Control.Arrow( (>>>) )
 import Control.Applicative( (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
 import Control.Monad.ST( ST, runST )
@@ -24,7 +25,8 @@ import Data.Serialize( Serialize(..), Get, Put
                      , encode
                      )
 import Data.Maybe( fromJust )
-import qualified Data.Vector.Storable as V
+import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Array.Unboxed( Array, UArray, elems, listArray)
 import qualified Data.ByteString as B
@@ -179,7 +181,7 @@ instance Serialize JpgQuantTableSpec where
     put table = do
         let precision = quantPrecision table
         put4BitsOfEach precision (quantDestination table)
-        forM_ (V.toList $ quantTable table) $ \coeff ->
+        forM_ (VS.toList $ quantTable table) $ \coeff ->
             if precision == 0 then putWord8 $ fromIntegral coeff
                              else putWord16be $ fromIntegral coeff
 
@@ -191,7 +193,7 @@ instance Serialize JpgQuantTableSpec where
         return JpgQuantTableSpec
             { quantPrecision = precision
             , quantDestination = dest
-            , quantTable = V.fromListN 64 coeffs
+            , quantTable = VS.fromListN 64 coeffs
             }
 
 data JpgHuffmanTableSpec = JpgHuffmanTableSpec
@@ -508,16 +510,16 @@ packInt = foldl' bitStep 0
 unpackInt :: Int32 -> BoolReader s Int32
 unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBit
 
-powerOf :: Int32 -> Int32
+powerOf :: Int32 -> Word32
 powerOf 0 = 0
-powerOf n = limit initial 1
-    where initial = if n < 0 then (-1) else 1
-          limit range i | range < n = i
+powerOf n = limit 1 0
+    where val = abs n
+          limit range i | val < range = i
           limit range i = limit (2 * range) (i + 1)
 
-encodeInt :: HuffmanWriterCode -> Int32 -> BoolWriter s ()
-encodeInt _codeTable n = writeBits (fromIntegral ssss) 4
-    where ssss = powerOf n
+encodeInt :: Word32 -> Int32 -> BoolWriter s ()
+encodeInt ssss n | n > 0 = writeBits (fromIntegral n) $ fromIntegral ssss
+encodeInt ssss n = return ()
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
@@ -795,7 +797,7 @@ decodeJpeg file = case decode file of
 
             imageSize = imgWidth * imgHeight * compCount
 
-            pixelData = runST $ V.unsafeFreeze =<< S.evalStateT (do
+            pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedString imgData
@@ -842,8 +844,31 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
 
 serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode -> MutableMacroBlock s Int16
                     -> BoolWriter s ()
-serializeMacroBlock dcCode _acCode _blk = do
-    encodeInt dcCode 0
+serializeMacroBlock dcCode acCode blk =
+ lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
+  where writeAcs acc@(_, 63) =
+            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc)
+        writeAcs acc@(_, i ) =
+            lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
+
+        encodeDc n = writeBits (fromIntegral code) (fromIntegral bitCount)
+                   >> when (ssss /= 0) (encodeInt ssss n)
+            where ssss = powerOf $ fromIntegral n
+                  (code, bitCount) = dcCode V.! fromIntegral ssss
+
+        encodeAc 0         0 = writeBits (fromIntegral code) $ fromIntegral bitCount
+            where (code, bitCount) = acCode V.! 0
+        encodeAc zeroCount n =
+          writeBits (fromIntegral code) (fromIntegral bitCount) >> encodeInt ssss n
+            where rrrr = (zeroCount `shiftL` 4)
+                  ssss = powerOf $ fromIntegral n
+                  rrrrssss = rrrr .|. ssss
+                  (bitCount, code) = acCode V.! (fromIntegral rrrrssss)
+
+        encodeAcCoefs (            _, 63) 0 = encodeAc 0 0 >> return (0, 64)
+        encodeAcCoefs (zeroRunLength,  i) 0 = return (zeroRunLength + 1, i + 1)
+        encodeAcCoefs (zeroRunLength,  i) n =
+            encodeAc zeroRunLength n >> return (0, i + 1)
 
 encodeMacroBlock :: QuantificationTable
                  -> MutableMacroBlock s Int16
@@ -877,9 +902,9 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = encode fin
             { scanLength = fromIntegral $ calculateSize scanHeader
             , scanComponentCount = outputComponentCount
             , scans = []
-            , spectralSelection = (0, 0) -- TODO find good values
-            , successiveApproxHigh = 0   -- TODO find good values
-            , successiveApproxLow  = 0   -- TODO find good values
+            , spectralSelection = (0, 63)
+            , successiveApproxHigh = 0
+            , successiveApproxLow  = 0
             }
         hdr = (JpgFrameHeader { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr
                               , jpgSamplePrecision     = 0
