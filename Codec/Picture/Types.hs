@@ -540,6 +540,31 @@ instance Pixel PixelYCbCr8 where
         (arr .<-. (baseIdx + 1)) cbv
         (arr .<-. (baseIdx + 2)) crv
 
+instance (Pixel a) => ColorSpaceConvertible a a where
+    convertPixel = id
+    convertImage = id
+
+instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
+    {-# INLINE convertPixel #-}
+    convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (truncate y)
+                                                 (truncate cb)
+                                                 (truncate cr)
+      where rf = fromIntegral r :: Float
+            gf = fromIntegral g
+            bf = fromIntegral b
+
+            y = 0.2126 * (219/255) * rf
+              + 0.7152 * (219/255) * gf
+              + 0.0722 * (219/255) * bf + 16
+
+            cb = (-0.2126) / 1.18556 * (224/255) * rf
+               - 0.7152 / 1.8556 * (224/255) * gf
+               + 0.5 * (219/255) * bf + 128
+
+            cr = 0.5 * (224/255) * rf
+               - 0.7152 / 1.5748 * (224/255) * gf
+               - 0.0722 / 1.5748 * (224/255) * bf + 128
+
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE convertPixel #-}
     convertPixel (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
