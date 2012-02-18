@@ -32,6 +32,10 @@ iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]
                 | i > 255    =  255
                 | otherwise  =  i
 
+{-# INLINE clip #-}
+clip :: Int -> Int16
+clip i = iclip !!! (i + 512)
+
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
 (.<<.), (.>>.) :: Int -> Int -> Int
@@ -194,14 +198,14 @@ idctCol blk idx = do
                        }
 
       f = thirdStage . secondStage $ firstStage initialState
-  (blk .<-. (idx + 8*0)) $ iclip !!! ((x7 f + x1 f) .>>. 14)
-  (blk .<-. (idx + 8  )) $ iclip !!! ((x3 f + x2 f) .>>. 14)
-  (blk .<-. (idx + 8*2)) $ iclip !!! ((x0 f + x4 f) .>>. 14)
-  (blk .<-. (idx + 8*3)) $ iclip !!! ((x8 f + x6 f) .>>. 14)
-  (blk .<-. (idx + 8*4)) $ iclip !!! ((x8 f - x6 f) .>>. 14)
-  (blk .<-. (idx + 8*5)) $ iclip !!! ((x0 f - x4 f) .>>. 14)
-  (blk .<-. (idx + 8*6)) $ iclip !!! ((x3 f - x2 f) .>>. 14)
-  (blk .<-. (idx + 8*7)) $ iclip !!! ((x7 f - x1 f) .>>. 14)
+  (blk .<-. (idx + 8*0)) . clip $ (x7 f + x1 f) .>>. 14
+  (blk .<-. (idx + 8  )) . clip $ (x3 f + x2 f) .>>. 14
+  (blk .<-. (idx + 8*2)) . clip $ (x0 f + x4 f) .>>. 14
+  (blk .<-. (idx + 8*3)) . clip $ (x8 f + x6 f) .>>. 14
+  (blk .<-. (idx + 8*4)) . clip $ (x8 f - x6 f) .>>. 14
+  (blk .<-. (idx + 8*5)) . clip $ (x0 f - x4 f) .>>. 14
+  (blk .<-. (idx + 8*6)) . clip $ (x3 f - x2 f) .>>. 14
+  (blk .<-. (idx + 8*7)) . clip $ (x7 f - x1 f) .>>. 14
 
 
 {-# INLINE fastIdct #-}
