@@ -55,8 +55,9 @@ module Codec.Picture.Jpg.FastDct( fastDct ) where
    rounded result half the time...
   -}
 
-import Data.Int( Int16 )
-import Data.Bits( shiftL, shiftR )
+import Control.Applicative( (<$>) )
+import Data.Int( Int16, Int32 )
+import Data.Bits( Bits, shiftL, shiftR )
 import Control.Monad.ST( ST )
 
 import qualified Data.Vector.Storable.Mutable as M
@@ -65,13 +66,13 @@ import Codec.Picture.Jpg.Types
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
-(.<<.), (.>>.) :: Int16 -> Int -> Int16
+(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
 (.<<.) = shiftL
 (.>>.) = shiftR
 
 {-# INLINE descale #-}
 -- | If we don't use accurate rounding, just x instead of subval
-descale :: Int16 -> Int -> Int16
+descale :: Int32 -> Int -> Int32
 descale x n = subVal .>>. n
     where subVal = x + (1 .<<. (n - 1))
 
@@ -82,7 +83,7 @@ pASS1_BITS = 2
 fIX_0_298631336, fIX_0_390180644, fIX_0_541196100,
     fIX_0_765366865, fIX_0_899976223, fIX_1_175875602,
     fIX_1_501321110, fIX_1_847759065, fIX_1_961570560,
-    fIX_2_053119869, fIX_2_562915447, fIX_3_072711026 :: Int16
+    fIX_2_053119869, fIX_2_562915447, fIX_3_072711026 :: Int32
 fIX_0_298631336 =  2446 -- FIX(0.298631336)
 fIX_0_390180644 =  3196 -- FIX(0.390180644)
 fIX_0_541196100 =  4433 -- FIX(0.541196100)
@@ -97,9 +98,9 @@ fIX_2_562915447 = 20995 -- FIX(2.562915447)
 fIX_3_072711026 = 25172 -- FIX(3.072711026)
 
 -- int data[64];
-fastDct :: MutableMacroBlock s Int16
+fastDct :: MutableMacroBlock s Int32
         -> MutableMacroBlock s Int16
-        -> ST s (MutableMacroBlock s Int16)
+        -> ST s (MutableMacroBlock s Int32)
 fastDct workData block = do
  firstPass workData  0
  secondPass workData 0
@@ -111,15 +112,15 @@ fastDct workData block = do
         firstPass         _ 8 = return ()
         firstPass dataBlock i = do
             let baseIdx = i * 8
-            blk0 <- block .!!!. baseIdx
-            blk1 <- block .!!!. baseIdx
-            blk2 <- block .!!!. baseIdx
-            blk3 <- block .!!!. baseIdx
-            blk4 <- block .!!!. baseIdx
-            blk5 <- block .!!!. baseIdx
-            blk6 <- block .!!!. baseIdx
-            blk7 <- block .!!!. baseIdx
-            let tmp0 = blk0 + blk7
+            blk0 <- fromIntegral <$> block .!!!. (baseIdx + 0)
+            blk1 <- fromIntegral <$> block .!!!. (baseIdx + 1)
+            blk2 <- fromIntegral <$> block .!!!. (baseIdx + 2)
+            blk3 <- fromIntegral <$> block .!!!. (baseIdx + 3)
+            blk4 <- fromIntegral <$> block .!!!. (baseIdx + 4)
+            blk5 <- fromIntegral <$> block .!!!. (baseIdx + 5)
+            blk6 <- fromIntegral <$> block .!!!. (baseIdx + 6)
+            blk7 <- fromIntegral <$> block .!!!. (baseIdx + 7)
+            let tmp0 = blk0 + blk7 :: Int32
                 tmp7 = blk0 - blk7
                 tmp1 = blk1 + blk6
                 tmp6 = blk1 - blk6
@@ -179,17 +180,17 @@ fastDct workData block = do
         -- Pass 2: process columns.
         -- We remove the PASS1_BITS scaling, but leave the results scaled up
         -- by an overall factor of 8.
-        secondPass :: M.STVector s Int16 -> Int -> ST s ()
+        secondPass :: M.STVector s Int32 -> Int -> ST s ()
         secondPass _         8 = return ()
         secondPass dataBlock i = do
-            data0  <- dataBlock .!!!.  i
-            data8  <- dataBlock .!!!. (i + 8)
-            data16 <- dataBlock .!!!. (i + 16)
-            data24 <- dataBlock .!!!. (i + 24)
-            data32 <- dataBlock .!!!. (i + 32)
-            data40 <- dataBlock .!!!. (i + 40)
-            data48 <- dataBlock .!!!. (i + 48)
-            data56 <- dataBlock .!!!. (i + 56)
+            data0  <- fromIntegral <$> dataBlock .!!!.  i
+            data8  <- fromIntegral <$> dataBlock .!!!. (i + 8)
+            data16 <- fromIntegral <$> dataBlock .!!!. (i + 16)
+            data24 <- fromIntegral <$> dataBlock .!!!. (i + 24)
+            data32 <- fromIntegral <$> dataBlock .!!!. (i + 32)
+            data40 <- fromIntegral <$> dataBlock .!!!. (i + 40)
+            data48 <- fromIntegral <$> dataBlock .!!!. (i + 48)
+            data56 <- fromIntegral <$> dataBlock .!!!. (i + 56)
 
             let tmp0 = data0 + data56
                 tmp7 = data0 - data56

@@ -19,10 +19,10 @@ writerTest = test
     , "Single 0"    ~: [0x00] ~=? testBoolWriter (writeBits 0 1)
     , "Multi 1"     ~: [0xF0] ~=? testBoolWriter (writeBits 0xF 4)
     , "Multi 1010"  ~: [0xA0] ~=? testBoolWriter (writeBits 0xA 4)
-    , "8 bits"      ~: [0xFF] ~=? testBoolWriter (writeBits 0xFF 8)
+    , "8 bits"      ~: [0xFF, 0] ~=? testBoolWriter (writeBits 0xFF 8)
     , "0 bits"      ~: []     ~=? testBoolWriter (writeBits 0xFF 0)
     , "8 bits + 2"
-        ~: [0xFF, 0x40] ~=? testBoolWriter (writeBits 0xFF 8 >> writeBits 01 2)
+        ~: [0xFF, 0x00, 0x40] ~=? testBoolWriter (writeBits 0xFF 8 >> writeBits 01 2)
 
     , "16 bits"     ~: [0xDE, 0xAD] ~=? testBoolWriter (writeBits 0xDEAD 16)
 
@@ -34,6 +34,9 @@ writerTest = test
                                       (writeBits 4 3
                                     >> writeBits 1 1
                                     >> writeBits 0xBEEF 16)
+    , "Real case"
+        ~: [0xFE, 0xE2, 0x80] ~=? testBoolWriter
+                            (writeBits 0xFE 8 >> writeBits 0x38A 10)
     ]
 
 main :: IO ()
