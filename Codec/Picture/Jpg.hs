@@ -167,7 +167,7 @@ instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
         putWord16be . fromIntegral $ sum [calculateSize table | table <- lst] + 2
         mapM_ put lst
 
-    get = TableList <$> (getWord16be >>= \s -> trace ("table size " ++ show s) $ innerParse (fromIntegral s - 2))
+    get = TableList <$> (getWord16be >>= \s -> innerParse (fromIntegral s - 2))
       where innerParse :: Int -> Get [a]
             innerParse 0    = return []
             innerParse size = do
@@ -280,10 +280,8 @@ instance Serialize JpgImage where
         let startOfImageMarker = 0xD8
             -- endOfImageMarker = 0xD9
         checkMarker commonMarkerFirstByte startOfImageMarker
-        left <- remaining
-        trace ("Got initial marker " ++ show left) $ eatUntilCode
-        left' <- remaining
-        frames <- (trace $ "Mwep " ++ show left') $ parseFrames
+        eatUntilCode
+        frames <- parseFrames
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return JpgImage { jpgFrame = frames }
 
@@ -304,24 +302,24 @@ putFrame (JpgHuffmanTable tables) =
 putFrame (JpgIntervalRestart size) =
     put JpgRestartInterval >> put (RestartInterval size)
 putFrame (JpgScanBlob hdr blob) =
-    put JpgStartOfScan >> put hdr >> (trace "Puting blob" $  putByteString blob)
+    put JpgStartOfScan >> put hdr >> putByteString blob
 putFrame (JpgScans kind hdr) =
     put kind >> put hdr
 
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    trace ("kind " ++ show kind) $ case kind of
+    case kind of
         JpgAppSegment c ->
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgExtensionSegment c ->
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
         JpgQuantizationTable ->
-            (\(TableList quants) lst -> trace "Got quant" $ JpgQuantTable quants : lst) <$> get <*> parseFrames
+            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseFrames
         JpgRestartInterval ->
             (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseFrames
         JpgHuffmanTableMarker ->
-            (\(TableList huffTables) lst -> trace "Got huffman" $ 
+            (\(TableList huffTables) lst ->
                     JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
                     <$> get <*> parseFrames
         JpgStartOfScan ->
@@ -460,7 +458,7 @@ instance Serialize JpgScanSpecification where
 instance Serialize JpgScanHeader where
     get = do
         thisScanLength <- getWord16be
-        compCount <- (trace (printf "READ scan length : %d" thisScanLength)) $ getWord8
+        compCount <- getWord8
         comp <- replicateM (fromIntegral compCount) get
         specBeg <- get
         specEnd <- get
@@ -584,10 +582,9 @@ decodeInt ssss = do
 dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanDecode dcTree
-    v <- if ssss == 0
+    if ssss == 0
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
-    return $ (\a -> trace (printf "<< dc ssss:%02X num:%d" ssss a) a) v
 
 -- | Assume the macro block is initialized with zeroes
 acCoefficientsDecode :: HuffmanTree -> MutableMacroBlock s Int16
@@ -599,11 +596,11 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
-                (  0, 0) -> trace "<< ac rrrrssss:00" $ return ()
-                (0xF, 0) -> trace "<< ac rrrrssss:F0" $ parseAcCoefficient (n + 16)
+                (  0, 0) -> return ()
+                (0xF, 0) -> parseAcCoefficient (n + 16)
                 _        -> do
                     decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
-                    (trace (printf "<< ac rrrrssss:%02X val:%d" rrrrssss decoded)) $ lift $ (mutableBlock .<-. (n + rrrr)) decoded
+                    lift $ (mutableBlock .<-. (n + rrrr)) decoded
                     parseAcCoefficient (n + rrrr + 1)
 
 -- | Decompress a macroblock from a bitstream given the current configuration
@@ -875,18 +872,17 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
     return block
 extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
              block sampWidth sampHeight sampCount plane bx by = do
-    let accessPixel x y | x < w && y < h = let idx = (y * w + x) * sampCount + plane in src !!! {-  trace (printf "idx:%d" idx) -} idx
+    let accessPixel x y | x < w && y < h = let idx = (y * w + x) * sampCount + plane in src !!! idx
                         | x >= w = accessPixel (w - 1) y
                         | otherwise = accessPixel x (h - 1)
 
-        pixelPerCoeff = (\a -> trace (printf "coeff:%d sampWidth:%d sampCount:%d" a sampWidth sampCount) a) $ fromIntegral $ sampWidth * sampHeight
+        pixelPerCoeff = fromIntegral $ sampWidth * sampHeight
 
-        blockVal x y = sum [fromIntegral $ accessPixel (trace (printf "dx:%d dy:%d" dx dy) $ blockXBegin + x + dx)   
-                                                     (blockYBegin + y + dy)
+        blockVal x y = sum [fromIntegral $ accessPixel (blockXBegin + x + dx) (blockYBegin + y + dy)
                                 | dy <- [0 .. sampHeight - 1]
                                 , dx <- [0 .. sampWidth - 1] ] `div` pixelPerCoeff
 
-        blockXBegin = trace (printf "bx:%d by:%d sampWidth:%d sampHeight:%d" bx by sampWidth sampHeight) $ bx * 8 * sampWidth
+        blockXBegin = bx * 8 * sampWidth
         blockYBegin = by * 8 * sampHeight
 
     sequence_ [(block .<-. (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
@@ -902,9 +898,8 @@ serializeMacroBlock dcCode acCode blk =
         writeAcs acc@(_, i ) =
             lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
-        encodeDc n = (\a -> trace (printf ">> dc ssss:%02X n:(%d %0X) (code:%04X, count:%d) %s" ssss n n code bitCount {-(show dcCode)-} "") a)
-                writeBits (fromIntegral code) (fromIntegral bitCount)
-                   >> when (ssss /= 0) (encodeInt ssss n)
+        encodeDc n = writeBits (fromIntegral code) (fromIntegral bitCount)
+                        >> when (ssss /= 0) (encodeInt ssss n)
             where ssss = powerOf $ fromIntegral n
                   (bitCount, code) = dcCode V.! fromIntegral ssss
 
@@ -913,13 +908,13 @@ serializeMacroBlock dcCode acCode blk =
 
         encodeAc zeroCount n | zeroCount >= 16 =
           writeBits (fromIntegral code) (fromIntegral bitCount) >>  encodeAc (zeroCount - 16) n
-            where (bitCount, code) = trace ">> ac F0" $ acCode V.! 0xF0
+            where (bitCount, code) = acCode V.! 0xF0
         encodeAc zeroCount n =
           writeBits (fromIntegral code) (fromIntegral bitCount) >> encodeInt ssss n
             where rrrr = zeroCount `shiftL` 4
                   ssss = powerOf $ fromIntegral n
                   rrrrssss = rrrr .|. ssss
-                  (bitCount, code) = acCode V.! (trace (printf ">> rrrrssss:%02X v:%d" rrrrssss n) $ fromIntegral rrrrssss)
+                  (bitCount, code) = acCode V.! fromIntegral rrrrssss
 
         encodeAcCoefs (            _, 63) 0 = encodeAc 0 0 >> return (0, 64)
         encodeAcCoefs (zeroRunLength,  i) 0 = return (zeroRunLength + 1, i + 1)
@@ -931,20 +926,14 @@ encodeMacroBlock :: QuantificationTable
                  -> MutableMacroBlock s Int16
                  -> ST s (Int32, MutableMacroBlock s Int32)
 encodeMacroBlock quantTableOfComponent prev_dc block = do
- s <- printMacroBlock block
- workData <- (trace s) $ M.new 64
+ workData <- M.new 64
  let inverseLevelShift = mutate (\_ v -> v - 128)
  -- inverse level shift
  blk <- inverseLevelShift block
         >>= slowFdct workData
-        >>= (\a -> do s' <- printMacroBlock a
-                      trace ("dct =========/" ++ s' ++ "/==========") $ return a)
         >>= quantize quantTableOfComponent
-        >>= (\a -> do s' <- printMacroBlock a
-                      trace ("quant =========/" ++ s' ++ "/==========") $ return a)
-        >>=  zigZagReorderForward
-        >>= (\a -> do s' <- printMacroBlock a
-                      trace ("reorder =========/" ++ s' ++ "/==========") $ return a)
+        >>= zigZagReorderForward
+
  dc <- blk .!!!. 0
  (blk .<-. 0) $ dc - fromIntegral prev_dc
  return (dc, blk)

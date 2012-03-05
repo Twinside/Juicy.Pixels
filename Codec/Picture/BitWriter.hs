@@ -19,8 +19,6 @@ import Data.Word( Word8, Word32 )
 import Data.Serialize( Put, putWord8, runPut )
 import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
 
-import Debug.Trace
-import Text.Printf
 import qualified Data.ByteString as B
 
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
@@ -77,8 +75,7 @@ flushWriter = do
 writeBits :: Word32     -- ^ The real data to be stored. Actual data should be in the LSB
           -> Int        -- ^ Number of bit to write from 1 to 32
           -> BoolWriter s ()
-writeBits bitData bitCount = trace (printf "w %0X count:%d" bitData bitCount) $
- S.get >>= serialize
+writeBits bitData bitCount = S.get >>= serialize
   where dumpByte 0xFF = putWord8 0xFF >> putWord8 0x00
         dumpByte    i = putWord8 i
 
@@ -117,5 +114,5 @@ setDecodedString str = case B.uncons str of
             Nothing                  -> S.put (maxBound, 0, B.empty)
             Just (0x00, afterMarker) -> S.put (7, 0xFF, afterMarker)
             Just (_   , afterMarker) -> setDecodedString afterMarker
-     Just (v, rest) -> S.put {- . trace (printf "READ:%02X" ve -} $ (       7, v,    rest)
+     Just (v, rest) -> S.put (       7, v,    rest)
 

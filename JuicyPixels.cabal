@@ -45,7 +45,7 @@ Test-Suite test-juicy
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -O0 -Wall
+  Ghc-options: -O3 -Wall
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base,
                  array,
