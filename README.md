@@ -32,7 +32,7 @@ Status
 
  - Jpeg   (.jpg, .jpeg) 
     * Reading non-interlaced baseline DCT image, seems to be OK
-    * Writing : none yet
+    * Writing : Basic writing (no quality control).
 
 _I love juicy pixels_
 
