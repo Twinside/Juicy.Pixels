@@ -39,9 +39,6 @@ import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
 
-import Debug.Trace
-import Text.Printf
-
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -862,7 +859,7 @@ extractBlock :: Image PixelYCbCr8       -- ^ Source image
              -> ST s (MutableMacroBlock s Int16)
 extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
              block 1 1 sampCount plane bx by | (bx * 8) + 7 < w && (by * 8) + 7 < h = do
-    let baseReadIdx = (\a -> trace (printf "baseReadIndex solo:%d sampCount:%d bx:%d by:%d plane:%d" a sampCount bx by plane) a) $ (by * 8 * w) + bx * 8
+    let baseReadIdx = (by * 8 * w) + bx * 8
     sequence_ [(block .<-. (y * 8 + x)) val
                         | y <- [0 .. 7]
                         , let blockReadIdx = baseReadIdx + y * w
@@ -878,9 +875,11 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
 
         pixelPerCoeff = fromIntegral $ sampWidth * sampHeight
 
-        blockVal x y = sum [fromIntegral $ accessPixel (blockXBegin + x + dx) (blockYBegin + y + dy)
+        blockVal x y = sum [fromIntegral $ accessPixel (xBase + dx) (yBase + dy)
                                 | dy <- [0 .. sampHeight - 1]
                                 , dx <- [0 .. sampWidth - 1] ] `div` pixelPerCoeff
+            where xBase = blockXBegin + x * sampWidth
+                  yBase = blockYBegin + y * sampHeight
 
         blockXBegin = bx * 8 * sampWidth
         blockYBegin = by * 8 * sampHeight
@@ -1040,8 +1039,8 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> 
                 componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
   
                 imageComponentCount = length componentDef
-            block <- lift $ M.new 64
-            dc_table <- lift $ M.new 3
+            block <- lift $ M.replicate 64 0
+            dc_table <- lift $ M.replicate 3 0
             let blockList = [(comp, table, dc, ac, extractBlock img block xSamplingFactor ySamplingFactor
                                                   imageComponentCount comp blockX blockY)
                                     | my <- [0 .. verticalMetaBlockCount - 1]
