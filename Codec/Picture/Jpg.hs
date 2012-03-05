@@ -22,14 +22,15 @@ import Data.Serialize( Serialize(..), Get, Put
                      , getWord16be, putWord16be
                      , remaining, lookAhead, skip
                      , getBytes, decode, runPut
-                     , encode
+                     , encode, putByteString 
                      )
 import Data.Maybe( fromJust )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Array.Unboxed( Array, UArray, elems, listArray)
+import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
 import qualified Data.ByteString as B
+import Foreign.Storable ( Storable )
 
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
@@ -37,7 +38,6 @@ import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
-
 
 --------------------------------------------------
 ----            Types
@@ -82,7 +82,7 @@ data JpgFrameHeader = JpgFrameHeader
     , jpgHeight              :: !Word16
     , jpgWidth               :: !Word16
     , jpgImageComponentCount :: !Word8
-    , jpgComponents          :: [JpgComponent]
+    , jpgComponents          :: ![JpgComponent]
     }
     deriving Show
 
@@ -161,7 +161,7 @@ class SizeCalculable a where
 
 instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
     put (TableList lst) = do
-        putWord16be . fromIntegral $ sum [calculateSize table | table <- lst]
+        putWord16be . fromIntegral $ sum [calculateSize table | table <- lst] + 2
         mapM_ put lst
 
     get = TableList <$> (getWord16be >>= \s -> innerParse (fromIntegral s - 2))
@@ -244,7 +244,16 @@ instance SizeCalculable JpgHuffmanTableSpec where
     calculateSize table = 1 + 16 + sum [fromIntegral e | e <- elems $ huffSizes table]
 
 instance Serialize JpgHuffmanTableSpec where
-    put = error "Unimplemented"
+    put table = do
+        let classVal = if huffmanTableClass table == DcComponent
+                          then 0 else 1
+        put4BitsOfEach classVal $ huffmanTableDest table
+        mapM_ put {-  . (\a -> trace ("sizes :" ++ show a) a) -}. elems $ huffSizes table
+        forM_ [0 .. 15] $ \i -> do
+            when (huffSizes table ! i /= 0)
+                 (let elements = elems $ huffCodes table ! i
+                  in mapM_ put {- . (\a -> trace (show a) a)-} $ elements)
+
     get = do
         (huffClass, huffDest) <- get4BitOfEach
         sizes <- replicateM 16 getWord8
@@ -260,7 +269,10 @@ instance Serialize JpgHuffmanTableSpec where
             }
 
 instance Serialize JpgImage where
-    put = error "Unimplemented"
+    put (JpgImage { jpgFrame = frames }) = do
+        putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
+            >> putWord8 0xFF >> putWord8 0xD9
+
     get = do
         let startOfImageMarker = 0xD8
             -- endOfImageMarker = 0xD9
@@ -274,6 +286,22 @@ takeCurrentFrame :: Get B.ByteString
 takeCurrentFrame = do
     size <- getWord16be
     getBytes (fromIntegral size - 2)
+
+putFrame :: JpgFrame -> Put
+putFrame (JpgAppFrame appCode str) =
+    put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
+putFrame (JpgExtension appCode str) =
+    put (JpgExtensionSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
+putFrame (JpgQuantTable tables) =
+    put JpgQuantizationTable >> put (TableList tables)
+putFrame (JpgHuffmanTable tables) =
+    put JpgHuffmanTableMarker >> put (TableList $ map fst tables)
+putFrame (JpgIntervalRestart size) =
+    put JpgRestartInterval >> put (RestartInterval size)
+putFrame (JpgScanBlob hdr blob) =
+    put JpgStartOfScan >> put hdr >> putByteString blob
+putFrame (JpgScans kind hdr) =
+    put kind >> put hdr
 
 parseFrames :: Get [JpgFrame]
 parseFrames = do
@@ -442,16 +470,16 @@ instance Serialize JpgScanHeader where
         }
 
     put v = do
-        put $ scanLength v
-        put $ scanComponentCount v
+        putWord16be $ scanLength v
+        putWord8 $ scanComponentCount v
         mapM_ put $ scans v
-        put . fst $ spectralSelection v
-        put . snd $ spectralSelection v
+        putWord8 . fst $ spectralSelection v
+        putWord8 . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
-quantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
-         -> ST s (MutableMacroBlock s Int16)
-quantize table = mutate (\idx val -> val `div` (table !!! idx))
+quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
+         -> ST s (MutableMacroBlock s Int32)
+quantize table = mutate (\idx val -> val `div` (fromIntegral $ table !!! idx))
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -476,7 +504,23 @@ zigZagOrder = makeMacroBlock $ concat
     ,[35,36,48,49,57,58,62,63]
     ]
 
-zigZagReorder :: MutableMacroBlock s Int16 -> ST s (MutableMacroBlock s Int16)
+zigZagReorderForward :: (Storable a, Num a)
+                     => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
+zigZagReorderForward block = do
+    zigzaged <- M.replicate 64 0
+    let update i =  do
+            let idx = zigZagOrder !!! i
+            v <- block .!!!. i
+            (zigzaged .<-. fromIntegral idx) v
+
+        reorder 63 = update 63
+        reorder i  = update i >> reorder (i + 1)
+
+    reorder (0 :: Int)
+    return zigzaged
+
+zigZagReorder :: (Storable a, Num a)
+              => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
 zigZagReorder block = do
     zigzaged <- M.replicate 64 0
     let update i =  do
@@ -487,7 +531,7 @@ zigZagReorder block = do
         reorder 63 = update 63
         reorder i  = update i >> reorder (i + 1)
 
-    reorder 0
+    reorder (0 :: Int)
     return zigzaged
 
 
@@ -518,8 +562,8 @@ powerOf n = limit 1 0
           limit range i = limit (2 * range) (i + 1)
 
 encodeInt :: Word32 -> Int32 -> BoolWriter s ()
-encodeInt ssss n | n > 0 = writeBits (fromIntegral n) $ fromIntegral ssss
-encodeInt ssss n = return ()
+encodeInt ssss n | n > 0 = writeBits (fromIntegral n) (fromIntegral ssss)
+encodeInt ssss n         = writeBits (fromIntegral $ n - 1) (fromIntegral ssss)
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
@@ -800,7 +844,7 @@ decodeJpeg file = case decode file of
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
-                setDecodedString imgData
+                setDecodedString {-  . (\a -> trace ("read " ++ show (map (printf "%02X" :: Word8 -> String) $ B.unpack a)) a) -}$ imgData
                 decodeImage compCount (buildJpegImageDecoder img) wrapped
                 return resultImage) (-1, 0, B.empty)
 
@@ -825,16 +869,17 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
     return block
 extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
              block sampWidth sampHeight sampCount plane bx by = do
-    let accessPixel x y | x < w && y < h = src !!! ((y * w + x) * sampCount + plane)
+    let accessPixel x y | x < w && y < h = let idx = (y * w + x) * sampCount + plane in src !!! idx
                         | x >= w = accessPixel (w - 1) y
                         | otherwise = accessPixel x (h - 1)
 
-        pixelPerCoeff = fromIntegral $ sampWidth * sampCount
+        pixelPerCoeff = fromIntegral $ sampWidth * sampHeight
 
-        blockVal x y = sum [fromIntegral $ accessPixel (blockXBegin + x + dx)   
-                                                     (blockYBegin + y + dy)
+        blockVal x y = sum [fromIntegral $ accessPixel (xBase + dx) (yBase + dy)
                                 | dy <- [0 .. sampHeight - 1]
                                 , dx <- [0 .. sampWidth - 1] ] `div` pixelPerCoeff
+            where xBase = blockXBegin + x * sampWidth
+                  yBase = blockYBegin + y * sampHeight
 
         blockXBegin = bx * 8 * sampWidth
         blockYBegin = by * 8 * sampHeight
@@ -842,7 +887,8 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
     sequence_ [(block .<-. (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
     return block
 
-serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode -> MutableMacroBlock s Int16
+serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
+                    -> MutableMacroBlock s Int32
                     -> BoolWriter s ()
 serializeMacroBlock dcCode acCode blk =
  lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
@@ -852,18 +898,22 @@ serializeMacroBlock dcCode acCode blk =
             lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
         encodeDc n = writeBits (fromIntegral code) (fromIntegral bitCount)
-                   >> when (ssss /= 0) (encodeInt ssss n)
+                        >> when (ssss /= 0) (encodeInt ssss n)
             where ssss = powerOf $ fromIntegral n
-                  (code, bitCount) = dcCode V.! fromIntegral ssss
+                  (bitCount, code) = dcCode V.! fromIntegral ssss
 
         encodeAc 0         0 = writeBits (fromIntegral code) $ fromIntegral bitCount
-            where (code, bitCount) = acCode V.! 0
+            where (bitCount, code) = acCode V.! 0
+
+        encodeAc zeroCount n | zeroCount >= 16 =
+          writeBits (fromIntegral code) (fromIntegral bitCount) >>  encodeAc (zeroCount - 16) n
+            where (bitCount, code) = acCode V.! 0xF0
         encodeAc zeroCount n =
           writeBits (fromIntegral code) (fromIntegral bitCount) >> encodeInt ssss n
-            where rrrr = (zeroCount `shiftL` 4)
+            where rrrr = zeroCount `shiftL` 4
                   ssss = powerOf $ fromIntegral n
                   rrrrssss = rrrr .|. ssss
-                  (bitCount, code) = acCode V.! (fromIntegral rrrrssss)
+                  (bitCount, code) = acCode V.! fromIntegral rrrrssss
 
         encodeAcCoefs (            _, 63) 0 = encodeAc 0 0 >> return (0, 64)
         encodeAcCoefs (zeroRunLength,  i) 0 = return (zeroRunLength + 1, i + 1)
@@ -871,43 +921,82 @@ serializeMacroBlock dcCode acCode blk =
             encodeAc zeroRunLength n >> return (0, i + 1)
 
 encodeMacroBlock :: QuantificationTable
+                 -> Int16
                  -> MutableMacroBlock s Int16
-                 -> ST s (MutableMacroBlock s Int16)
-encodeMacroBlock quantTableOfComponent block = do
+                 -> ST s (Int32, MutableMacroBlock s Int32)
+encodeMacroBlock quantTableOfComponent prev_dc block = do
  workData <- M.new 64
  let inverseLevelShift = mutate (\_ v -> v - 128)
  -- inverse level shift
- inverseLevelShift block
-        >>= fastDct workData
+ blk <- inverseLevelShift block
+        >>= slowFdct workData
         >>= quantize quantTableOfComponent
+        >>= zigZagReorderForward
+
+ dc <- blk .!!!. 0
+ (blk .<-. 0) $ dc - fromIntegral prev_dc
+ return (dc, blk)
 
 divUpward :: (Integral a) => a -> a -> a
 divUpward n dividor = val + (if rest /= 0 then 1 else 0)
     where (val, rest) = n `divMod` dividor
 
+prepareHuffmanTable :: DctComponent -> Word8 -> HuffmanTable
+                    -> (JpgHuffmanTableSpec, HuffmanTree)
+prepareHuffmanTable classVal dest tableDef = 
+   (JpgHuffmanTableSpec { huffmanTableClass = classVal
+                        , huffmanTableDest  = dest
+                        , huffSizes = sizes
+                        , huffCodes = listArray (0, 15)
+                            [listArray (0, fromIntegral $ (sizes ! i) - 1) lst
+                                                | (i, lst) <- zip [0..] tableDef ]
+                        }, Empty)
+      where sizes = listArray (0,15) $ map (fromIntegral . length) tableDef   
+
 -- | Function to call to encode an image to jpeg
 encodeJpeg :: Image PixelYCbCr8 -> Word8 -> B.ByteString
-encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = encode finalImage
-  where finalImage = JpgImage [ JpgHuffmanTable huffTables
-                              , JpgQuantTable quantTables
+encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> trace (("file : " ++) . show . map (printf "%02X" :: Word8 -> String) $ B.unpack a) a) $ 
+    encode finalImage
+  where finalImage = JpgImage [ JpgQuantTable quantTables
                               , JpgScans JpgBaselineDCTHuffman hdr
-                              , JpgScanBlob scanHeader $ runPut encodedImage
+                              , JpgHuffmanTable huffTables
+                              , JpgScanBlob scanHeader {-  . (\a -> trace (("entropy coded : " ++). show . map (printf "%02X" :: Word8 -> String) $ B.unpack a) a) -}$ runPut encodedImage
                               ]
 
-        huffTables = undefined
+        huffTables = [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+                     , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+                     , prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
+                     , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
+                     ]
 
         outputComponentCount = 3
 
-        scanHeader = JpgScanHeader
-            { scanLength = fromIntegral $ calculateSize scanHeader
+        scanHeader = scanHeader'{ scanLength = fromIntegral $ calculateSize scanHeader' }
+        scanHeader' = JpgScanHeader
+            { scanLength = 0
             , scanComponentCount = outputComponentCount
-            , scans = []
+            , scans = [ JpgScanSpecification { componentSelector = 1
+                                             , dcEntropyCodingTable = 0
+                                             , acEntropyCodingTable = 0
+                                             }
+                      , JpgScanSpecification { componentSelector = 2
+                                             , dcEntropyCodingTable = 1
+                                             , acEntropyCodingTable = 1
+                                             }
+                      , JpgScanSpecification { componentSelector = 3
+                                             , dcEntropyCodingTable = 1
+                                             , acEntropyCodingTable = 1
+                                             }
+                      ]
+
             , spectralSelection = (0, 63)
             , successiveApproxHigh = 0
             , successiveApproxLow  = 0
             }
-        hdr = (JpgFrameHeader { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr
-                              , jpgSamplePrecision     = 0
+
+        hdr = hdr' { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr' }
+        hdr' = (JpgFrameHeader{ jpgFrameHeaderLength   = 0
+                              , jpgSamplePrecision     = 8
                               , jpgHeight              = fromIntegral h
                               , jpgWidth               = fromIntegral w
                               , jpgImageComponentCount = outputComponentCount
@@ -950,9 +1039,10 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = encode fin
                 componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
   
                 imageComponentCount = length componentDef
-            block <- lift $ M.new 64
-            let blockList = [(table, dc, ac, extractBlock img block comp xSamplingFactor ySamplingFactor
-                                                  imageComponentCount blockX blockY)
+            block <- lift $ M.replicate 64 0
+            dc_table <- lift $ M.replicate 3 0
+            let blockList = [(comp, table, dc, ac, extractBlock img block xSamplingFactor ySamplingFactor
+                                                  imageComponentCount comp blockX blockY)
                                     | my <- [0 .. verticalMetaBlockCount - 1]
                                     , mx <- [0 .. horizontalMetaBlockCount - 1]
                                     , (comp, (sizeX, sizeY, table, dc, ac)) <- zip [0..] componentDef
@@ -964,7 +1054,9 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = encode fin
                                           ySamplingFactor = maxSampling - sizeY + 1
                                     ]
   
-            forM_ blockList $ \(table, dc, ac, extractor) -> do
-                lift (extractor >>= encodeMacroBlock table)
-                    >>= serializeMacroBlock dc ac
+            forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
+                prev_dc <- lift $ dc_table .!!!. comp
+                (dc_coeff, neo_block) <- lift (extractor >>= encodeMacroBlock table prev_dc)
+                lift . (dc_table .<-. comp) $ fromIntegral dc_coeff
+                serializeMacroBlock dc ac neo_block
 

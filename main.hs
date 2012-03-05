@@ -2,6 +2,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 import Data.Array.Unboxed
 import Codec.Picture
+import Codec.Picture.Jpg( encodeJpeg )
 import System.Environment
 
 import System.Environment
@@ -44,6 +45,21 @@ convertBitmapToPng filePath = do
             putStrLn "(BMP->PNG) Write ImageY8"
             writePng (filePath ++ ".png") img
         Right _ -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")"
+
+convertJpegToPngStr :: B.ByteString -> IO ()
+convertJpegToPngStr file = do
+    rez <- catch (return $ decodeJpeg file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) JPEG loading error: ()" ++ err
+        Right (ImageYCbCr8 img) -> do
+            let rgbImage  = convertImage img :: Image PixelRGB8
+            putStrLn "(JPG->PNG) Write ImageRGB8"
+            writePng "string.png" rgbImage
+        Right (ImageY8 img) -> do
+            putStrLn "(JPG->PNG) Write ImageY8"
+            writePng "string.png" img
+        Right _ -> putStr $ "\n(X) JPEG loading error: ()"
 
 convertJpegToPng :: FilePath -> IO ()
 convertJpegToPng filePath = do
@@ -142,13 +158,37 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
+imgToJpeg :: FilePath -> IO (B.ByteString)
+imgToJpeg path = do
+    rez <- readImage path
+    case rez of
+        Right (ImageYCbCr8 img) ->
+            let str = encodeJpeg img 0
+            in B.writeFile (path ++ ".jpg") str >> return str
+        Right (ImageRGB8 img) ->
+            let str = encodeJpeg (convertImage img) 0
+            in B.writeFile (path ++ ".jpg") str >> return str
+        Left err ->
+            error $ "Error loading " ++ path ++ " " ++ show err
+        Right _ -> error $ "Pixel type hunandled"
+
 main :: IO ()
 main = do 
+    {-imgToJpeg "tests/pngsuite/"-}
+    {-imgToJpeg "tests/jpeg/avatar.jpg"-}
+    _str <- imgToJpeg "tests/jpeg/16x16jpeg.jpg"
+    _str <- imgToJpeg "tests/jpeg/avatar.jpg"
+    _str <- imgToJpeg "tests/jpeg/fenek.jpg"
+    _str <- imgToJpeg "tests/jpeg/sheep.jpg"
+    _str <- imgToJpeg "tests/jpeg/JPEG_example_JPG_RIP_100.jpg"
+ 
+    {-convertJpegToPng "tests/jpeg/16x16jpeg.jpg.jpg"-}
+    -- convertJpegToPngStr $ B.concat [str, (B.replicate 1000 0)  ]
     putStrLn ">>>> Valid instances"
-    mapM_ (convertBitmapToPng . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
-    mapM_ (convertJpegToPng . (("tests" </> "jpeg") </>)) jpegValidTests
-    mapM_ (convertJpegToBmp . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    {-mapM_ (convertBitmapToPng . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
+    {-mapM_ (convertJpegToPng . (("tests" </> "jpeg") </>)) jpegValidTests-}
+    {-mapM_ (convertJpegToBmp . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}

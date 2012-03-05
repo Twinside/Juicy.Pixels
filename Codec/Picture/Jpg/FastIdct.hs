@@ -34,7 +34,11 @@ iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]
 
 {-# INLINE clip #-}
 clip :: Int -> Int16
-clip i = iclip !!! (i + 512)
+clip i -- = iclip !!! (i + 512)
+       | i < 511 = if i > -512 then iclip !!! (i + 512)
+                               else iclip !!! 0
+    
+       | otherwise = iclip !!! 1023
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}

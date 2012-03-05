@@ -17,9 +17,13 @@ import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.Word( Word8, Word32 )
 import Data.Serialize( Put, putWord8, runPut )
-import Data.Bits( (.&.), (.|.), shiftR, shiftL )
+import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
 
 import qualified Data.ByteString as B
+
+(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
+(.<<.) = shiftL
+(.>>.) = shiftR
 
 -- | Run the writer and get the serialized data.
 runBoolWriter :: (forall s. BoolWriter s b) -> B.ByteString
@@ -72,26 +76,34 @@ writeBits :: Word32     -- ^ The real data to be stored. Actual data should be i
           -> Int        -- ^ Number of bit to write from 1 to 32
           -> BoolWriter s ()
 writeBits bitData bitCount = S.get >>= serialize
-  where serialize (str, currentWord, count)
+  where dumpByte 0xFF = putWord8 0xFF >> putWord8 0x00
+        dumpByte    i = putWord8 i
+
+        cleanMask = (1 `shiftL` bitCount) - 1 :: Word32
+        cleanData = bitData .&. cleanMask     :: Word32
+
+        serialize :: (Put, Word8, Int) -> BoolWriter s ()
+        serialize (str, currentWord, count)
             | bitCount + count == 8 =
-                let newVal = fromIntegral $ (currentWord `shiftR` bitCount) .|. fromIntegral bitData
-                in S.put (str >> putWord8 newVal, 0, 0)
+                let newVal = fromIntegral $
+                        (currentWord .<<. bitCount) .|. fromIntegral cleanData
+                in S.put (str >> dumpByte newVal, 0, 0)
 
             | bitCount + count < 8 =
-                let newVal = fromIntegral $ (currentWord `shiftL` bitCount)
-                in S.put (str, newVal .|. fromIntegral bitData, count + bitCount)
+                let newVal = currentWord .<<. bitCount
+                in S.put (str, newVal .|. fromIntegral cleanData, count + bitCount)
 
             | otherwise =
-                let leftBitCount = 8 - count
-                    highPart = fromIntegral $ bitData `shiftR` (bitCount - leftBitCount)
-                    prevPart = currentWord `shiftL` leftBitCount
+                let leftBitCount = 8 - count :: Int
+                    highPart = cleanData .>>. (bitCount - leftBitCount) :: Word32
+                    prevPart = (fromIntegral currentWord) .<<. leftBitCount :: Word32
 
-                    nextMask = 1 `shiftR` (bitCount - leftBitCount) - 1
-                    newData = bitData .&. nextMask
-                    newCount = bitCount - leftBitCount
+                    nextMask = (1 .<<. (bitCount - leftBitCount)) - 1 :: Word32
+                    newData = cleanData .&. nextMask :: Word32
+                    newCount = bitCount - leftBitCount :: Int
 
-                    toWrite = fromIntegral $ prevPart .|. highPart
-                in S.put (str >> putWord8 toWrite, 0, 0) 
+                    toWrite = fromIntegral $ prevPart .|. highPart :: Word8
+                in S.put (str >> dumpByte toWrite, 0, 0) 
                         >> writeBits newData newCount
 
 -- | Bitify a list of things to decode.

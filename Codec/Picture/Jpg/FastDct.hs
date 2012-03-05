@@ -1,4 +1,4 @@
-module Codec.Picture.Jpg.FastDct( fastDct ) where
+module Codec.Picture.Jpg.FastDct( fastDct, slowFdct ) where
 
 {- Copyright (C) 1996, MPEG Software Simulation Group. All Rights Reserved. */
    This routine is a slow-but-accurate integer implementation of the
@@ -55,34 +55,48 @@ module Codec.Picture.Jpg.FastDct( fastDct ) where
    rounded result half the time...
   -}
 
-import Data.Int( Int16 )
-import Data.Bits( shiftL, shiftR )
+import Control.Applicative( (<$>) )
+import Data.Int( Int16, Int32 )
+import Data.Bits( Bits, shiftL, shiftR )
 import Control.Monad.ST( ST )
 
+import Control.Monad( forM_, forM )
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Jpg.Types
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
-(.<<.), (.>>.) :: Int16 -> Int -> Int16
+(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
 (.<<.) = shiftL
 (.>>.) = shiftR
 
-{-# INLINE descale #-}
--- | If we don't use accurate rounding, just x instead of subval
-descale :: Int16 -> Int -> Int16
-descale x n = subVal .>>. n
-    where subVal = x + (1 .<<. (n - 1))
+cENTERJSAMPLE :: Int32
+cENTERJSAMPLE = 128
 
 cONST_BITS, pASS1_BITS :: Int 
 cONST_BITS = 13
 pASS1_BITS = 2
 
+slowFdct :: MutableMacroBlock s Int32
+         -> MutableMacroBlock s Int16
+         -> ST s (MutableMacroBlock s Int32)
+slowFdct workData block = forM_ [(u, v) | u <- [0 :: Int .. 7], v <- [0..7]] (\(u,v) -> do
+    val <- at (u,v)
+    (workData .<-. (v * 8 + u)) . truncate $ (1 / 4) * c u * c v * val)
+    >> return workData
+ where -- at :: (Int, Int) -> ST s Float
+       at (u,v) = sum <$> (forM [(x,y) | x <- [0..7], y <- [0..7 :: Int]] $ \(x,y) -> do
+           sample <- fromIntegral <$> (block .!!!. (y * 8 + x))
+           return $ sample * cos ((2 * fromIntegral x + 1) * fromIntegral u * (pi :: Float)/ 16) 
+                           * cos ((2 * fromIntegral y + 1) * fromIntegral v * pi / 16))
+       c 0 = 1 / sqrt 2
+       c _ = 1
+
 fIX_0_298631336, fIX_0_390180644, fIX_0_541196100,
     fIX_0_765366865, fIX_0_899976223, fIX_1_175875602,
     fIX_1_501321110, fIX_1_847759065, fIX_1_961570560,
-    fIX_2_053119869, fIX_2_562915447, fIX_3_072711026 :: Int16
+    fIX_2_053119869, fIX_2_562915447, fIX_3_072711026 :: Int32
 fIX_0_298631336 =  2446 -- FIX(0.298631336)
 fIX_0_390180644 =  3196 -- FIX(0.390180644)
 fIX_0_541196100 =  4433 -- FIX(0.541196100)
@@ -97,13 +111,12 @@ fIX_2_562915447 = 20995 -- FIX(2.562915447)
 fIX_3_072711026 = 25172 -- FIX(3.072711026)
 
 -- int data[64];
-fastDct :: MutableMacroBlock s Int16
+fastDct :: MutableMacroBlock s Int32
         -> MutableMacroBlock s Int16
-        -> ST s (MutableMacroBlock s Int16)
-fastDct workData block = do
+        -> ST s (MutableMacroBlock s Int32)
+fastDct workData sample_block = do
  firstPass workData  0
  secondPass workData 0
- descaleBlock workData    0
  return workData
   where -- Pass 1: process rows.
         -- Note results are scaled up by sqrt(8) compared to a true DCT;
@@ -111,146 +124,143 @@ fastDct workData block = do
         firstPass         _ 8 = return ()
         firstPass dataBlock i = do
             let baseIdx = i * 8
-            blk0 <- block .!!!. baseIdx
-            blk1 <- block .!!!. baseIdx
-            blk2 <- block .!!!. baseIdx
-            blk3 <- block .!!!. baseIdx
-            blk4 <- block .!!!. baseIdx
-            blk5 <- block .!!!. baseIdx
-            blk6 <- block .!!!. baseIdx
-            blk7 <- block .!!!. baseIdx
-            let tmp0 = blk0 + blk7
-                tmp7 = blk0 - blk7
+                readAt idx = fromIntegral <$> sample_block .!!!. (baseIdx + idx)
+                writeAt idx n = (dataBlock .<-. (baseIdx + idx)) (n .<<. pASS1_BITS)
+                writeData idx n =
+                    (dataBlock .<-. (baseIdx + idx)) (n .>>. (cONST_BITS - pASS1_BITS))
+
+            blk0 <- readAt 0
+            blk1 <- readAt 1
+            blk2 <- readAt 2
+            blk3 <- readAt 3
+            blk4 <- readAt 4
+            blk5 <- readAt 5
+            blk6 <- readAt 6
+            blk7 <- readAt 7
+            let tmp0 = blk0 + blk7 :: Int32
                 tmp1 = blk1 + blk6
-                tmp6 = blk1 - blk6
                 tmp2 = blk2 + blk5
-                tmp5 = blk2 - blk5
                 tmp3 = blk3 + blk4
-                tmp4 = blk3 - blk4
 
                 -- Even part per LL&M figure 1 --- note that published figure is faulty;
                 -- rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
                 tmp10 = tmp0 + tmp3
-                tmp13 = tmp0 - tmp3
+                tmp12 = tmp0 - tmp3
                 tmp11 = tmp1 + tmp2
-                tmp12 = tmp1 - tmp2
+                tmp13 = tmp1 - tmp2
 
-            (dataBlock .<-.  baseIdx     ) ((tmp10 + tmp11) .<<. pASS1_BITS)
-            (dataBlock .<-. (baseIdx + 4)) ((tmp10 - tmp11) .<<. pASS1_BITS)
+                tmp0' = blk0 - blk7
+                tmp1' = blk1 - blk6
+                tmp2' = blk2 - blk5
+                tmp3' = blk3 - blk4
+
+            writeAt 0 $ tmp10 + tmp11 - 8 * cENTERJSAMPLE
+            writeAt 4 $ tmp10 - tmp11
+
             let z1 = (tmp12 + tmp13) * fIX_0_541196100
-            (dataBlock .<-. (baseIdx + 2)) $
-                        descale (z1 + tmp13 * fIX_0_765366865) (cONST_BITS - pASS1_BITS)
-            (dataBlock .<-. (baseIdx + 6)) $
-                        descale (z1 + tmp12 * (-fIX_1_847759065)) (cONST_BITS - pASS1_BITS)
+                    + (1 .<<. (cONST_BITS - pASS1_BITS - 1))
 
-                -- Odd part per figure 8 --- note paper omits factor of sqrt(2).
-                -- cK represents cos(K*pi/16).
-                -- i0..i3 in the paper are tmp4..tmp7 here.
-            let z1' = tmp4 + tmp7;
-                z2 = tmp5 + tmp6;
-                z3 = tmp4 + tmp6;
-                z4 = tmp5 + tmp7;
-                z5 = (z3 + z4) * fIX_1_175875602       -- sqrt(2) * c3
+            writeData 2 $ z1 + tmp12 * fIX_0_765366865
+            writeData 6 $ z1 - tmp13 * (-fIX_1_847759065)
 
-                tmp4' = tmp4 * fIX_0_298631336         -- sqrt(2) * (-c1+c3+c5-c7)
-                tmp5' = tmp5 * fIX_2_053119869         -- sqrt(2) * ( c1+c3-c5+c7)
-                tmp6' = tmp6 * fIX_3_072711026         -- sqrt(2) * ( c1+c3+c5-c7)
-                tmp7' = tmp7 * fIX_1_501321110         -- sqrt(2) * ( c1+c3-c5-c7)
-                z1'' = z1' * (-fIX_0_899976223)        -- sqrt(2) * (c7-c3)
-                z2' = z2 * (-fIX_2_562915447)          -- sqrt(2) * (-c1-c3)
-                z3' = z3 * (-fIX_1_961570560)          -- sqrt(2) * (-c3-c5)
-                z4' = z4 * (-fIX_0_390180644)          -- sqrt(2) * (c5-c3)
+            let tmp10' = tmp0' + tmp3';
+                tmp11' = tmp1' + tmp2';
+                tmp12' = tmp0' + tmp2';
+                tmp13' = tmp1' + tmp3';
 
-                z3'' = z3' + z5
-                z4'' = z4' + z5
+                z1' = (tmp12 + tmp13) * fIX_1_175875602
+                     + (1 .<<. (cONST_BITS - pASS1_BITS - 1))
 
-            (dataBlock .<-. (baseIdx + 7)) $ 
-                descale (tmp4' + z1'' + z3'') (cONST_BITS - pASS1_BITS)
-            (dataBlock .<-. (baseIdx + 5)) $
-                descale (tmp5' + z2' + z4'') (cONST_BITS - pASS1_BITS)
-            (dataBlock .<-. (baseIdx + 3)) $
-                descale (tmp6' + z2' + z3'') (cONST_BITS - pASS1_BITS)
-            (dataBlock .<-. (baseIdx + 1)) $
-                descale (tmp7' + z1'' + z4'') (cONST_BITS - pASS1_BITS)
+                tmp0''  =  tmp0' *    fIX_1_501321110  --  c1+c3-c5-c7
+                tmp1''  =  tmp1' *    fIX_3_072711026  --  c1+c3+c5-c7
+                tmp2''  =  tmp2' *    fIX_2_053119869  --  c1+c3-c5+c7
+                tmp3''  =  tmp3' *    fIX_0_298631336  -- -c1+c3+c5-c7
+                tmp10''  = tmp10' * (- fIX_0_899976223)  --  c7-c3
+                tmp11''  = tmp11' * (- fIX_2_562915447)  -- -c1-c3
+                tmp12''  = tmp12' * (- fIX_0_390180644)  --  c5-c3
+                        + z1'
+                tmp13''  = tmp13' * (- fIX_1_961570560)  -- -c3-c5
+                        + z1'
+
+            writeData 1 $ tmp0'' + tmp10'' + tmp12''
+            writeData 3 $ tmp1'' + tmp11'' + tmp13''
+            writeData 5 $ tmp2'' + tmp11'' + tmp12''
+            writeData 7 $ tmp3'' + tmp10'' + tmp13''
 
             firstPass dataBlock $ i + 1
-
 
         -- Pass 2: process columns.
         -- We remove the PASS1_BITS scaling, but leave the results scaled up
         -- by an overall factor of 8.
-        secondPass :: M.STVector s Int16 -> Int -> ST s ()
-        secondPass _         8 = return ()
-        secondPass dataBlock i = do
-            data0  <- dataBlock .!!!.  i
-            data8  <- dataBlock .!!!. (i + 8)
-            data16 <- dataBlock .!!!. (i + 16)
-            data24 <- dataBlock .!!!. (i + 24)
-            data32 <- dataBlock .!!!. (i + 32)
-            data40 <- dataBlock .!!!. (i + 40)
-            data48 <- dataBlock .!!!. (i + 48)
-            data56 <- dataBlock .!!!. (i + 56)
+        secondPass :: M.STVector s Int32 -> Int -> ST s ()
+        secondPass _     8 = return ()
+        secondPass block i = do
+            let readAt idx = block .!!!. (i + idx * 8)
+                writeAt idx n = (block .<-. (8 * idx + i)) (n .>>. pASS1_BITS)
+                writeData idx n =
+                    (block .<-. (idx * 8 + i)) (n .>>. (cONST_BITS + pASS1_BITS))
+            blk0 <- readAt 0
+            blk1 <- readAt 1
+            blk2 <- readAt 2
+            blk3 <- readAt 3
+            blk4 <- readAt 4
+            blk5 <- readAt 5
+            blk6 <- readAt 6
+            blk7 <- readAt 7
 
-            let tmp0 = data0 + data56
-                tmp7 = data0 - data56
-                tmp1 = data8 + data48
-                tmp6 = data8 - data48
-                tmp2 = data16 + data40
-                tmp5 = data16 - data40
-                tmp3 = data24 + data32
-                tmp4 = data24 - data32
+            let tmp0 = blk0 + blk7
+                tmp1 = blk1 + blk6
+                tmp2 = blk2 + blk5
+                tmp3 = blk3 + blk4
 
                 -- Even part per LL&M figure 1 --- note that published figure is faulty
                 -- rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
-                tmp10 = tmp0 + tmp3
-                tmp13 = tmp0 - tmp3
+                tmp10 = tmp0 + tmp3 + (1 .<<. (pASS1_BITS - 1))
+                tmp12 = tmp0 - tmp3
                 tmp11 = tmp1 + tmp2
-                tmp12 = tmp1 - tmp2
+                tmp13 = tmp1 - tmp2
 
-            (dataBlock .<-.  i      ) $ descale (tmp10 + tmp11) pASS1_BITS
-            (dataBlock .<-. (i + 32)) $ descale (tmp10 - tmp11) pASS1_BITS
+                tmp0' = blk0 - blk7
+                tmp1' = blk1 - blk6
+                tmp2' = blk2 - blk5
+                tmp3' = blk3 - blk4
+
+            writeAt 0 $ (tmp10 + tmp11)
+            writeAt 4 $ (tmp10 - tmp11)
 
             let z1 = (tmp12 + tmp13) * fIX_0_541196100
-            (dataBlock .<-. (i + 16)) $
-                        descale (z1 + tmp13 * fIX_0_765366865) (cONST_BITS + pASS1_BITS)
-            (dataBlock .<-. (i + 48)) $
-                        descale (z1 + tmp12 * (-fIX_1_847759065)) (cONST_BITS + pASS1_BITS)
+                    + (1 .<<. (cONST_BITS + pASS1_BITS - 1))
 
-                -- Odd part per figure 8 --- note paper omits factor of sqrt(2).
-                -- cK represents cos(K*pi/16).
-                -- i0..i3 in the paper are tmp4..tmp7 here.
-            let z1' = tmp4 + tmp7
-                z2 = tmp5 + tmp6
-                z3 = tmp4 + tmp6
-                z4 = tmp5 + tmp7
-                z5 = (z3 + z4) * fIX_1_175875602       -- sqrt(2) * c3
+            writeData 2 $ z1 + tmp12 * fIX_0_765366865
+            writeData 6 $ z1 - tmp13 * fIX_1_847759065
 
-                tmp4' = tmp4 * fIX_0_298631336        -- sqrt(2) * (-c1+c3+c5-c7)
-                tmp5' = tmp5 * fIX_2_053119869        -- sqrt(2) * ( c1+c3-c5+c7)
-                tmp6' = tmp6 * fIX_3_072711026        -- sqrt(2) * ( c1+c3+c5-c7)
-                tmp7' = tmp7 * fIX_1_501321110        -- sqrt(2) * ( c1+c3-c5-c7)
-                z1'' = z1' * (-fIX_0_899976223)  -- sqrt(2) * (c7-c3)
-                z2'  = z2 * (-fIX_2_562915447)   -- sqrt(2) * (-c1-c3)
-                z3'  = z3 * (-fIX_1_961570560)   -- sqrt(2) * (-c3-c5)
-                z4'  = z4 * (-fIX_0_390180644)   -- sqrt(2) * (c5-c3)
+            -- Odd part per figure 8 --- note paper omits factor of sqrt(2).
+            -- cK represents cos(K*pi/16).
+            -- i0..i3 in the paper are tmp4..tmp7 here.
+            let tmp10' = tmp0' + tmp3'
+                tmp11' = tmp1' + tmp2'
+                tmp12' = tmp0' + tmp2'
+                tmp13' = tmp1' + tmp3'
 
-                z3'' = z3' + z5;
-                z4'' = z4' + z5;
+                z1' = (tmp12 + tmp13) * fIX_1_175875602 -- c3
+                    -- Add fudge factor here for final descale.
+                     + (1 .<<. (cONST_BITS + pASS1_BITS - 1))
 
-            (dataBlock .<-. (i + 56)) $
-                descale (tmp4' + z1'' + z3'') (cONST_BITS + pASS1_BITS)
-            (dataBlock .<-. (i + 40)) $
-                descale (tmp5' + z2' + z4'') (cONST_BITS + pASS1_BITS)
-            (dataBlock .<-. (i + 24)) $
-                descale (tmp6' + z2' + z3'') (cONST_BITS + pASS1_BITS)
-            (dataBlock .<-. (i +  8)) $
-                descale (tmp7' + z1'' + z4'') (cONST_BITS + pASS1_BITS)
+                tmp0''  = tmp0' *    fIX_1_501321110    --  c1+c3-c5-c7
+                tmp1''  = tmp1' *    fIX_3_072711026    --  c1+c3+c5-c7
+                tmp2''  = tmp2' *    fIX_2_053119869    --  c1+c3-c5+c7
+                tmp3''  = tmp3' *    fIX_0_298631336    -- -c1+c3+c5-c7
+                tmp10'' = tmp10' * (- fIX_0_899976223)  --  c7-c3
+                tmp11'' = tmp11' * (- fIX_2_562915447)  -- -c1-c3
+                tmp12'' = tmp12' * (- fIX_0_390180644)  --  c5-c3
+                         + z1'
+                tmp13'' = tmp13' * (- fIX_1_961570560)  -- -c3-c5
+                         + z1'
 
-            secondPass dataBlock (i + 1)
+            writeData 1 $ tmp0'' + tmp10'' + tmp12''
+            writeData 3 $ tmp1'' + tmp11'' + tmp13''
+            writeData 5 $ tmp2'' + tmp11'' + tmp12''
+            writeData 7 $ tmp3'' + tmp10'' + tmp13''
 
-        descaleBlock         _ 64 = return ()
-        descaleBlock dataBlock  i = do
-            val <- dataBlock .!!!. i
-            (block .<-. i) . fromIntegral $ descale val 3
-            descaleBlock dataBlock (i + 1)
+            secondPass block (i + 1)
 

@@ -4,6 +4,7 @@
 -- in user code.
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
+									 , HuffmanTable
 									 , MacroBlock
 									 , QuantificationTable
 									 , HuffmanWriterCode 
@@ -33,7 +34,7 @@ import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Data.Bits( shiftL, (.|.) )
 import Data.Int( Int16 )
-import Data.Word( Word8 )
+import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 
 -- | Tree storing the code used for huffman encoding.
@@ -42,7 +43,7 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the firs
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
-type HuffmanWriterCode = V.Vector (Word8, Word8)
+type HuffmanWriterCode = V.Vector (Word8, Word16)
 
 makeInverseTable :: HuffmanTree -> HuffmanWriterCode
 makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
@@ -86,7 +87,16 @@ buildHuffmanTree table = foldl' insertHuffmanVal Empty
 
 defaultLumaQuantizationTable :: QuantificationTable
 defaultLumaQuantizationTable = makeMacroBlock
-    [16, 11, 10, 16,  24,  40,  51,  61
+    [1, 1, 1, 1,  1,  1,  1,  1
+    ,1, 1, 1, 1,  1,  1,  1,  1
+    ,1, 1, 1, 1,  1,  1,  1,  1
+    ,1, 1, 1, 1,  1,  1,  1,  1
+    ,1, 1, 1, 1,  1, 1, 1,  1
+    ,1, 1, 1, 1,  1, 1, 1,  1
+    ,1, 1, 1, 1, 1, 1, 1, 1
+    ,1, 1, 1, 1, 1, 1, 1,  1
+    ]
+{-  [16, 11, 10, 16,  24,  40,  51,  61
     ,12, 12, 14, 19,  26,  58,  60,  55
     ,14, 13, 16, 24,  40,  57,  69,  56
     ,14, 17, 22, 29,  51,  87,  80,  62
@@ -95,18 +105,27 @@ defaultLumaQuantizationTable = makeMacroBlock
     ,49, 64, 78, 87, 103, 121, 120, 101
     ,72, 92, 95, 98, 112, 100, 103,  99
     ]
-
+-}
 defaultChromaQuantizationTable :: QuantificationTable
 defaultChromaQuantizationTable = makeMacroBlock
-    [17, 18, 24, 47, 99, 99, 99, 99
-    ,18, 21, 26, 66, 99, 99, 99, 99
-    ,24, 26, 56, 99, 99, 99, 99, 99
-    ,47, 66, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
-    ,99, 99, 99, 99, 99, 99, 99, 99
+    [2, 2, 2, 2,  2,  2,  2,  2
+    ,2, 2, 2, 2,  2,  2,  2,  2
+    ,2, 2, 2, 2,  2,  2,  2,  2
+    ,2, 2, 2, 2,  2,  2,  2,  2
+    ,2, 2, 2, 2,  2, 2, 2,  2
+    ,2, 2, 2, 2,  2, 2, 2,  2
+    ,2, 2, 2, 2, 2, 2, 2, 2
+    ,2, 2, 2, 2, 2, 2, 2,  2
     ]
+    {-[17, 18, 24, 47, 99, 99, 99, 99-}
+    {-,18, 21, 26, 66, 99, 99, 99, 99-}
+    {-,24, 26, 56, 99, 99, 99, 99, 99-}
+    {-,47, 66, 99, 99, 99, 99, 99, 99-}
+    {-,99, 99, 99, 99, 99, 99, 99, 99-}
+    {-,99, 99, 99, 99, 99, 99, 99, 99-}
+    {-,99, 99, 99, 99, 99, 99, 99, 99-}
+    {-,99, 99, 99, 99, 99, 99, 99, 99-}
+    {-]-}
 
 defaultDcLumaHuffmanTree :: HuffmanTree
 defaultDcLumaHuffmanTree = buildHuffmanTree defaultDcLumaHuffmanTable
