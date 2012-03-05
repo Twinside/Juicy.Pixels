@@ -36,6 +36,8 @@ Test-Suite test-juicy
                  cereal,
                  bytestring,
                  transformers,
+                 vector,
+                 primitive,
                  deepseq >= 1.1 && < 1.4,
                  HUnit >= 1.2 && < 1.3,
                  Cabal >= 1.10.2
@@ -43,7 +45,7 @@ Test-Suite test-juicy
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -O3 -Wall
+  Ghc-options: -O0 -Wall
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base,
                  array,

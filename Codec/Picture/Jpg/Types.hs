@@ -34,7 +34,7 @@ type MutableMacroBlock s a = M.STVector s a
 
 {-# INLINE createEmptyMutableMacroBlock #-}
 -- | Create a new macroblock with the good array size
-createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
+createEmptyMutableMacroBlock :: (Storable a, Num a) => ST s (MutableMacroBlock s a)
 createEmptyMutableMacroBlock = M.replicate 64 0
 
 {-# INLINE mutate #-}

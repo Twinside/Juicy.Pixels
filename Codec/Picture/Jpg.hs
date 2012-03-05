@@ -274,6 +274,7 @@ instance Serialize JpgHuffmanTableSpec where
 instance Serialize JpgImage where
     put (JpgImage { jpgFrame = frames }) = do
         putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
+            >> putWord8 0xFF >> putWord8 0xD9
 
     get = do
         let startOfImageMarker = 0xD8
@@ -507,6 +508,21 @@ zigZagOrder = makeMacroBlock $ concat
     ,[21,34,37,47,50,56,59,61]
     ,[35,36,48,49,57,58,62,63]
     ]
+
+zigZagReorderForward :: (Storable a, Num a)
+                     => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
+zigZagReorderForward block = do
+    zigzaged <- M.replicate 64 0
+    let update i =  do
+            let idx = zigZagOrder !!! i
+            v <- block .!!!. i
+            (zigzaged .<-. fromIntegral idx) v
+
+        reorder 63 = update 63
+        reorder i  = update i >> reorder (i + 1)
+
+    reorder (0 :: Int)
+    return zigzaged
 
 zigZagReorder :: (Storable a, Num a)
               => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
@@ -911,23 +927,27 @@ serializeMacroBlock dcCode acCode blk =
             encodeAc zeroRunLength n >> return (0, i + 1)
 
 encodeMacroBlock :: QuantificationTable
+                 -> Int16
                  -> MutableMacroBlock s Int16
-                 -> ST s (MutableMacroBlock s Int32)
-encodeMacroBlock quantTableOfComponent block = do
+                 -> ST s (Int32, MutableMacroBlock s Int32)
+encodeMacroBlock quantTableOfComponent prev_dc block = do
  s <- printMacroBlock block
  workData <- (trace s) $ M.new 64
  let inverseLevelShift = mutate (\_ v -> v - 128)
  -- inverse level shift
- inverseLevelShift block
-        >>= fastDct workData
+ blk <- inverseLevelShift block
+        >>= slowFdct workData
         >>= (\a -> do s' <- printMacroBlock a
                       trace ("dct =========/" ++ s' ++ "/==========") $ return a)
         >>= quantize quantTableOfComponent
         >>= (\a -> do s' <- printMacroBlock a
                       trace ("quant =========/" ++ s' ++ "/==========") $ return a)
-        >>= zigZagReorder 
+        >>=  zigZagReorderForward
         >>= (\a -> do s' <- printMacroBlock a
                       trace ("reorder =========/" ++ s' ++ "/==========") $ return a)
+ dc <- blk .!!!. 0
+ (blk .<-. 0) $ dc - fromIntegral prev_dc
+ return (dc, blk)
 
 divUpward :: (Integral a) => a -> a -> a
 divUpward n dividor = val + (if rest /= 0 then 1 else 0)
@@ -1032,7 +1052,8 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> 
   
                 imageComponentCount = length componentDef
             block <- lift $ M.new 64
-            let blockList = [(table, dc, ac, extractBlock img block xSamplingFactor ySamplingFactor
+            dc_table <- lift $ M.new 3
+            let blockList = [(comp, table, dc, ac, extractBlock img block xSamplingFactor ySamplingFactor
                                                   imageComponentCount comp blockX blockY)
                                     | my <- [0 .. verticalMetaBlockCount - 1]
                                     , mx <- [0 .. horizontalMetaBlockCount - 1]
@@ -1045,7 +1066,9 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> 
                                           ySamplingFactor = maxSampling - sizeY + 1
                                     ]
   
-            forM_ blockList $ \(table, dc, ac, extractor) -> do
-                lift (extractor >>= encodeMacroBlock table)
-                    >>= serializeMacroBlock dc ac
+            forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
+                prev_dc <- lift $ dc_table .!!!. comp
+                (dc_coeff, neo_block) <- lift (extractor >>= encodeMacroBlock table prev_dc)
+                lift . (dc_table .<-. comp) $ fromIntegral dc_coeff
+                serializeMacroBlock dc ac neo_block
 
