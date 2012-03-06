@@ -6,7 +6,6 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               ) where
 
 import Control.Monad.ST( ST )
-import Data.Int( Int16 )
 import Foreign.Storable ( Storable )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Data.Vector.Storable as V

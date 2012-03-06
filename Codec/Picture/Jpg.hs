@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
-module Codec.Picture.Jpg( readJpeg, decodeJpeg, encodeJpeg ) where
+module Codec.Picture.Jpg( decodeJpeg, encodeJpeg ) where
 
 import Control.Arrow( (>>>) )
 import Control.Applicative( (<$>), (<*>))
@@ -807,12 +807,6 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
                      , let unpacker = unpackMacroBlock imgComponentCount compIdx 
                                                     xScalingFactor yScalingFactor
                      ]
-
--- | Try to load a jpeg file and decompress. The colorspace is still
--- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'colorSpaceConversion'
-readJpeg :: FilePath -> IO (Either String DynamicImage)
-readJpeg f = decodeJpeg <$> B.readFile f
 
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can

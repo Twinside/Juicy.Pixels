@@ -11,7 +11,6 @@
 module Codec.Picture.Png( -- * High level functions
                           PngSavable( .. )
 
-                        , readPng
                         , decodePng
                         , writePng
                         , encodeDynamicPng
@@ -19,7 +18,7 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( foldM_, forM_, when, liftM )
+import Control.Monad( foldM_, forM_, when )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
@@ -398,10 +397,6 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- V.toList img
                                      , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
-
--- | Helper function trying to load a png file from a file on disk.
-readPng :: FilePath -> IO (Either String DynamicImage)
-readPng path = liftM decodePng (B.readFile path)
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
