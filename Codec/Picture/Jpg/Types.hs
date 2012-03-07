@@ -10,23 +10,26 @@ import Foreign.Storable ( Storable )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Vector.Storable( (!) )
+-- import Data.Vector.Storable( (!) )
 
 import Text.Printf
 
 {-# INLINE (!!!) #-}
 (!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = (!) -- V.unsafeIndex
+(!!!) = -- (!) 
+        V.unsafeIndex
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
         => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.read -- M.unsafeRead
+(.!!!.) = -- M.read
+          M.unsafeRead
 
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a)
        => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.write -- M.unsafeWrite
+(.<-.) = -- M.write 
+         M.unsafeWrite
 
 -- | Macroblock that can be transformed.
 type MutableMacroBlock s a = M.STVector s a
