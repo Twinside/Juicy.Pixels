@@ -163,10 +163,10 @@ imgToJpeg path = do
     rez <- readImage path
     case rez of
         Right (ImageYCbCr8 img) ->
-            let str = encodeJpeg img 0
+            let str = encodeJpeg img
             in B.writeFile (path ++ ".jpg") str >> return str
         Right (ImageRGB8 img) ->
-            let str = encodeJpeg (convertImage img) 0
+            let str = encodeJpeg (convertImage img)
             in B.writeFile (path ++ ".jpg") str >> return str
         Left err ->
             error $ "Error loading " ++ path ++ " " ++ show err

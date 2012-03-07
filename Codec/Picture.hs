@@ -26,6 +26,8 @@ module Codec.Picture (
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg 
+                     , encodeJpeg
+                     , encodeJpegAtQuality
 
                      -- ** Png handling
                      , PngSavable( .. )
@@ -54,7 +56,7 @@ import Control.Exception( catch, IOException )
 import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
                            , writeBitmap, encodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
-import Codec.Picture.Jpg( decodeJpeg )
+import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Types

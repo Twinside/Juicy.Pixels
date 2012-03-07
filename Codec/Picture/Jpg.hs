@@ -4,7 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
-module Codec.Picture.Jpg( decodeJpeg, encodeJpeg ) where
+module Codec.Picture.Jpg( decodeJpeg, encodeJpegAtQuality, encodeJpeg ) where
 
 import Control.Arrow( (>>>) )
 import Control.Applicative( (<$>), (<*>))
@@ -947,14 +947,20 @@ prepareHuffmanTable classVal dest tableDef =
                         }, Empty)
       where sizes = listArray (0,15) $ map (fromIntegral . length) tableDef   
 
+-- | Encode an image in jpeg at a reasonnable quality level.
+-- If you want better quality or reduced file size, you should
+-- use `encodeJpegAtQuality`
+encodeJpeg :: Image PixelYCbCr8 -> B.ByteString
+encodeJpeg = encodeJpegAtQuality 50
+
 -- | Function to call to encode an image to jpeg
-encodeJpeg :: Image PixelYCbCr8 -> Word8 -> B.ByteString
-encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> trace (("file : " ++) . show . map (printf "%02X" :: Word8 -> String) $ B.unpack a) a) $ 
+encodeJpegAtQuality :: Word8 -> Image PixelYCbCr8 -> B.ByteString
+encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
     encode finalImage
   where finalImage = JpgImage [ JpgQuantTable quantTables
                               , JpgScans JpgBaselineDCTHuffman hdr
                               , JpgHuffmanTable huffTables
-                              , JpgScanBlob scanHeader {-  . (\a -> trace (("entropy coded : " ++). show . map (printf "%02X" :: Word8 -> String) $ B.unpack a) a) -}$ runPut encodedImage
+                              , JpgScanBlob scanHeader $ runPut encodedImage
                               ]
 
         huffTables = [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
@@ -1013,10 +1019,12 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> 
                                   ]
                               })
 
+        lumaQuant = scaleQuantisationMatrix (fromIntegral quality) defaultLumaQuantizationTable 
+        chromaQuant = scaleQuantisationMatrix (fromIntegral quality) defaultChromaQuantizationTable  
         quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
-                                          , quantTable = defaultLumaQuantizationTable }
+                                          , quantTable = lumaQuant }
                       , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
-                                          , quantTable = defaultChromaQuantizationTable }
+                                          , quantTable = chromaQuant }
                       ]
 
         (encodedImage, _, _) = runST toExtract
@@ -1024,10 +1032,10 @@ encodeJpeg img@(Image { imageWidth = w, imageHeight = h }) _quality = -- (\a -> 
             let horizontalMetaBlockCount = w `divUpward` (8 * maxSampling)
                 verticalMetaBlockCount = h `divUpward` (8 * maxSampling)
                 maxSampling = 2
-                lumaSamplingSize = ( maxSampling, maxSampling, defaultLumaQuantizationTable
+                lumaSamplingSize = ( maxSampling, maxSampling, lumaQuant
                                    , makeInverseTable defaultDcLumaHuffmanTree
                                    , makeInverseTable defaultAcLumaHuffmanTree)
-                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, defaultChromaQuantizationTable
+                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, chromaQuant
                                      , makeInverseTable defaultDcChromaHuffmanTree
                                      , makeInverseTable defaultAcChromaHuffmanTree)
                 componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
