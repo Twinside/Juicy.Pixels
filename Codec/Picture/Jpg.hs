@@ -923,7 +923,7 @@ encodeMacroBlock quantTableOfComponent prev_dc block = do
  let inverseLevelShift = mutate (\_ v -> v - 128)
  -- inverse level shift
  blk <- inverseLevelShift block
-        >>= slowFdct workData
+        >>= fastDct workData
         >>= quantize quantTableOfComponent
         >>= zigZagReorderForward
 
