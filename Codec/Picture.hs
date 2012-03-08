@@ -13,6 +13,8 @@ module Codec.Picture (
                      -- * Generic functions
                        readImage
                      , decodeImage
+                     , pixelMap
+
                      -- * Specific image format functions
                      -- ** Bitmap handling 
                      , BmpEncodable

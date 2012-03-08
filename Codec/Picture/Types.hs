@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.Types( -- * Types
@@ -21,12 +22,19 @@ module Codec.Picture.Types( -- * Types
                           , ColorConvertible( .. )
                           , Pixel(..)
                           , ColorSpaceConvertible( .. )
+                          , LumaPlaneExtractable( .. )
+                          , TransparentPixel( .. )
+
                             -- * Helper functions
                           , canConvertTo
+                          , extractComponent
+                          , pixelMap
+                          , dropAlphaLayer
                           ) where
 
+import Control.Monad( forM_ )
 import Control.Applicative( (<$>), (<*>) )
-import Control.DeepSeq
+import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable, sizeOf, alignment, peek, poke )
@@ -51,6 +59,53 @@ data Image a = Image
       -- you should use the helpers functions.
     , imageData   :: V.Vector Word8
     }
+
+{-# INLINE (!!!) #-}
+(!!!) :: (Storable e) => V.Vector e -> Int -> e
+(!!!) = V.unsafeIndex
+
+-- | Extract an image plane of an image, returning an image which
+-- can be represented by a gray scale image.
+extractComponent :: forall a. (Pixel a) 
+                 => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
+                 -> Image a -- ^ Source image
+                 -> Image Pixel8
+extractComponent comp img@(Image { imageWidth = w, imageHeight = h }) =
+  Image { imageWidth = w, imageHeight = h, imageData = plane }
+    where plane = stride img 1 padd comp
+          padd = componentCount (undefined :: a) - 1
+
+dropAlphaLayer :: (TransparentPixel a b) => Image a -> Image b
+dropAlphaLayer = pixelMap dropTransparency
+
+-- | Class modeling transparent pixel, should provide a method
+-- to combine transparent pixels
+class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
+    -- | Just return the opaque pixel value
+    dropTransparency :: a -> b
+
+instance TransparentPixel PixelYA8 Pixel8 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelYA8 y _) = y
+
+instance TransparentPixel PixelRGBA8 PixelRGB8 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
+
+stride :: Image a -> Int -> Int -> Int -> V.Vector Word8
+stride Image { imageWidth = w, imageHeight = h, imageData = array }
+        run padd firstComponent = runST $ do
+    let cell_count = w * h * run
+    outArray <- M.new cell_count
+
+    let strideWrite write_idx _ | write_idx == cell_count = return ()
+        strideWrite write_idx read_idx = do
+            forM_ [0 .. run - 1] $ \i ->
+                (outArray .<-. (write_idx + i)) $ array !!! (read_idx + i)
+            strideWrite (write_idx + run) (read_idx + padd)
+            
+    strideWrite 0 firstComponent
+    V.unsafeFreeze outArray
 
 instance NFData (Image a) where
     rnf (Image width height dat) = width  `seq`
@@ -149,7 +204,8 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
 --
 --  * Blue
 --
--- * Alpha
+--  * Alpha
+--
 data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Green
                              {-# UNPACK #-} !Word8 -- Blue
@@ -341,39 +397,75 @@ class (Pixel a, Pixel b) => ColorConvertible a b where
     -- | Change the underlying pixel type of an image by performing a full copy
     -- of it.
     promoteImage :: Image a -> Image b
-    promoteImage image@(Image { imageWidth = w, imageHeight = h }) =
-        Image w h pixels
-         where pixels = runST $ do
-                    newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
-                    let wrapped = MutableImage w h newArr
-                        promotedPixel :: Int -> Int -> b
-                        promotedPixel x y = promotePixel $ pixelAt image x y
-                    sequence_ [writePixel wrapped x y $ promotedPixel x y
-                                        | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
-                    -- unsafeFreeze avoids making a second copy and it will be
-                    -- safe because newArray can't be referenced as a mutable array
-                    -- outside of this where block
-                    V.unsafeFreeze newArr
+    promoteImage = pixelMap promotePixel
 
 -- | This class abstract colorspace conversion. This
 -- conversion can be lossy, which ColorConvertible cannot
 class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
+    -- | Pass a pixel from a colorspace (say RGB) to the second one
+    -- (say YCbCr)
     convertPixel :: a -> b
 
+    -- | Helper function to convert a whole image by taking a
+    -- copy it.
     convertImage :: Image a -> Image b
-    convertImage image@(Image { imageWidth = w, imageHeight = h }) =
-        Image w h pixels
-         where pixels = runST $ do
-                    newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
-                    let wrapped = MutableImage w h newArr
-                        promotedPixel :: Int -> Int -> b
-                        promotedPixel x y = convertPixel $ pixelAt image x y
-                    sequence_ [writePixel wrapped x y $ promotedPixel x y
-                                        | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
-                    -- unsafeFreeze avoids making a second copy and it will be
-                    -- safe because newArray can't be referenced as a mutable array
-                    -- outside of this where block
-                    V.unsafeFreeze newArr
+    convertImage = pixelMap convertPixel
+
+{-# INLINE pixelMap #-}
+-- | `map` equivalent for an image, working at the pixel level.
+pixelMap :: forall a b. (Pixel a, Pixel b) => (a -> b) -> Image a -> Image b
+pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
+    Image w h pixels
+        where pixels = runST $ do
+                newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
+                let wrapped = MutableImage w h newArr
+                    promotedPixel :: Int -> Int -> b
+                    promotedPixel x y = f $ pixelAt image x y
+                sequence_ [writePixel wrapped x y $ promotedPixel x y
+                                    | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+                -- unsafeFreeze avoids making a second copy and it will be
+                -- safe because newArray can't be referenced as a mutable array
+                -- outside of this where block
+                V.unsafeFreeze newArr
+
+-- | Helper class to help extract a luma plane out
+-- of an image or a pixel
+class (Pixel a) => LumaPlaneExtractable a where
+    -- | Compute the luminance part of a pixel
+    computeLuma      :: a -> Pixel8
+
+    -- | Extract a luma plane out of an image. This
+    -- method is in the typeclass to help performant
+    -- implementation.
+    extractLumaPlane :: Image a -> Image Pixel8
+    extractLumaPlane = pixelMap computeLuma
+
+instance LumaPlaneExtractable Pixel8 where
+    {-# INLINE computeLuma #-}
+    computeLuma = id
+    extractLumaPlane = id
+
+instance LumaPlaneExtractable PixelRGB8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * (toRational r) + 
+                                            0.59 * (toRational g) +
+                                            0.11 * (toRational b)
+
+instance LumaPlaneExtractable PixelRGBA8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * (toRational r) + 
+                                             0.59 * (toRational g) +
+                                             0.11 * (toRational b)
+
+instance LumaPlaneExtractable PixelYA8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelYA8 y _) = y
+    extractLumaPlane = extractComponent 0
+
+instance LumaPlaneExtractable PixelYCbCr8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelYCbCr8 y _ _) = y
+    extractLumaPlane = extractComponent 0
 
 -- | Free promotion for identic pixel types
 instance (Pixel a) => ColorConvertible a a where
