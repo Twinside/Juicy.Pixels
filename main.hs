@@ -158,37 +158,84 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
-imgToJpeg :: FilePath -> IO (B.ByteString)
-imgToJpeg path = do
+validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
+validationJpegEncode = encodeJpegAtQuality 100
+
+imgToImg :: FilePath -> IO ()
+imgToImg path = do
     rez <- readImage path
     case rez of
-        Right (ImageYCbCr8 img) ->
-            let str = encodeJpeg img
-            in B.writeFile (path ++ ".jpg") str >> return str
-        Right (ImageRGB8 img) ->
-            let str = encodeJpeg (convertImage img)
-            in B.writeFile (path ++ ".jpg") str >> return str
+        Right (ImageYCbCr8 img) -> do
+            let rgb = convertImage img :: Image PixelRGB8
+                jpg = validationJpegEncode img
+                png = encodePng rgb
+                bmp = encodeBitmap rgb
+            putStrLn $ "YCbCr : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromYCbCr8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromYCbCr8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromYCbCr8.png") png
+
+        Right (ImageRGB8 img) -> do
+            let jpg = validationJpegEncode (convertImage img)
+                png = encodePng img
+                bmp = encodeBitmap img
+            putStrLn $ "RGB8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromRGB8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromRGB8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromRGB8.png") png
+
+        Right (ImageRGBA8 img) -> do
+            let bmp = encodeBitmap img
+                jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
+                png = encodePng img
+            putStrLn $ "RGBA8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ ".fromRGBA8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ ".fromRGBA8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ ".fromRGBA8.png") png
+
+        Right (ImageY8 img) -> do
+            let bmp = encodeBitmap img
+                jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
+                png = encodePng img
+            putStrLn $ "Y8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromY8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromY8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromY8.png") png
+
+        Right (ImageYA8 img) -> do
+            let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
+                png = encodePng $ (promoteImage img :: Image PixelRGBA8)
+                jpg = validationJpegEncode $ convertImage
+                                (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
+            putStrLn $ "YA8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromYA8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromYA8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromYA8.png") png
+
         Left err ->
             error $ "Error loading " ++ path ++ " " ++ show err
-        Right _ -> error $ "Pixel type hunandled"
 
 main :: IO ()
 main = do 
-    {-imgToJpeg "tests/pngsuite/"-}
-    {-imgToJpeg "tests/jpeg/avatar.jpg"-}
-    _str <- imgToJpeg "tests/jpeg/16x16jpeg.jpg"
-    _str <- imgToJpeg "tests/jpeg/avatar.jpg"
-    _str <- imgToJpeg "tests/jpeg/fenek.jpg"
-    _str <- imgToJpeg "tests/jpeg/sheep.jpg"
-    _str <- imgToJpeg "tests/jpeg/JPEG_example_JPG_RIP_100.jpg"
- 
-    {-convertJpegToPng "tests/jpeg/16x16jpeg.jpg.jpg"-}
-    -- convertJpegToPngStr $ B.concat [str, (B.replicate 1000 0)  ]
     putStrLn ">>>> Valid instances"
-    {-mapM_ (convertBitmapToPng . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests-}
-    {-mapM_ (convertJpegToPng . (("tests" </> "jpeg") </>)) jpegValidTests-}
-    {-mapM_ (convertJpegToBmp . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests ++ ["huge.jpg" ])
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
