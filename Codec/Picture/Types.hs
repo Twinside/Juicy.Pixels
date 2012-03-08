@@ -645,17 +645,10 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
             gf = fromIntegral g
             bf = fromIntegral b
 
-            y = 0.2126 * (219/255) * rf
-              + 0.7152 * (219/255) * gf
-              + 0.0722 * (219/255) * bf + 16
 
-            cb = (-0.2126) / 1.18556 * (224/255) * rf
-               - 0.7152 / 1.8556 * (224/255) * gf
-               + 0.5 * (219/255) * bf + 128
-
-            cr = 0.5 * (224/255) * rf
-               - 0.7152 / 1.5748 * (224/255) * gf
-               - 0.0722 / 1.5748 * (224/255) * bf + 128
+            y  =  0.29900 * rf + 0.58700 * gf + 0.11400 * bf
+            cb = -0.16874 * rf - 0.33126 * gf + 0.50000 * bf + 128
+            cr =  0.50000 * rf - 0.41869 * gf - 0.08131 * bf + 128
 
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE convertPixel #-}
