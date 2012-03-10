@@ -21,7 +21,7 @@ import Data.Serialize( Serialize(..), Get, Put
                      , getWord8, putWord8
                      , getWord16be, putWord16be
                      , remaining, lookAhead, skip
-                     , getBytes, decode, runPut
+                     , getBytes, decode
                      , encode, putByteString 
                      )
 import Data.Maybe( fromJust )
@@ -505,9 +505,10 @@ zigZagOrder = makeMacroBlock $ concat
     ]
 
 zigZagReorderForward :: (Storable a, Num a)
-                     => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
-zigZagReorderForward block = do
-    zigzaged <- M.replicate 64 0
+                     => MutableMacroBlock s a
+                     -> MutableMacroBlock s a
+                     -> ST s (MutableMacroBlock s a)
+zigZagReorderForward zigzaged block = do
     let update i =  do
             let idx = zigZagOrder !!! i
             v <- block .!!!. i
@@ -915,17 +916,18 @@ serializeMacroBlock dcCode acCode blk =
             encodeAc zeroRunLength n >> return (0, i + 1)
 
 encodeMacroBlock :: QuantificationTable
+                 -> MutableMacroBlock s Int32
+                 -> MutableMacroBlock s Int32
                  -> Int16
                  -> MutableMacroBlock s Int16
                  -> ST s (Int32, MutableMacroBlock s Int32)
-encodeMacroBlock quantTableOfComponent prev_dc block = do
- workData <- M.new 64
+encodeMacroBlock quantTableOfComponent workData finalData prev_dc block = do
  let inverseLevelShift = mutate (\_ v -> v - 128)
  -- inverse level shift
  blk <- inverseLevelShift block
         >>= fastDct workData
         >>= quantize quantTableOfComponent
-        >>= zigZagReorderForward
+        >>= zigZagReorderForward finalData
 
  dc <- blk .!!!. 0
  (blk .<-. 0) $ dc - fromIntegral prev_dc
@@ -960,7 +962,7 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
   where finalImage = JpgImage [ JpgQuantTable quantTables
                               , JpgScans JpgBaselineDCTHuffman hdr
                               , JpgHuffmanTable huffTables
-                              , JpgScanBlob scanHeader $ runPut encodedImage
+                              , JpgScanBlob scanHeader encodedImage
                               ]
 
         huffTables = [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
@@ -1027,8 +1029,8 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                                           , quantTable = chromaQuant }
                       ]
 
-        (encodedImage, _, _) = runST toExtract
-        toExtract = flip S.execStateT (return (), 0, 0) $ do
+        encodedImage = runST toExtract
+        toExtract = runBoolWriter $ do
             let horizontalMetaBlockCount = w `divUpward` (8 * maxSampling)
                 verticalMetaBlockCount = h `divUpward` (8 * maxSampling)
                 maxSampling = 2
@@ -1056,9 +1058,12 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                                           ySamplingFactor = maxSampling - sizeY + 1
                                     ]
   
+            workData <- lift $ createEmptyMutableMacroBlock
+            zigzaged <- lift $ createEmptyMutableMacroBlock
             forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
                 prev_dc <- lift $ dc_table .!!!. comp
-                (dc_coeff, neo_block) <- lift (extractor >>= encodeMacroBlock table prev_dc)
+                (dc_coeff, neo_block) <- lift (extractor >>= 
+                                        encodeMacroBlock table workData zigzaged prev_dc)
                 lift . (dc_table .<-. comp) $ fromIntegral dc_coeff
                 serializeMacroBlock dc ac neo_block
 
