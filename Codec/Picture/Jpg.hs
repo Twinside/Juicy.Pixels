@@ -479,7 +479,7 @@ instance Serialize JpgScanHeader where
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
-quantize table = mutate (\idx val -> val `div` (fromIntegral $ table !!! idx))
+quantize table = mutate (\idx val -> val `quot` (fromIntegral $ table !!! idx))
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
