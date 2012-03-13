@@ -504,6 +504,12 @@ zigZagOrder = makeMacroBlock $ concat
     ,[35,36,48,49,57,58,62,63]
     ]
 
+zigZagReorderForwardv :: (Storable a, Num a) => VS.Vector a -> VS.Vector a
+zigZagReorderForwardv vec = runST $ do
+    v <- M.new 64
+    mv <- VS.thaw vec
+    zigZagReorderForward v mv >>= VS.freeze
+
 zigZagReorderForward :: (Storable a, Num a)
                      => MutableMacroBlock s a
                      -> MutableMacroBlock s a
@@ -511,10 +517,10 @@ zigZagReorderForward :: (Storable a, Num a)
 zigZagReorderForward zigzaged block = do
     let update i =  do
             let idx = zigZagOrder !!! i
-            v <- block .!!!. i
+            v <- block .!!!. fromIntegral i
             (zigzaged .<-. fromIntegral idx) v
 
-        reorder 63 = update 63
+        reorder 64 = return ()
         reorder i  = update i >> reorder (i + 1)
 
     reorder (0 :: Int)
@@ -923,12 +929,10 @@ encodeMacroBlock :: QuantificationTable
                  -> ST s (Int32, MutableMacroBlock s Int32)
 encodeMacroBlock quantTableOfComponent workData finalData prev_dc block = do
  let inverseLevelShift = mutate (\_ v -> v - 128)
- -- inverse level shift
  blk <- inverseLevelShift block
         >>= fastDct workData
-        >>= quantize quantTableOfComponent
         >>= zigZagReorderForward finalData
-
+        >>= quantize quantTableOfComponent
  dc <- blk .!!!. 0
  (blk .<-. 0) $ dc - fromIntegral prev_dc
  return (dc, blk)
@@ -1021,12 +1025,17 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                                   ]
                               })
 
-        lumaQuant = scaleQuantisationMatrix (fromIntegral quality) defaultLumaQuantizationTable 
-        chromaQuant = scaleQuantisationMatrix (fromIntegral quality) defaultChromaQuantizationTable  
+        lumaQuant = scaleQuantisationMatrix (fromIntegral quality)
+                        defaultLumaQuantizationTable 
+        chromaQuant = scaleQuantisationMatrix (fromIntegral quality)
+                            defaultChromaQuantizationTable
+
+        zigzagedLumaQuant = zigZagReorderForwardv $ lumaQuant
+        zigzagedChromaQuant = zigZagReorderForwardv $ chromaQuant 
         quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
-                                          , quantTable = lumaQuant }
+                                          , quantTable = zigzagedLumaQuant }
                       , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
-                                          , quantTable = chromaQuant }
+                                          , quantTable = zigzagedChromaQuant }
                       ]
 
         encodedImage = runST toExtract
@@ -1034,10 +1043,10 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
             let horizontalMetaBlockCount = w `divUpward` (8 * maxSampling)
                 verticalMetaBlockCount = h `divUpward` (8 * maxSampling)
                 maxSampling = 2
-                lumaSamplingSize = ( maxSampling, maxSampling, lumaQuant
+                lumaSamplingSize = ( maxSampling, maxSampling, zigzagedLumaQuant
                                    , makeInverseTable defaultDcLumaHuffmanTree
                                    , makeInverseTable defaultAcLumaHuffmanTree)
-                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, chromaQuant
+                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, zigzagedChromaQuant
                                      , makeInverseTable defaultDcChromaHuffmanTree
                                      , makeInverseTable defaultAcChromaHuffmanTree)
                 componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
