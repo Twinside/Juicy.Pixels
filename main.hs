@@ -5,6 +5,7 @@ import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import System.Environment
 
+import Data.Word( Word8 )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
@@ -159,7 +160,7 @@ bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
 validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
-validationJpegEncode = encodeJpegAtQuality 100
+validationJpegEncode = encodeJpegAtQuality 95
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -171,10 +172,10 @@ imgToImg path = do
                 png = encodePng rgb
                 bmp = encodeBitmap rgb
             putStrLn $ "YCbCr : " ++ path
-            putStrLn "-> BMP"
-            B.writeFile (path ++ "._fromYCbCr8.bmp") bmp
             putStrLn "-> JPG"
             B.writeFile (path ++ "._fromYCbCr8.jpg") jpg
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromYCbCr8.bmp") bmp
             putStrLn "-> PNG"
             B.writeFile (path ++ "._fromYCbCr8.png") png
 
@@ -230,12 +231,29 @@ imgToImg path = do
         Left err ->
             error $ "Error loading " ++ path ++ " " ++ show err
 
+toJpg :: String -> Image PixelRGB8 -> IO ()
+toJpg name img = do
+    let jpg = validationJpegEncode (convertImage img)
+    putStrLn "-> JPG"
+    B.writeFile (name ++ "._fromRGB8.jpg") jpg
+
+generateImage :: Int -> Int -> [Word8] -> Image PixelRGB8
+generateImage width height pixels = Image {
+        imageWidth = width,
+        imageHeight = height,
+        imageData = V.fromListN (width * height * 3) pixels
+    }
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
+    toJpg "white" . generateImage 16 16 $ repeat 255
+    toJpg "black" . generateImage 16 16 $ repeat 0
+    toJpg "green" . generateImage 16 16 . concat $ repeat [128, 255, 128]
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests ++ ["huge.jpg" ])
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
