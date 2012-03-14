@@ -160,7 +160,7 @@ bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
 validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
-validationJpegEncode = encodeJpegAtQuality 95
+validationJpegEncode = encodeJpegAtQuality 100
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -237,19 +237,13 @@ toJpg name img = do
     putStrLn "-> JPG"
     B.writeFile (name ++ "._fromRGB8.jpg") jpg
 
-generateImage :: Int -> Int -> [Word8] -> Image PixelRGB8
-generateImage width height pixels = Image {
-        imageWidth = width,
-        imageHeight = height,
-        imageData = V.fromListN (width * height * 3) pixels
-    }
-
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
-    toJpg "white" . generateImage 16 16 $ repeat 255
-    toJpg "black" . generateImage 16 16 $ repeat 0
-    toJpg "green" . generateImage 16 16 . concat $ repeat [128, 255, 128]
+    toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
+    toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
+    toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
+                                        128 128
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
