@@ -14,6 +14,7 @@ module Codec.Picture (
                        readImage
                      , decodeImage
                      , pixelMap
+                     , generateImage
 
                      -- * Specific image format functions
                      -- ** Bitmap handling 

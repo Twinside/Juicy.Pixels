@@ -30,6 +30,7 @@ module Codec.Picture.Types( -- * Types
                           , extractComponent
                           , pixelMap
                           , dropAlphaLayer
+                          , generateImage
                           ) where
 
 import Control.Monad( forM_ )
@@ -410,6 +411,27 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     -- copy it.
     convertImage :: Image a -> Image b
     convertImage = pixelMap convertPixel
+
+-- | Create an image given a function to generate pixels.
+-- The function will receive value from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- left corner of the image, and (width-1, height-1) the lower right corner.
+generateImage :: forall a. (Pixel a)
+              => (Int -> Int -> a)  -- ^ Generating function, with `x` and `y` params.
+              -> Int        -- ^ Width in pixels
+              -> Int        -- ^ Height in pixels
+              -> Image a
+generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = generated }
+  where compCount = componentCount (undefined :: a)
+        generated = runST $ do
+            arr <- M.new (w * h * compCount)
+            let mutImage = MutableImage {
+                                mutableImageWidth = w,
+                                mutableImageHeight = h,
+                                mutableImageData = arr }
+            forM_ [(x,y) | y <- [0 .. h-1], x <- [0 .. w-1]] $ \(x,y) ->
+                writePixel mutImage x y $ f x y
+            V.unsafeFreeze arr
 
 {-# INLINE pixelMap #-}
 -- | `map` equivalent for an image, working at the pixel level.
