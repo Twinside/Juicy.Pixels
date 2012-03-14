@@ -928,9 +928,8 @@ encodeMacroBlock :: QuantificationTable
                  -> MutableMacroBlock s Int16
                  -> ST s (Int32, MutableMacroBlock s Int32)
 encodeMacroBlock quantTableOfComponent workData finalData prev_dc block = do
- let inverseLevelShift = mutate (\_ v -> v - 128)
- blk <- inverseLevelShift block
-        >>= fastDct workData
+ -- the inverse level shift is performed internally by the fastDCT routine
+ blk <- fastDctLibJpeg workData block
         >>= zigZagReorderForward finalData
         >>= quantize quantTableOfComponent
  dc <- blk .!!!. 0
@@ -959,8 +958,12 @@ prepareHuffmanTable classVal dest tableDef =
 encodeJpeg :: Image PixelYCbCr8 -> B.ByteString
 encodeJpeg = encodeJpegAtQuality 50
 
--- | Function to call to encode an image to jpeg
-encodeJpegAtQuality :: Word8 -> Image PixelYCbCr8 -> B.ByteString
+-- | Function to call to encode an image to jpeg.
+-- The quality factor should be between 0 and 100 (100 being
+-- the best quality).
+encodeJpegAtQuality :: Word8                -- ^ Quality factor
+                    -> Image PixelYCbCr8    -- ^ Image to encode
+                    -> B.ByteString         -- ^ Encoded JPEG
 encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
     encode finalImage
   where finalImage = JpgImage [ JpgQuantTable quantTables
