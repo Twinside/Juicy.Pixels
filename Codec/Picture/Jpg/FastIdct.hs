@@ -19,27 +19,26 @@ module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
                                  ) where
 
 import qualified Data.Vector.Storable as V
-import qualified Data.Vector.Storable.Mutable as M
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST )
-import Control.Monad.Primitive ( PrimMonad, PrimState)
 import Data.Bits( shiftL, shiftR )
 import Data.Int( Int16 )
-import Foreign.Storable ( Storable )
 
-{-
-{-# INLINE iclip #-}
-iclip :: Int -> Int16
-iclip i | fromIntegral i < (-256) = -256
-        | fromIntegral i >   256  =  256
-        | otherwise               =  fromIntegral i
--}
+import Codec.Picture.Jpg.Types
 
 iclip :: V.Vector Int16
 iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]
     where val i | i < (-256) = -256
                 | i > 255    =  255
                 | otherwise  =  i
+
+{-# INLINE clip #-}
+clip :: Int -> Int16
+clip i -- = iclip !!! (i + 512)
+       | i < 511 = if i > -512 then iclip !!! (i + 512)
+                               else iclip !!! 0
+    
+       | otherwise = iclip !!! 1023
 
 {-# INLINE (.<<.) #-}
 {-# INLINE (.>>.) #-}
@@ -66,27 +65,6 @@ w3 = 2408 -- 2048*sqrt(2)*cos(3*pi/16)
 w5 = 1609 -- 2048*sqrt(2)*cos(5*pi/16)
 w6 = 1108 -- 2048*sqrt(2)*cos(6*pi/16)
 w7 = 565  -- 2048*sqrt(2)*cos(7*pi/16)
-
-
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) a i = V.unsafeIndex a (i + 512)
-
-{-# INLINE (.!!!.) #-}
-(.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.unsafeRead
-
-{-# INLINE (.<-.) #-}
-(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite
-
--- | Macroblock that can be transformed.
-type MutableMacroBlock s a = M.STVector s a
-
-{-# INLINE createEmptyMutableMacroBlock #-}
--- | Create a new macroblock with the good array size
-createEmptyMutableMacroBlock :: ST s (MutableMacroBlock s Int16)
-createEmptyMutableMacroBlock = M.replicate 64 0
 
 -- row (horizontal) IDCT
 --
@@ -224,14 +202,14 @@ idctCol blk idx = do
                        }
 
       f = thirdStage . secondStage $ firstStage initialState
-  (blk .<-. (idx + 8*0)) $ iclip !!! ((x7 f + x1 f) .>>. 14)
-  (blk .<-. (idx + 8  )) $ iclip !!! ((x3 f + x2 f) .>>. 14)
-  (blk .<-. (idx + 8*2)) $ iclip !!! ((x0 f + x4 f) .>>. 14)
-  (blk .<-. (idx + 8*3)) $ iclip !!! ((x8 f + x6 f) .>>. 14)
-  (blk .<-. (idx + 8*4)) $ iclip !!! ((x8 f - x6 f) .>>. 14)
-  (blk .<-. (idx + 8*5)) $ iclip !!! ((x0 f - x4 f) .>>. 14)
-  (blk .<-. (idx + 8*6)) $ iclip !!! ((x3 f - x2 f) .>>. 14)
-  (blk .<-. (idx + 8*7)) $ iclip !!! ((x7 f - x1 f) .>>. 14)
+  (blk .<-. (idx + 8*0)) . clip $ (x7 f + x1 f) .>>. 14
+  (blk .<-. (idx + 8  )) . clip $ (x3 f + x2 f) .>>. 14
+  (blk .<-. (idx + 8*2)) . clip $ (x0 f + x4 f) .>>. 14
+  (blk .<-. (idx + 8*3)) . clip $ (x8 f + x6 f) .>>. 14
+  (blk .<-. (idx + 8*4)) . clip $ (x8 f - x6 f) .>>. 14
+  (blk .<-. (idx + 8*5)) . clip $ (x0 f - x4 f) .>>. 14
+  (blk .<-. (idx + 8*6)) . clip $ (x3 f - x2 f) .>>. 14
+  (blk .<-. (idx + 8*7)) . clip $ (x7 f - x1 f) .>>. 14
 
 
 {-# INLINE fastIdct #-}
@@ -248,9 +226,5 @@ fastIdct block = do
 -- | Perform a Jpeg level shift in a mutable fashion.
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
-mutableLevelShift block = do
-    forM_ [0..63] (\i -> do
-        v <- block .!!!. i
-        (block .<-. i) $ v + 128)
-    return block
+mutableLevelShift = mutate (\_ v -> v + 128)
 

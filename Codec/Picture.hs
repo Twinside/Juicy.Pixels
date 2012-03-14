@@ -13,11 +13,15 @@ module Codec.Picture (
                      -- * Generic functions
                        readImage
                      , decodeImage
+                     , pixelMap
+                     , generateImage
+
                      -- * Specific image format functions
                      -- ** Bitmap handling 
                      , BmpEncodable
                      , writeBitmap
                      , encodeBitmap
+                     , readBitmap
                      , decodeBitmap
                      , encodeDynamicBitmap 
                      , writeDynamicBitmap 
@@ -25,6 +29,8 @@ module Codec.Picture (
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg 
+                     , encodeJpeg
+                     , encodeJpegAtQuality
 
                      -- ** Png handling
                      , PngSavable( .. )
@@ -48,11 +54,17 @@ module Codec.Picture (
                      ) where
 
 import Control.Applicative( (<$>) )
-import Codec.Picture.Bitmap
-import Codec.Picture.Jpg( readJpeg, decodeJpeg )
-import Codec.Picture.Png( PngSavable( .. ), readPng, decodePng, writePng
+import Control.DeepSeq( NFData, deepseq )
+import Control.Exception( catch, IOException )
+import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
+                           , writeBitmap, encodeBitmap
+                           , encodeDynamicBitmap, writeDynamicBitmap )
+import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
+import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Types
+import System.IO ( withFile, IOMode(ReadMode) )
+import Prelude hiding(catch)
 
 import qualified Data.ByteString as B
 
@@ -64,10 +76,21 @@ eitherLoad v = inner ""
                 Left  err  -> inner (errAcc ++ hdr ++ " " ++ err ++ "\n") rest
                 Right rez  -> Right rez
 
+withImageDecoder :: (NFData a)
+                 => (B.ByteString -> Either String a) -> FilePath
+                 -> IO (Either String a)
+withImageDecoder decoder path = catch doit
+                    (\e -> return . Left $ show (e :: IOException))
+    where doit = withFile path ReadMode $ \h ->
+                    force . decoder <$> B.hGetContents h
+          -- force appeared in deepseq 1.3, Haskell Platform
+          -- provide 1.1
+          force x = x `deepseq` x
+
 -- | Load an image file without even thinking about it, it does everything
 -- as 'decodeImage'
 readImage :: FilePath -> IO (Either String DynamicImage)
-readImage path = decodeImage <$> B.readFile path
+readImage = withImageDecoder decodeImage 
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
@@ -79,3 +102,17 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("Bitmap", decodeBitmap)
                                  ]
     
+-- | Helper function trying to load a png file from a file on disk.
+readPng :: FilePath -> IO (Either String DynamicImage)
+readPng = withImageDecoder decodePng 
+
+-- | Try to load a jpeg file and decompress. The colorspace is still
+-- YCbCr if you want to perform computation on the luma part. You can
+-- convert it to RGB using 'colorSpaceConversion'
+readJpeg :: FilePath -> IO (Either String DynamicImage)
+readJpeg = withImageDecoder decodeJpeg
+
+-- | Try to load a .bmp file. The colorspace would be RGB or RGBA
+readBitmap :: FilePath -> IO (Either String DynamicImage)
+readBitmap = withImageDecoder decodeBitmap
+

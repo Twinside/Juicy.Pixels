@@ -2,8 +2,10 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 import Data.Array.Unboxed
 import Codec.Picture
+import Codec.Picture.Jpg( encodeJpeg )
 import System.Environment
 
+import Data.Word( Word8 )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
@@ -45,6 +47,21 @@ convertBitmapToPng filePath = do
             writePng (filePath ++ ".png") img
         Right _ -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")"
 
+convertJpegToPngStr :: B.ByteString -> IO ()
+convertJpegToPngStr file = do
+    rez <- catch (return $ decodeJpeg file)
+                 (\err -> return $ Left (show err))
+    case rez of
+        Left err -> putStr $ "\n(X) JPEG loading error: ()" ++ err
+        Right (ImageYCbCr8 img) -> do
+            let rgbImage  = convertImage img :: Image PixelRGB8
+            putStrLn "(JPG->PNG) Write ImageRGB8"
+            writePng "string.png" rgbImage
+        Right (ImageY8 img) -> do
+            putStrLn "(JPG->PNG) Write ImageY8"
+            writePng "string.png" img
+        Right _ -> putStr $ "\n(X) JPEG loading error: ()"
+
 convertJpegToPng :: FilePath -> IO ()
 convertJpegToPng filePath = do
     putStrLn $ "(JPG) Loading " ++ filePath
@@ -68,7 +85,7 @@ convertJpegToBmp filePath = do
     file <- B.readFile filePath
     rez <- catch (return $ decodeJpeg file)
                  (\err -> return $ Left (show err))
-    putStrLn "(JPG->PNG) Bmp"
+    putStrLn "(JPG->BMP) Bmp"
     case rez of
         Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
         Right (ImageYCbCr8 img) -> writeBitmap (filePath ++ ".bmp") rgbImage
@@ -142,13 +159,95 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
+validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
+validationJpegEncode = encodeJpegAtQuality 100
+
+imgToImg :: FilePath -> IO ()
+imgToImg path = do
+    rez <- readImage path
+    case rez of
+        Right (ImageYCbCr8 img) -> do
+            let rgb = convertImage img :: Image PixelRGB8
+                jpg = validationJpegEncode img
+                png = encodePng rgb
+                bmp = encodeBitmap rgb
+            putStrLn $ "YCbCr : " ++ path
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromYCbCr8.jpg") jpg
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromYCbCr8.bmp") bmp
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromYCbCr8.png") png
+
+        Right (ImageRGB8 img) -> do
+            let jpg = validationJpegEncode (convertImage img)
+                png = encodePng img
+                bmp = encodeBitmap img
+            putStrLn $ "RGB8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromRGB8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromRGB8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromRGB8.png") png
+
+        Right (ImageRGBA8 img) -> do
+            let bmp = encodeBitmap img
+                jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
+                png = encodePng img
+            putStrLn $ "RGBA8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ ".fromRGBA8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ ".fromRGBA8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ ".fromRGBA8.png") png
+
+        Right (ImageY8 img) -> do
+            let bmp = encodeBitmap img
+                jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
+                png = encodePng img
+            putStrLn $ "Y8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromY8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromY8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromY8.png") png
+
+        Right (ImageYA8 img) -> do
+            let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
+                png = encodePng $ (promoteImage img :: Image PixelRGBA8)
+                jpg = validationJpegEncode $ convertImage
+                                (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
+            putStrLn $ "YA8 : " ++ path
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "._fromYA8.bmp") bmp
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "._fromYA8.jpg") jpg
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "._fromYA8.png") png
+
+        Left err ->
+            error $ "Error loading " ++ path ++ " " ++ show err
+
+toJpg :: String -> Image PixelRGB8 -> IO ()
+toJpg name img = do
+    let jpg = validationJpegEncode (convertImage img)
+    putStrLn "-> JPG"
+    B.writeFile (name ++ "._fromRGB8.jpg") jpg
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
-    mapM_ (convertBitmapToPng . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (convertPngToBmp . (("tests" </> "pngsuite") </>)) validTests
-    mapM_ (convertJpegToPng . (("tests" </> "jpeg") </>)) jpegValidTests
-    mapM_ (convertJpegToBmp . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
+    toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
+    toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
+                                        128 128
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}

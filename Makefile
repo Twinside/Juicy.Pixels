@@ -3,34 +3,27 @@ all:
 	runhaskell Setup.hs build
 
 conf:
-	runhaskell Setup.hs configure --user 
+	runhaskell Setup.hs configure --user --enable-tests
 
 doc:
 	runhaskell Setup.hs haddock
+
+ctest:
+	runhaskell Setup.hs test
 
 clean:
 	runhaskell Setup.hs clean
 	rm -f tests/pngsuite/*.bmp
 
 run:
-	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
+	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg > out_log_file 2>&1 
 
 prof:
 	dist\build\imageTest\imageTest.exe +RTS -hy -p -sstderr -RTS tests/pngsuite/huge.png
 	hp2ps -c imageTest.hp
 
 test:
-	dist\build\imageTest\imageTest.exe tests/jpeg/8x8jpeg.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/16x16jpeg.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/avatar.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/explore_jpeg.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_001.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_010.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_025.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_050.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/JPEG_example_JPG_RIP_100.jpg
-	dist\build\imageTest\imageTest.exe tests/jpeg/fenek.jpg
+	dist\build\imageTest\imageTest.exe
 
 lint:
 	hlint Codec

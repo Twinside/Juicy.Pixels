@@ -4,22 +4,38 @@
 -- in user code.
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
+									 , HuffmanTable
 									 , MacroBlock
+									 , QuantificationTable
+									 , HuffmanWriterCode 
+									 , scaleQuantisationMatrix
 									 , makeMacroBlock
+									 , makeInverseTable
 									 , buildHuffmanTree
-									 {-  
+
 									 , defaultChromaQuantizationTable
+
 									 , defaultLumaQuantizationTable
+
+									 , defaultAcChromaHuffmanTree
 									 , defaultAcChromaHuffmanTable
+
+									 , defaultAcLumaHuffmanTree 
 									 , defaultAcLumaHuffmanTable 
+
+									 , defaultDcChromaHuffmanTree 
 									 , defaultDcChromaHuffmanTable
+
+                                     , defaultDcLumaHuffmanTree
 									 , defaultDcLumaHuffmanTable
-                                     -}
 									 ) where
 
 import Foreign.Storable ( Storable )
-import qualified Data.Vector.Storable as V
-import Data.Word( Word8 )
+import qualified Data.Vector.Storable as SV
+import qualified Data.Vector as V
+import Data.Bits( shiftL, (.|.) )
+import Data.Int( Int16 )
+import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 
 -- | Tree storing the code used for huffman encoding.
@@ -28,14 +44,26 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the firs
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
+type HuffmanWriterCode = V.Vector (Word8, Word16)
+
+makeInverseTable :: HuffmanTree -> HuffmanWriterCode
+makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
+  where inner _     _     Empty   = []
+        inner depth code (Leaf v) = [(fromIntegral v, (depth, code))]
+        inner depth code (Branch l r) =
+          inner (depth + 1) shifted l ++ inner (depth + 1) (shifted .|. 1) r
+            where shifted = code `shiftL` 1
+
 -- | Represent a compact array of 8 * 8 values. The size
 -- is not guarenteed by type system, but if makeMacroBlock is
 -- used, everything should be fine size-wise
-type MacroBlock a = V.Vector a
+type MacroBlock a = SV.Vector a
+
+type QuantificationTable = MacroBlock Int16
 
 -- | Helper function to create pure macro block of the good size.
 makeMacroBlock :: (Storable a) => [a] -> MacroBlock a
-makeMacroBlock = V.fromListN 64
+makeMacroBlock = SV.fromListN 64
 
 -- | Enumeration used to search in the tables for different components.
 data DctComponent = DcComponent | AcComponent
@@ -58,8 +86,17 @@ buildHuffmanTree table = foldl' insertHuffmanVal Empty
             | otherwise            = Branch (insertHuffmanVal l (d - 1, val)) r
         insertHuffmanVal (Leaf _) _ = error "Inserting in value, shouldn't happen"
 
-{- 
-defaultLumaQuantizationTable :: MacroBlock Int16
+scaleQuantisationMatrix :: Int -> QuantificationTable -> QuantificationTable 
+scaleQuantisationMatrix quality
+    | quality < 50 = let qq = 5000 `div` quality
+                     in SV.map (scale qq)
+    | otherwise    = SV.map (scale q)
+          where q = 200 - quality * 2
+                scale coeff i = fromIntegral . min 255 
+                                             . max 1 
+                                             $ fromIntegral i * coeff `div` 100
+
+defaultLumaQuantizationTable :: QuantificationTable
 defaultLumaQuantizationTable = makeMacroBlock
     [16, 11, 10, 16,  24,  40,  51,  61
     ,12, 12, 14, 19,  26,  58,  60,  55
@@ -71,7 +108,7 @@ defaultLumaQuantizationTable = makeMacroBlock
     ,72, 92, 95, 98, 112, 100, 103,  99
     ]
 
-defaultChromaQuantizationTable :: MacroBlock Int16
+defaultChromaQuantizationTable :: QuantificationTable
 defaultChromaQuantizationTable = makeMacroBlock
     [17, 18, 24, 47, 99, 99, 99, 99
     ,18, 21, 26, 66, 99, 99, 99, 99
@@ -82,9 +119,13 @@ defaultChromaQuantizationTable = makeMacroBlock
     ,99, 99, 99, 99, 99, 99, 99, 99
     ,99, 99, 99, 99, 99, 99, 99, 99
     ]
+
+defaultDcLumaHuffmanTree :: HuffmanTree
+defaultDcLumaHuffmanTree = buildHuffmanTree defaultDcLumaHuffmanTable
+
 -- | From the Table K.3 of ITU-81 (p153)
-defaultDcLumaHuffmanTable :: HuffmanTree
-defaultDcLumaHuffmanTable = buildHuffmanTree
+defaultDcLumaHuffmanTable :: HuffmanTable
+defaultDcLumaHuffmanTable =
     [ []
     , [0]
     , [1, 2, 3, 4, 5]
@@ -103,9 +144,12 @@ defaultDcLumaHuffmanTable = buildHuffmanTree
     , []
     ]
 
+defaultDcChromaHuffmanTree :: HuffmanTree
+defaultDcChromaHuffmanTree = buildHuffmanTree defaultDcChromaHuffmanTable
+
 -- | From the Table K.4 of ITU-81 (p153)
-defaultDcChromaHuffmanTable :: HuffmanTree
-defaultDcChromaHuffmanTable = buildHuffmanTree
+defaultDcChromaHuffmanTable :: HuffmanTable
+defaultDcChromaHuffmanTable = 
     [ []
     , [0, 1, 2]
     , [3]
@@ -124,9 +168,12 @@ defaultDcChromaHuffmanTable = buildHuffmanTree
     , []
     ]
 
+defaultAcLumaHuffmanTree :: HuffmanTree
+defaultAcLumaHuffmanTree = buildHuffmanTree defaultAcLumaHuffmanTable
+
 -- | From the Table K.5 of ITU-81 (p154)
-defaultAcLumaHuffmanTable :: HuffmanTree
-defaultAcLumaHuffmanTable = buildHuffmanTree
+defaultAcLumaHuffmanTable :: HuffmanTable
+defaultAcLumaHuffmanTable =
     [ []
     , [0x01, 0x02]
     , [0x03]
@@ -153,8 +200,13 @@ defaultAcLumaHuffmanTable = buildHuffmanTree
       ,0xF6, 0xF7, 0xF8, 0xF9, 0xFA]
     ]
 
-defaultAcChromaHuffmanTable :: HuffmanTree
-defaultAcChromaHuffmanTable = buildHuffmanTree
+type HuffmanTable = [[Word8]]
+
+defaultAcChromaHuffmanTree :: HuffmanTree
+defaultAcChromaHuffmanTree = buildHuffmanTree defaultAcChromaHuffmanTable 
+
+defaultAcChromaHuffmanTable :: HuffmanTable
+defaultAcChromaHuffmanTable = 
     [ []
     , [0x00, 0x01]
     , [0x02]
@@ -184,4 +236,4 @@ defaultAcChromaHuffmanTable = buildHuffmanTree
       , 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA
       ]
     ]
--}
+
