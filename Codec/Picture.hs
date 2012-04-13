@@ -8,13 +8,20 @@
 -- Generally, the read* functions read the images from a file and try to decode
 -- it, and the decode* functions try to decode a bytestring.
 --
--- For an easy image writing use the write* functions and writeDynamic* functions.
+-- For an easy image writing use the 'saveBmpImage', 'saveJpgImage' & 'savePngImage'
+-- functions
 module Codec.Picture ( 
                      -- * Generic functions
                        readImage
                      , decodeImage
                      , pixelMap
                      , generateImage
+                     , generateFoldImage
+
+                     -- * Generic image writing
+                     , saveBmpImage
+                     , saveJpgImage 
+                     , savePngImage 
 
                      -- * Specific image format functions
                      -- ** Bitmap handling 
@@ -62,6 +69,7 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
+import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
 import Prelude hiding(catch)
@@ -115,4 +123,25 @@ readJpeg = withImageDecoder decodeJpeg
 -- | Try to load a .bmp file. The colorspace would be RGB or RGBA
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
+
+-- | Save an image to a '.jpg' file, will do everything it can to save an image.
+saveJpgImage :: Int -> String -> DynamicImage -> IO ()
+saveJpgImage quality path img = B.writeFile path $ imageToJpg quality img
+
+-- | Save an image to a '.png' file, will do everything it can to save an image.
+-- For example, a simple transcoder to png
+--
+-- > transcodeToPng :: FilePath -> FilePath -> IO ()
+-- > transcodeToPng pathIn pathOut = do
+-- >    eitherImg <- decodeImage pathIn
+-- >    case eitherImg of
+-- >        Left _ -> return ()
+-- >        Right img -> savePngImage img
+--
+savePngImage :: String -> DynamicImage -> IO ()
+savePngImage path img = B.writeFile path $ imageToPng img
+
+-- | Save an image to a '.bmp' file, will do everything it can to save an image.
+saveBmpImage :: String -> DynamicImage -> IO ()
+saveBmpImage path img = B.writeFile path $ imageToBitmap img
 

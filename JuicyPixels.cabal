@@ -65,6 +65,7 @@ Library
                     Codec.Picture.Bitmap,
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
+                    Codec.Picture.Saving,
                     Codec.Picture.Types
 
   Ghc-options: -O3 -Wall

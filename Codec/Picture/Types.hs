@@ -31,9 +31,10 @@ module Codec.Picture.Types( -- * Types
                           , pixelMap
                           , dropAlphaLayer
                           , generateImage
+                          , generateFoldImage
                           ) where
 
-import Control.Monad( forM_ )
+import Control.Monad( forM_, foldM )
 import Control.Applicative( (<$>), (<*>) )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )
@@ -418,6 +419,13 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 -- The function will receive value from 0 to width-1 for the x parameter
 -- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
+--
+-- for example, to create a small gradient image :
+--
+-- > imageCreator :: String -> Image PixelRGB8
+-- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
+-- >    where pixelRenderer x y = PixelRGB8 x y 128
+--
 generateImage :: forall a. (Pixel a)
               => (Int -> Int -> a)  -- ^ Generating function, with `x` and `y` params.
               -> Int        -- ^ Width in pixels
@@ -435,8 +443,41 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
                 writePixel mutImage x y $ f x y
             V.unsafeFreeze arr
 
+-- | This function implement the same algorithm as 'generateImage',
+-- and let use an user-defined state
+generateFoldImage :: forall a acc. (Pixel a)
+                  => (acc -> Int -> Int -> (acc, a)) -- ^ Function taking the state, x and y
+                  -> acc        -- ^ Initial state
+                  -> Int        -- ^ Width in pixels
+                  -> Int        -- ^ Height in pixels
+                  -> (acc, Image a)
+generateFoldImage f intialAcc w h =
+ (finalState, Image { imageWidth = w, imageHeight = h, imageData = generated })
+  where compCount = componentCount (undefined :: a)
+        (finalState, generated) = runST $ do
+            arr <- M.new (w * h * compCount)
+            let mutImage = MutableImage {
+                                mutableImageWidth = w,
+                                mutableImageHeight = h,
+                                mutableImageData = arr }
+            foldResult <- foldM (\acc (x,y) -> do
+                    let (acc', px) = f acc x y
+                    writePixel mutImage x y px
+                    return acc') intialAcc [(x,y) | y <- [0 .. h-1], x <- [0 .. w-1]]
+                
+            frozen <- V.unsafeFreeze arr
+            return (foldResult, frozen)
+
 {-# INLINE pixelMap #-}
 -- | `map` equivalent for an image, working at the pixel level.
+-- Little example : a brightness function for an rgb image
+--
+-- > brightnessRGB8 :: Int -> Image PixelRGB8 -> Image PixelRGB8
+-- > brightnessRGB8 add = pixelMap brightFunction
+-- >      where up v = fromIntegral (fromIntegral v + add)
+-- >            brightFunction (PixelRGB8 r g b) =
+-- >                    PixelRGB8 (up r) (up g) (up b)
+--
 pixelMap :: forall a b. (Pixel a, Pixel b) => (a -> b) -> Image a -> Image b
 pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
     Image w h pixels
