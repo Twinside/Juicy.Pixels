@@ -9,7 +9,7 @@ as they're unboxed.
 
 Documentation
 -------------
-The library documentation can be accessed on (Hackage)[http://hackage.haskell.org/package/JuicyPixels]
+The library documentation can be accessed on [Hackage](http://hackage.haskell.org/package/JuicyPixels)
 
 Status
 ------
