@@ -1,6 +1,5 @@
 -- test file, don't care about unused, on the contrary...
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
-import Data.Array.Unboxed
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import System.Environment
