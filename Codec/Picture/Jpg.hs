@@ -26,9 +26,11 @@ import Data.Serialize( Serialize(..), Get, Put
                      )
 import Data.Maybe( fromJust )
 import qualified Data.Vector as V
+import Data.Vector.Unboxed( (!) )
+import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
+-- import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
 import qualified Data.ByteString as B
 import Foreign.Storable ( Storable )
 
@@ -202,13 +204,13 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
       -- | Stored on 4 bits
     , huffmanTableDest        :: !Word8
 
-    , huffSizes :: !(UArray Word32 Word8)
-    , huffCodes :: !(Array Word32 (UArray Int Word8))
+    , huffSizes :: !(VU.Vector Word8)
+    , huffCodes :: !(V.Vector (VU.Vector Word8))
     }
     deriving Show
 
-buildPackedHuffmanTree :: Array Word32 (UArray Int Word8) -> HuffmanTree
-buildPackedHuffmanTree = buildHuffmanTree . map elems . elems
+buildPackedHuffmanTree :: V.Vector (VU.Vector Word8) -> HuffmanTree
+buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
 
 -- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
@@ -241,31 +243,30 @@ eatUntilCode = do
            (skip 1 >> eatUntilCode)
 
 instance SizeCalculable JpgHuffmanTableSpec where
-    calculateSize table = 1 + 16 + sum [fromIntegral e | e <- elems $ huffSizes table]
+    calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]
 
 instance Serialize JpgHuffmanTableSpec where
     put table = do
         let classVal = if huffmanTableClass table == DcComponent
                           then 0 else 1
         put4BitsOfEach classVal $ huffmanTableDest table
-        mapM_ put {-  . (\a -> trace ("sizes :" ++ show a) a) -}. elems $ huffSizes table
+        mapM_ put . VU.toList $ huffSizes table
         forM_ [0 .. 15] $ \i -> do
             when (huffSizes table ! i /= 0)
-                 (let elements = elems $ huffCodes table ! i
-                  in mapM_ put {- . (\a -> trace (show a) a)-} $ elements)
+                 (let elements = VU.toList $ huffCodes table V.! i
+                  in mapM_ put $ elements)
 
     get = do
         (huffClass, huffDest) <- get4BitOfEach
         sizes <- replicateM 16 getWord8
         codes <- forM sizes $ \s -> do
-            let si = fromIntegral s
-            listArray (0, si - 1) <$> replicateM (fromIntegral s) getWord8
+            VU.replicateM (fromIntegral s) getWord8
         return JpgHuffmanTableSpec
             { huffmanTableClass =
                 if huffClass == 0 then DcComponent else AcComponent
             , huffmanTableDest = huffDest
-            , huffSizes = listArray (0, 15) sizes
-            , huffCodes = listArray (0, 15) codes
+            , huffSizes = VU.fromListN 16 sizes
+            , huffCodes = V.fromListN 16 codes
             }
 
 instance Serialize JpgImage where
@@ -946,11 +947,11 @@ prepareHuffmanTable classVal dest tableDef =
    (JpgHuffmanTableSpec { huffmanTableClass = classVal
                         , huffmanTableDest  = dest
                         , huffSizes = sizes
-                        , huffCodes = listArray (0, 15)
-                            [listArray (0, fromIntegral $ (sizes ! i) - 1) lst
+                        , huffCodes = V.fromListN 16
+                            [VU.fromListN (fromIntegral $ (sizes ! i)) lst
                                                 | (i, lst) <- zip [0..] tableDef ]
                         }, Empty)
-      where sizes = listArray (0,15) $ map (fromIntegral . length) tableDef   
+      where sizes = VU.fromListN 16 $ map (fromIntegral . length) tableDef   
 
 -- | Encode an image in jpeg at a reasonnable quality level.
 -- If you want better quality or reduced file size, you should

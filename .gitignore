@@ -26,3 +26,5 @@ tags
 *._fromYCbCr8.bmp
 *._fromY8.bmp
 *._fromYA8.bmp
+
+cabal-dev

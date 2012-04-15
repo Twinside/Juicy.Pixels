@@ -7,6 +7,10 @@ possible, you ask it to load an image, and it'l dump you a big MUArray
 or UArray full of juicy pixels. Or squared pixels, or whatever, as long
 as they're unboxed.
 
+Documentation
+-------------
+The library documentation can be accessed on [Hackage](http://hackage.haskell.org/package/JuicyPixels)
+
 Status
 ------
 

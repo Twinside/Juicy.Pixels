@@ -24,7 +24,7 @@ import Data.Serialize( Serialize(..), Get, get, runGet, runPut
                      , putWord8, getWord8
                      , putWord32be, getWord32be
                      , getByteString, putByteString )
-import Data.Array.Unboxed( UArray, listArray, (!) )
+import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
@@ -298,8 +298,8 @@ imageTypeOfCode 6 = return PngTrueColourWithAlpha
 imageTypeOfCode _ = fail "Invalid png color code"
 
 -- | From the Annex D of the png specification.
-pngCrcTable :: UArray Word32 Word32
-pngCrcTable = listArray (0, 255) [ foldl' updateCrcConstant c [zero .. 7] | c <- [0 .. 255] ]
+pngCrcTable :: Vector Word32
+pngCrcTable = fromListN 256 [ foldl' updateCrcConstant c [zero .. 7] | c <- [0 .. 255] ]
     where zero = 0 :: Int -- To avoid defaulting to Integer
           updateCrcConstant c _ | c .&. 1 /= 0 = magicConstant `xor` (c `shiftR` 1)
                                 | otherwise = c `shiftR` 1
@@ -311,6 +311,6 @@ pngComputeCrc :: [B.ByteString] -> Word32
 pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
     where updateCrc crc val =
               let u32Val = fromIntegral val
-                  lutVal = pngCrcTable ! ((crc `xor` u32Val) .&. 0xFF)
+                  lutVal = pngCrcTable ! (fromIntegral $ ((crc `xor` u32Val) .&. 0xFF))
               in lutVal `xor` (crc `shiftR` 8)
 
