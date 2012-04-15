@@ -1,5 +1,5 @@
 Name:                JuicyPixels
-Version:             1.2
+Version:             1.2.1
 Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
 Description:
     This library can load and store images in various image formats,
@@ -25,7 +25,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v1.2
+    Tag:       v1.2.1
 
 Test-Suite test-juicy
   Default-Language: Haskell2010
@@ -47,16 +47,16 @@ Executable imageTest
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
-  Build-depends: base,
-                bytestring,
-                mtl                  >= 1.1,
-                cereal               >= 0.3.3.0 && < 0.4,
-                zlib                 >= 0.5.3.1,
-                filepath             >= 1.2,
-                transformers         >= 0.2.2 && < 0.4,
-                vector               >= 0.9 && < 0.10,
-                deepseq              >= 1.1 && < 1.4,
-                primitive            >= 0.4 && < 0.5
+  Build-depends: base                >= 4       && < 5,
+                 bytestring          >= 0.9     && < 0.10,
+                 mtl                 >= 1.1     && < 2.2,
+                 cereal              >= 0.3.3.0 && < 0.4,
+                 zlib                >= 0.5.3.1,
+                 transformers        >= 0.2.2   && < 0.4,
+                 vector              >= 0.9     && < 1.0,
+                 primitive           >= 0.4     && < 0.5,
+                 deepseq             >= 1.1     && < 1.4
+
 
 Library
   Default-Language: Haskell2010
@@ -68,8 +68,8 @@ Library
                     Codec.Picture.Types
 
   Ghc-options: -O3 -Wall
-  Build-depends: base                >= 4 && < 5,
-                 bytestring,
+  Build-depends: base                >= 4       && < 5,
+                 bytestring          >= 0.9     && < 0.10,
                  mtl                 >= 1.1     && < 2.2,
                  cereal              >= 0.3.3.0 && < 0.4,
                  zlib                >= 0.5.3.1,
