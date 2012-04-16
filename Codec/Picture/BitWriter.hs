@@ -76,7 +76,7 @@ runBoolWriter :: BoolWriter s b -> ST s B.ByteString
 runBoolWriter writer = do
      let finalWriter = writer >> flushWriter
      PairS _ (BoolWriteState builder _ _) <-
-            run finalWriter (BoolWriteState (empty) 0 0)
+            run finalWriter (BoolWriteState empty 0 0)
      return $ toByteString builder
 
 -- | Current serializer, bit buffer, bit count 
@@ -84,7 +84,7 @@ data BoolWriteState = BoolWriteState !Builder
                                      {-# UNPACK #-} !Word8
                                      {-# UNPACK #-} !Int
 
-data BoolWriterT m a = BitPut { run :: (BoolWriteState -> m (PairS a)) }
+data BoolWriterT m a = BitPut { run :: BoolWriteState -> m (PairS a) }
 
 type BoolWriter s a = BoolWriterT (ST s) a
 
@@ -131,7 +131,7 @@ writeBits = \d c -> BitPut (serialize d c)
             | otherwise =
                 let leftBitCount = 8 - count :: Int
                     highPart = cleanData .>>. (bitCount - leftBitCount) :: Word32
-                    prevPart = (fromIntegral currentWord) .<<. leftBitCount :: Word32
+                    prevPart = fromIntegral currentWord .<<. leftBitCount :: Word32
 
                     nextMask = (1 .<<. (bitCount - leftBitCount)) - 1 :: Word32
                     newData = cleanData .&. nextMask :: Word32

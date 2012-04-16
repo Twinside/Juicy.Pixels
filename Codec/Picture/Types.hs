@@ -512,15 +512,15 @@ instance LumaPlaneExtractable Pixel8 where
 
 instance LumaPlaneExtractable PixelRGB8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * (toRational r) + 
-                                            0.59 * (toRational g) +
-                                            0.11 * (toRational b)
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r + 
+                                            0.59 * toRational g +
+                                            0.11 * toRational b
 
 instance LumaPlaneExtractable PixelRGBA8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * (toRational r) + 
-                                             0.59 * (toRational g) +
-                                             0.11 * (toRational b)
+    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r + 
+                                             0.59 * toRational g +
+                                             0.11 * toRational b
 
 instance LumaPlaneExtractable PixelYA8 where
     {-# INLINE computeLuma #-}

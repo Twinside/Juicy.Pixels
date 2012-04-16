@@ -28,19 +28,19 @@ imageToJpg quality dynImage =
 -- as PNG, make all color conversion and such. Equivalent
 -- of 'decodeImage' for PNG encoding
 imageToPng :: DynamicImage -> B.ByteString
-imageToPng (ImageYCbCr8 img) = encodePng $ (convertImage img :: Image PixelRGB8)
+imageToPng (ImageYCbCr8 img) = encodePng (convertImage img :: Image PixelRGB8)
 imageToPng (ImageRGB8   img) = encodePng img
 imageToPng (ImageRGBA8  img) = encodePng img
 imageToPng (ImageY8     img) = encodePng img
-imageToPng (ImageYA8    img) = encodePng $ (promoteImage img :: Image PixelRGBA8)
+imageToPng (ImageYA8    img) = encodePng (promoteImage img :: Image PixelRGBA8)
 
 -- | This function will try to do anything to encode an image
 -- as bitmap, make all color conversion and such. Equivalent
 -- of 'decodeImage' for Bitmap encoding
 imageToBitmap :: DynamicImage -> B.ByteString
-imageToBitmap (ImageYCbCr8 img) = encodeBitmap $ (convertImage img :: Image PixelRGB8)
+imageToBitmap (ImageYCbCr8 img) = encodeBitmap (convertImage img :: Image PixelRGB8)
 imageToBitmap (ImageRGB8   img) = encodeBitmap img
 imageToBitmap (ImageRGBA8  img) = encodeBitmap img
 imageToBitmap (ImageY8     img) = encodeBitmap img
-imageToBitmap (ImageYA8    img) = encodeBitmap $ (promoteImage img :: Image PixelRGBA8)
+imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image PixelRGBA8)
 
