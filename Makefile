@@ -30,3 +30,17 @@ lint:
 
 sdist:
 	runhaskell Setup.hs sdist
+
+JUICYPIXEL_VERSION:=1.2.1
+
+pack:
+	mkdir JuicyPixels-$(JUICYPIXEL_VERSION)
+	cp -r Codec JuicyPixels-$(JUICYPIXEL_VERSION)
+	cp LICENSE JuicyPixels-$(JUICYPIXEL_VERSION)
+	cp README.md JuicyPixels-$(JUICYPIXEL_VERSION)
+	cp Setup.hs JuicyPixels-$(JUICYPIXEL_VERSION)
+	cp JuicyPixels.cabal JuicyPixels-$(JUICYPIXEL_VERSION)
+	tar cvf JuicyPixels-$(JUICYPIXEL_VERSION).tar JuicyPixels-$(JUICYPIXEL_VERSION)
+	gzip --best JuicyPixels-$(JUICYPIXEL_VERSION).tar
+	rm -R -f JuicyPixels-$(JUICYPIXEL_VERSION)
+
