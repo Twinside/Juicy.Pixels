@@ -1,15 +1,22 @@
 Juicy.Pixels
 ============
 
-This library provide saving & loading of different picture formats for
-the Haskell language. The aim of the library is to be as lightweight as
-possible, you ask it to load an image, and it'l dump you a big MUArray 
-or UArray full of juicy pixels. Or squared pixels, or whatever, as long
-as they're unboxed.
+This library provide saving & loading of different picture formats for the
+Haskell language. The aim of the library is to be as lightweight as possible,
+you ask it to load an image, and it'l dump you a big Vector full of juicy
+pixels. Or squared pixels, or whatever, as long as they're unboxed.
 
 Documentation
 -------------
 The library documentation can be accessed on [Hackage](http://hackage.haskell.org/package/JuicyPixels)
+
+REPA
+----
+For the user of
+[REPA](http://www.haskell.org/haskellwiki/Numeric_Haskell:_A_Repa_Tutorial),
+check-out JuicyPixels-repa on
+[GitHub](https://github.com/TomMD/JuicyPixels-repa) or
+[Hackage](http://hackage.haskell.org/package/JuicyPixels-repa)
 
 Status
 ------
