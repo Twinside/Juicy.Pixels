@@ -478,9 +478,14 @@ instance Serialize JpgScanHeader where
         putWord8 . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
+{-quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32-}
+         {--> ST s (MutableMacroBlock s Int32)-}
+{-quantize table = mutate (\idx val -> val `quot` fromIntegral (table !!! idx))-}
+
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
-quantize table = mutate (\idx val -> val `quot` fromIntegral (table !!! idx))
+quantize table = mutate (\idx val -> val `quotient` fromIntegral (table !!! idx))
+    where quotient val q = (val + (q `div` 2)) `quot` q -- rounded integer division
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -895,7 +900,7 @@ serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
 serializeMacroBlock dcCode acCode blk =
  lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1)
   where writeAcs acc@(_, 63) =
-            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc)
+            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
         writeAcs acc@(_, i ) =
             lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
