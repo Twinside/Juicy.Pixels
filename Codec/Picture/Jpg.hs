@@ -893,7 +893,7 @@ serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
                     -> MutableMacroBlock s Int32
                     -> BoolWriter s ()
 serializeMacroBlock dcCode acCode blk =
- lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1)
+ lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
   where writeAcs acc@(_, 63) =
             lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc)
         writeAcs acc@(_, i ) =
