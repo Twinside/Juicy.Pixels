@@ -236,18 +236,54 @@ toJpg name img = do
     putStrLn "-> JPG"
     B.writeFile (name ++ "._fromRGB8.jpg") jpg
 
+planeSeparationRGB8Test :: IO ()
+planeSeparationRGB8Test = do
+    rez <- readImage ("tests" </> "planeseparation.png")
+    case rez of
+       Left _ -> putStrLn "can't load separation file"
+       Right (ImageRGB8 img) -> do
+           B.writeFile ("tests" </> "rgb8_red.png") . encodePng $ extractComponent 0 img
+           B.writeFile ("tests" </> "rgb8_green.png") . encodePng $ extractComponent 1 img
+           B.writeFile ("tests" </> "rgb8_blue.png") . encodePng $ extractComponent 2 img
+
+       Right _ -> putStrLn "Wrong image file format"
+
+planeSeparationRGBA8Test :: IO ()
+planeSeparationRGBA8Test = do
+    rez <- readImage ("tests" </> "planeseparationrgba.png")
+    case rez of
+       Left _ -> putStrLn "can't load separation file"
+       Right (ImageRGBA8 img) -> do
+           B.writeFile ("tests" </> "rgba8_red.png") . encodePng $ extractComponent 0 img
+           B.writeFile ("tests" </> "rgba8_green.png") . encodePng $ extractComponent 1 img
+           B.writeFile ("tests" </> "rgba8_blue.png") . encodePng $ extractComponent 2 img
+           B.writeFile ("tests" </> "rgba8_alpha.png") . encodePng $ extractComponent 3 img
+
+       Right _ -> putStrLn "Wrong image file format"
+
+planeSeparationYA8Test :: IO ()
+planeSeparationYA8Test = do
+    let img = generateImage generator 256 256
+        generator x y = PixelYA8 (fromIntegral $ x `mod` 256) (fromIntegral $ ((y `div` 4) `mod` 2) * 255)
+    B.writeFile ("tests" </> "ya8_gray.png") . encodePng $ extractComponent 0 img
+    B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent 1 img
+    B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
-    toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
-    toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
-    toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
-                                        128 128
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]
+    {-toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16-}
+    {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
+    {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
+                                        {-128 128-}
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
+    planeSeparationRGB8Test 
+    planeSeparationRGBA8Test 
+    planeSeparationYA8Test 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
 

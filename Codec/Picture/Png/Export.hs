@@ -77,6 +77,9 @@ instance PngSavable PixelRGB8 where
 instance PngSavable Pixel8 where
     encodePng = genericEncodePng PngGreyscale 1
 
+instance PngSavable PixelYA8 where
+    encodePng = genericEncodePng PngGreyscaleWithAlpha 2
+
 -- | Write a dynamic image in a .png image file if possible.
 -- The same restriction as encodeDynamicPng apply.
 writeDynamicPng :: FilePath -> DynamicImage -> IO (Either String Bool)
@@ -86,14 +89,17 @@ writeDynamicPng path img = case encodeDynamicPng img of
 
 -- | Encode a dynamic image in bmp if possible, supported pixel type are :
 --
+--   - Y8
+--
+--   - YA8
+--
 --   - RGB8
 --
 --   - RGBA8
---
---   - Y8
 --
 encodeDynamicPng :: DynamicImage -> Either String B.ByteString
 encodeDynamicPng (ImageRGB8 img) = Right $ encodePng img
 encodeDynamicPng (ImageRGBA8 img) = Right $ encodePng img
 encodeDynamicPng (ImageY8 img) = Right $ encodePng img
+encodeDynamicPng (ImageYA8 img) = Right $ encodePng img
 encodeDynamicPng _ = Left "Unsupported image format for PNG export"

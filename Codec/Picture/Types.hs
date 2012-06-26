@@ -75,7 +75,7 @@ extractComponent :: forall a. (Pixel a)
 extractComponent comp img@(Image { imageWidth = w, imageHeight = h }) =
   Image { imageWidth = w, imageHeight = h, imageData = plane }
     where plane = stride img 1 padd comp
-          padd = componentCount (undefined :: a) - 1
+          padd = componentCount (undefined :: a)
 
 -- | For any image with an alpha component (transparency),
 -- drop it, returning a pure opaque image.
