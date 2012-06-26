@@ -251,15 +251,15 @@ instance Serialize JpgHuffmanTableSpec where
                           then 0 else 1
         put4BitsOfEach classVal $ huffmanTableDest table
         mapM_ put . VU.toList $ huffSizes table
-        forM_ [0 .. 15] $ \i -> do
+        forM_ [0 .. 15] $ \i ->
             when (huffSizes table ! i /= 0)
                  (let elements = VU.toList $ huffCodes table V.! i
-                  in mapM_ put $ elements)
+                  in mapM_ put elements)
 
     get = do
         (huffClass, huffDest) <- get4BitOfEach
         sizes <- replicateM 16 getWord8
-        codes <- forM sizes $ \s -> do
+        codes <- forM sizes $ \s ->
             VU.replicateM (fromIntegral s) getWord8
         return JpgHuffmanTableSpec
             { huffmanTableClass =
@@ -270,7 +270,7 @@ instance Serialize JpgHuffmanTableSpec where
             }
 
 instance Serialize JpgImage where
-    put (JpgImage { jpgFrame = frames }) = do
+    put (JpgImage { jpgFrame = frames }) =
         putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
             >> putWord8 0xFF >> putWord8 0xD9
 
@@ -478,9 +478,14 @@ instance Serialize JpgScanHeader where
         putWord8 . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
+{-quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32-}
+         {--> ST s (MutableMacroBlock s Int32)-}
+{-quantize table = mutate (\idx val -> val `quot` fromIntegral (table !!! idx))-}
+
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
-quantize table = mutate (\idx val -> val `quot` (fromIntegral $ table !!! idx))
+quantize table = mutate (\idx val -> val `quotient` fromIntegral (table !!! idx))
+    where quotient val q = (val + (q `div` 2)) `quot` q -- rounded integer division
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
@@ -846,7 +851,7 @@ decodeJpeg file = case decode file of
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
-                setDecodedString {-  . (\a -> trace ("read " ++ show (map (printf "%02X" :: Word8 -> String) $ B.unpack a)) a) -}$ imgData
+                setDecodedString imgData
                 decodeImage compCount (buildJpegImageDecoder img) wrapped
                 return resultImage) (-1, 0, B.empty)
 
@@ -895,7 +900,7 @@ serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
 serializeMacroBlock dcCode acCode blk =
  lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
   where writeAcs acc@(_, 63) =
-            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc)
+            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
         writeAcs acc@(_, i ) =
             lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
@@ -948,7 +953,7 @@ prepareHuffmanTable classVal dest tableDef =
                         , huffmanTableDest  = dest
                         , huffSizes = sizes
                         , huffCodes = V.fromListN 16
-                            [VU.fromListN (fromIntegral $ (sizes ! i)) lst
+                            [VU.fromListN (fromIntegral $ sizes ! i) lst
                                                 | (i, lst) <- zip [0..] tableDef ]
                         }, Empty)
       where sizes = VU.fromListN 16 $ map (fromIntegral . length) tableDef   
@@ -1005,7 +1010,7 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
             }
 
         hdr = hdr' { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr' }
-        hdr' = (JpgFrameHeader{ jpgFrameHeaderLength   = 0
+        hdr' = JpgFrameHeader{ jpgFrameHeaderLength   = 0
                               , jpgSamplePrecision     = 8
                               , jpgHeight              = fromIntegral h
                               , jpgWidth               = fromIntegral w
@@ -1027,15 +1032,15 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                                                  , quantizationTableDest    = 1
                                                  }
                                   ]
-                              })
+                              }
 
         lumaQuant = scaleQuantisationMatrix (fromIntegral quality)
                         defaultLumaQuantizationTable 
         chromaQuant = scaleQuantisationMatrix (fromIntegral quality)
                             defaultChromaQuantizationTable
 
-        zigzagedLumaQuant = zigZagReorderForwardv $ lumaQuant
-        zigzagedChromaQuant = zigZagReorderForwardv $ chromaQuant 
+        zigzagedLumaQuant = zigZagReorderForwardv lumaQuant
+        zigzagedChromaQuant = zigZagReorderForwardv chromaQuant 
         quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
                                           , quantTable = zigzagedLumaQuant }
                       , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
@@ -1071,8 +1076,8 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                                           ySamplingFactor = maxSampling - sizeY + 1
                                     ]
   
-            workData <- lift $ createEmptyMutableMacroBlock
-            zigzaged <- lift $ createEmptyMutableMacroBlock
+            workData <- lift createEmptyMutableMacroBlock
+            zigzaged <- lift createEmptyMutableMacroBlock
             forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
                 prev_dc <- lift $ dc_table .!!!. comp
                 (dc_coeff, neo_block) <- lift (extractor >>= 

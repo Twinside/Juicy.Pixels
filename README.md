@@ -15,7 +15,7 @@ REPA
 For the user of
 [REPA](http://www.haskell.org/haskellwiki/Numeric_Haskell:_A_Repa_Tutorial),
 check-out JuicyPixels-repa on
-[GitHub](https://github.com/TomMD/JuicyPixels-repa)
+[GitHub](https://github.com/TomMD/JuicyPixels-repa) or
 [Hackage](http://hackage.haskell.org/package/JuicyPixels-repa)
 
 Status

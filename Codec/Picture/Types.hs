@@ -68,14 +68,18 @@ data Image a = Image
 
 -- | Extract an image plane of an image, returning an image which
 -- can be represented by a gray scale image.
+-- If you ask a component out of bound, the `error` function will
+-- be called
 extractComponent :: forall a. (Pixel a) 
                  => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
                  -> Image a -- ^ Source image
                  -> Image Pixel8
-extractComponent comp img@(Image { imageWidth = w, imageHeight = h }) =
-  Image { imageWidth = w, imageHeight = h, imageData = plane }
-    where plane = stride img 1 padd comp
-          padd = componentCount (undefined :: a) - 1
+extractComponent comp img@(Image { imageWidth = w, imageHeight = h })
+  | comp >= padd = error $ "extractComponent : invalid component index (" 
+                         ++ show comp ++ ", max:" ++ show padd ++ ")"
+  | otherwise = Image { imageWidth = w, imageHeight = h, imageData = plane }
+      where plane = stride img 1 padd comp
+            padd = componentCount (undefined :: a)
 
 -- | For any image with an alpha component (transparency),
 -- drop it, returning a pure opaque image.
@@ -512,15 +516,15 @@ instance LumaPlaneExtractable Pixel8 where
 
 instance LumaPlaneExtractable PixelRGB8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * (toRational r) + 
-                                            0.59 * (toRational g) +
-                                            0.11 * (toRational b)
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r + 
+                                            0.59 * toRational g +
+                                            0.11 * toRational b
 
 instance LumaPlaneExtractable PixelRGBA8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * (toRational r) + 
-                                             0.59 * (toRational g) +
-                                             0.11 * (toRational b)
+    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r + 
+                                             0.59 * toRational g +
+                                             0.11 * toRational b
 
 instance LumaPlaneExtractable PixelYA8 where
     {-# INLINE computeLuma #-}

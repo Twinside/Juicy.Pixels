@@ -311,6 +311,6 @@ pngComputeCrc :: [B.ByteString] -> Word32
 pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
     where updateCrc crc val =
               let u32Val = fromIntegral val
-                  lutVal = pngCrcTable ! (fromIntegral $ ((crc `xor` u32Val) .&. 0xFF))
+                  lutVal = pngCrcTable ! (fromIntegral ((crc `xor` u32Val) .&. 0xFF))
               in lutVal `xor` (crc `shiftR` 8)
 
