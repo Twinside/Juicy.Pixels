@@ -68,14 +68,18 @@ data Image a = Image
 
 -- | Extract an image plane of an image, returning an image which
 -- can be represented by a gray scale image.
+-- If you ask a component out of bound, the `error` function will
+-- be called
 extractComponent :: forall a. (Pixel a) 
                  => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
                  -> Image a -- ^ Source image
                  -> Image Pixel8
-extractComponent comp img@(Image { imageWidth = w, imageHeight = h }) =
-  Image { imageWidth = w, imageHeight = h, imageData = plane }
-    where plane = stride img 1 padd comp
-          padd = componentCount (undefined :: a)
+extractComponent comp img@(Image { imageWidth = w, imageHeight = h })
+  | comp >= padd = error $ "extractComponent : invalid component index (" 
+                         ++ show comp ++ ", max:" ++ show padd ++ ")"
+  | otherwise = Image { imageWidth = w, imageHeight = h, imageData = plane }
+      where plane = stride img 1 padd comp
+            padd = componentCount (undefined :: a)
 
 -- | For any image with an alpha component (transparency),
 -- drop it, returning a pure opaque image.
