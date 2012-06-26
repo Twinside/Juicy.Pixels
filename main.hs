@@ -236,6 +236,18 @@ toJpg name img = do
     putStrLn "-> JPG"
     B.writeFile (name ++ "._fromRGB8.jpg") jpg
 
+planeSeparationTest :: IO ()
+planeSeparationTest = do
+    rez <- readImage ("tests" </> "planeseparation.png")
+    case rez of
+       Left _ -> putStrLn "can't load separation file"
+       Right (ImageRGB8 img) -> do
+           B.writeFile ("tests" </> "red.png") . encodePng $ extractComponent 0 img
+           B.writeFile ("tests" </> "green.png") . encodePng $ extractComponent 1 img
+           B.writeFile ("tests" </> "blue.png") . encodePng $ extractComponent 2 img
+
+       Right _ -> putStrLn "Wrong image file format"
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
@@ -248,6 +260,7 @@ main = do
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]
 
+    planeSeparationTest 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
 
