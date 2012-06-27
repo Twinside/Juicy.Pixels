@@ -242,9 +242,9 @@ planeSeparationRGB8Test = do
     case rez of
        Left _ -> putStrLn "can't load separation file"
        Right (ImageRGB8 img) -> do
-           B.writeFile ("tests" </> "rgb8_red.png") . encodePng $ extractComponent 0 img
-           B.writeFile ("tests" </> "rgb8_green.png") . encodePng $ extractComponent 1 img
-           B.writeFile ("tests" </> "rgb8_blue.png") . encodePng $ extractComponent 2 img
+           B.writeFile ("tests" </> "rgb8_red.png") . encodePng $ extractComponent PlaneRed img
+           B.writeFile ("tests" </> "rgb8_green.png") . encodePng $ extractComponent PlaneGreen img
+           B.writeFile ("tests" </> "rgb8_blue.png") . encodePng $ extractComponent PlaneBlue img
 
        Right _ -> putStrLn "Wrong image file format"
 
@@ -254,10 +254,10 @@ planeSeparationRGBA8Test = do
     case rez of
        Left _ -> putStrLn "can't load separation file"
        Right (ImageRGBA8 img) -> do
-           B.writeFile ("tests" </> "rgba8_red.png") . encodePng $ extractComponent 0 img
-           B.writeFile ("tests" </> "rgba8_green.png") . encodePng $ extractComponent 1 img
-           B.writeFile ("tests" </> "rgba8_blue.png") . encodePng $ extractComponent 2 img
-           B.writeFile ("tests" </> "rgba8_alpha.png") . encodePng $ extractComponent 3 img
+           B.writeFile ("tests" </> "rgba8_red.png") . encodePng $ extractComponent PlaneRed img
+           B.writeFile ("tests" </> "rgba8_green.png") . encodePng $ extractComponent PlaneGreen img
+           B.writeFile ("tests" </> "rgba8_blue.png") . encodePng $ extractComponent PlaneBlue img
+           B.writeFile ("tests" </> "rgba8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
 
        Right _ -> putStrLn "Wrong image file format"
 
@@ -265,8 +265,8 @@ planeSeparationYA8Test :: IO ()
 planeSeparationYA8Test = do
     let img = generateImage generator 256 256
         generator x y = PixelYA8 (fromIntegral $ x `mod` 256) (fromIntegral $ ((y `div` 4) `mod` 2) * 255)
-    B.writeFile ("tests" </> "ya8_gray.png") . encodePng $ extractComponent 0 img
-    B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent 1 img
+    B.writeFile ("tests" </> "ya8_gray.png") . encodePng $ extractComponent PlaneLuma img
+    B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
     B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 main :: IO ()
