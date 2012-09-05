@@ -2,6 +2,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
+import Codec.Picture.Gif
 import System.Environment
 
 import Data.Word( Word8 )

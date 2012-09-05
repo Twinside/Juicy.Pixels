@@ -4,9 +4,9 @@
 module Codec.Picture.BitWriter( BoolWriter
                               , BoolReader
                               , writeBits
-                              , byteAlign
-                              , getNextBit
-                              , setDecodedString
+                              , byteAlignJpg
+                              , getNextBitJpg
+                              , setDecodedStringJpg
                               , runBoolWriter
                               ) where
 
@@ -39,32 +39,38 @@ type BoolState = (Int, Word8, B.ByteString)
 -- | Type used to read bits
 type BoolReader s a = S.StateT BoolState (ST s) a
 
--- | Drop all bit until the bit of indice 0, usefull to parse restart
--- marker, as they are byte aligned, but Huffman might not.
-byteAlign :: BoolReader s ()
-byteAlign = do
-  (idx, _, chain) <- S.get
-  when (idx /= 7) (setDecodedString chain)
-
--- | Return the next bit in the input stream.
-{-# INLINE getNextBit #-}
-getNextBit :: BoolReader s Bool
-getNextBit = do
-    (idx, v, chain) <- S.get
-    let val = (v .&. (1 `shiftL` idx)) /= 0
-    if idx == 0
-      then setDecodedString chain
-      else S.put (idx - 1, v, chain)
-    return val
-
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()
 setDecodedString str = case B.uncons str of
      Nothing        -> S.put (maxBound, 0, B.empty)
+     Just (v, rest) -> S.put (       7, v,    rest)
+
+-- | Drop all bit until the bit of indice 0, usefull to parse restart
+-- marker, as they are byte aligned, but Huffman might not.
+byteAlignJpg :: BoolReader s ()
+byteAlignJpg = do
+  (idx, _, chain) <- S.get
+  when (idx /= 7) (setDecodedStringJpg chain)
+
+-- | Return the next bit in the input stream.
+{-# INLINE getNextBitJpg #-}
+getNextBitJpg :: BoolReader s Bool
+getNextBitJpg = do
+    (idx, v, chain) <- S.get
+    let val = (v .&. (1 `shiftL` idx)) /= 0
+    if idx == 0
+      then setDecodedStringJpg chain
+      else S.put (idx - 1, v, chain)
+    return val
+
+-- | Bitify a list of things to decode.
+setDecodedStringJpg :: B.ByteString -> BoolReader s ()
+setDecodedStringJpg str = case B.uncons str of
+     Nothing        -> S.put (maxBound, 0, B.empty)
      Just (0xFF, rest) -> case B.uncons rest of
             Nothing                  -> S.put (maxBound, 0, B.empty)
             Just (0x00, afterMarker) -> S.put (7, 0xFF, afterMarker)
-            Just (_   , afterMarker) -> setDecodedString afterMarker
+            Just (_   , afterMarker) -> setDecodedStringJpg afterMarker
      Just (v, rest) -> S.put (       7, v,    rest)
 
 --------------------------------------------------
