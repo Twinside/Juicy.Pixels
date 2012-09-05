@@ -1,27 +1,24 @@
-{-# LANGUAGE OverloadedStrings #-}
-module LZW where
+module Codec.Picture.Gif.LZW( lzw ) where
 
-import Control.Monad (liftM)
--- import Data.Binary.Strict.BitGet
-import Data.Bits
-import Data.Map ((!), insert, lookup, fromList, Map, member)
-import Data.Word
-import Prelude hiding (lookup)
+import Data.Word( Word8, Word16 )
+import Control.Applicative( pure, (<$>), (<*>) )
+
+import Control.Monad.ST( ST )
+import Foreign.Storable ( Storable )
+import Control.Monad.Primitive ( PrimState, PrimMonad )
+
 import qualified Data.ByteString as B
-import Control.Monad.State
-import Control.Applicative
-import Data.Maybe
-
-
-import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Storable.Mutable as M
+
+import Codec.Picture.BitWriter
 
 --------------------------------------------------
 ----            My LZW
 --------------------------------------------------
 {-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = (!) 
+(!!!) :: (V.Unbox e) => V.Vector e -> Int -> e
+(!!!) = (V.!) 
         -- V.unsafeIndex
 
 {-# INLINE (.!!!.) #-}
@@ -40,8 +37,8 @@ data LZWEntry = LZWEntry {-# UNPACK #-} !Word16
                          {-# UNPACK #-} !Int
 
 data LZWContext s = LZWContext
-    { lzwTable   :: !M.STUVector s Int
-    , lzwData    :: !M.STUVector s Word8
+    { lzwTable   :: M.STVector s Int
+    , lzwData    :: M.STVector s Word8
     , lzwMaxCode :: {-# UNPACK #-} !Int
     }
 
@@ -55,31 +52,24 @@ duplicateData src dest sourceIndex size destIndex = aux size
           aux (n - 1)
 
 rangeSetter :: (PrimMonad m, Storable a, Num a)
-            => M.STVector (PrimState m) a -> Int -> m ()
-rangeSetter vec count =
-  where aux n | n == count = return ()
-              | otherwise = (vec .<-. n) (fromIntegral n) >> aux (n+1)
+            => Int -> M.STVector (PrimState m) a
+            -> m (M.STVector (PrimState m) a)
+rangeSetter count vec = aux 0
+  where aux n | n == count = return vec
+        aux n = (vec .<-. n) (fromIntegral n) >> aux (n + 1)
 
 -- | Gif image constraint from spec-gif89a, code size max : 12 bits.
-lzw :: Int -> Int -> BoolReader (V.Vector Word8)
-lzw nMaxBitKeySize initialKeySize =
+lzw :: Int -> Int -> BoolReader s (V.Vector Word8)
+lzw nMaxBitKeySize initialKeySize = fail ""
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
-        maxDataSize = tableEntryCount / 2 * (1 + tableEntryCount)
+        maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount)
         initialElementCount = 2 ^ min 12 initialKeySize
 
         -- Allocate buffer of maximum size.
-        initialContext = do
-            entries <- M.new tableEntryCount
-            rangeSetter entries initialElementCount
-
-            dataTab <- M.new maxDataSize
-            rangeSetter dataTab initialElementCount
-
-            return $ LZWContext entries dataTab initialElementCount 
-
-isCodeAllocated :: LZWContext -> Int -> BoolReader Bool
-isCodeAllocated (LZWContext { lzwTable = table }) code =
-    lift $ (0 <=) <$> tabme .!!!. code
+        initialContext = 
+            LZWContext <$> (M.new tableEntryCount >>= rangeSetter initialElementCount)
+                       <*> (M.new maxDataSize >>= rangeSetter initialElementCount)
+                       <*> (pure initialElementCount )
 
 --------------------------------------------------
 ----            Meh
