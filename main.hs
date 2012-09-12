@@ -291,11 +291,7 @@ main = do
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
     f <- B.readFile ("tests" </> "gif" </> "Gif_pixel_cube.gif")
-    print $ (decode f :: Either String GifFile)
-
-    f <- B.readFile ("tests" </> "gif" </> "animated.gif")
-    print $ (decode f :: Either String GifFile)
-
-    f <- B.readFile ("tests" </> "gif" </> "magceit.gif")
-    print $ (decode f :: Either String GifFile)
+    {-f <- B.readFile ("tests" </> "gif" </> "animated.gif")-}
+    {-f <- B.readFile ("tests" </> "gif" </> "magceit.gif")-}
+    return ()
 

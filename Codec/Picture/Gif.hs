@@ -1,5 +1,5 @@
 
-module Codec.Picture.Gif ( GifFile ( .. )
+module Codec.Picture.Gif ( GifFile ( .. ), GifImage (..)
                          ) where
 
 {-import Data.Vector (Vector)-}
@@ -11,7 +11,6 @@ import Data.Word( Word8, Word16 )
 {-import LZW-}
 import qualified Data.ByteString as B
 {-import qualified Data.Vector     as V-}
-import Text.Printf
 
 import Data.Serialize( Serialize(..)
                      , Get
@@ -54,7 +53,6 @@ import Codec.Picture.Types
 ----            GifVersion
 --------------------------------------------------
 data GifVersion = GIF87a | GIF89a
-  deriving (Show, Eq)
 
 gif87aSignature, gif89aSignature :: B.ByteString
 gif87aSignature = B.pack $ map (fromIntegral . fromEnum) "GIF87a"
@@ -93,7 +91,6 @@ data LogicalScreenDescriptor = LogicalScreenDescriptor
   -- | Stored on 3 bits
   , colorTableSize        :: !Word8
   }
-  deriving (Show, Eq)
 
 instance Serialize LogicalScreenDescriptor where
     put _ = undefined
@@ -128,7 +125,6 @@ data ImageDescriptor = ImageDescriptor
   , gDescIsImgDescriptorSorted  :: !Bool
   , gDescLocalColorTableSize    :: !Word8
   }
-  deriving (Show, Eq)
 
 imageSeparator, extensionIntroducer, gifTrailer :: Word8
 imageSeparator      = 0x2C
@@ -153,14 +149,6 @@ data GifImage = GifImage
     , imgLzwRootSize  :: !Word8
     , imgData         :: B.ByteString
     }
-
-instance Show GifImage where
-    show img =
-        printf "GifImage { imgDescriptr = %s, imgLzwRootSize = %d, imgData = %d }"
-                    (show $ imgDescriptor img)
-                    (imgLzwRootSize img)
-                    (B.length $ imgData img)
-
 
 instance Serialize GifImage where
     put _ = undefined
@@ -222,12 +210,6 @@ data GifHeader = GifHeader
   , gifGlobalMap        :: !Palette
   }
 
-instance Show GifHeader where
-    show v =
-        printf "GifHeader { gifVersion = %s, gifScreenDescriptor = %s }"
-               (show $ gifVersion v)
-               (show $ gifScreenDescriptor v)
-
 instance Serialize GifHeader where
     put _ = undefined
     get = do
@@ -244,7 +226,6 @@ data GifFile = GifFile
     { gifHeader :: !GifHeader
     , gifImages :: [GifImage]
     }
-    deriving Show
 
 instance Serialize GifFile where
     put _ = undefined
