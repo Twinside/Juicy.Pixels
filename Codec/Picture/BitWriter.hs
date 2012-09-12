@@ -5,10 +5,9 @@ module Codec.Picture.BitWriter( BoolWriter
                               , BoolReader
                               , writeBits
                               , byteAlignJpg
-                              , getNextBit
                               , getNextBits
                               , getNextBitJpg
-                              , setDecodedString 
+                              , setDecodedString
                               , setDecodedStringJpg
                               , runBoolWriter
                               ) where
@@ -55,13 +54,13 @@ byteAlignJpg = do
   (idx, _, chain) <- S.get
   when (idx /= 7) (setDecodedStringJpg chain)
 
-{-# INLINE getNextBit #-}
-getNextBit :: BoolReader s Bool
-getNextBit = do
+{-# INLINE getNextBitJpg #-}
+getNextBitJpg :: BoolReader s Bool
+getNextBitJpg = do
     (idx, v, chain) <- S.get
     let val = (v .&. (1 `shiftL` idx)) /= 0
     if idx == 0
-      then setDecodedString chain
+      then setDecodedStringJpg chain
       else S.put (idx - 1, v, chain)
     return val
 
@@ -76,14 +75,13 @@ getNextBits count = aux 0 count
                         | otherwise = shifted
             aux nextVal (n - 1)
 
--- | Return the next bit in the input stream.
-{-# INLINE getNextBitJpg #-}
-getNextBitJpg :: BoolReader s Bool
-getNextBitJpg = do
+{-# INLINE getNextBit #-}
+getNextBit :: BoolReader s Bool
+getNextBit = do
     (idx, v, chain) <- S.get
     let val = (v .&. (1 `shiftL` idx)) /= 0
     if idx == 0
-      then setDecodedStringJpg chain
+      then setDecodedString chain
       else S.put (idx - 1, v, chain)
     return val
 
