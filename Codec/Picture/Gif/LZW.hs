@@ -1,5 +1,7 @@
 module Codec.Picture.Gif.LZW( lzw ) where
 
+import Data.List( foldl' )
+import Data.Bits( shiftL, (.&.), (.|.) )
 import Data.Word( Word8, Word16 )
 import Control.Applicative( pure, (<$>), (<*>) )
 
@@ -33,6 +35,16 @@ import Codec.Picture.BitWriter
 (.<-.) = M.write 
          -- M.unsafeWrite
 
+reverseByteTable :: V.Vector Word8
+reverseByteTable = V.generate 256 revByte
+  where revByte value = foldl' aux 0 [0 .. 7]
+          where aux v n
+                    | value .&. (1 `shiftL` n) /= 0 = (v `shiftL` 1) .|. 1 
+                    | otherwise = (v `shiftL` 1)
+
+reverseIndividualBytes :: B.ByteString -> B.ByteString
+reverseIndividualBytes = B.map (reverseByteTable !!!)
+
 data LZWEntry = LZWEntry {-# UNPACK #-} !Word16
                          {-# UNPACK #-} !Int
 
@@ -64,6 +76,10 @@ lzw nMaxBitKeySize initialKeySize = fail ""
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
         maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount)
         initialElementCount = 2 ^ min 12 initialKeySize
+
+        resetContext (LZWContext t1 t2 _) = do
+            rangeSetter initialElementCount t1
+            rangeSetter initialElementCount t2
 
         -- Allocate buffer of maximum size.
         initialContext = 

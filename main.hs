@@ -5,6 +5,8 @@ import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
 import System.Environment
 
+import Data.Serialize
+import Codec.Picture.Gif
 import Data.Word( Word8 )
 import System.Environment
 import System.FilePath
@@ -282,9 +284,18 @@ main = do
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
-    planeSeparationRGB8Test 
-    planeSeparationRGBA8Test 
-    planeSeparationYA8Test 
+    {-planeSeparationRGB8Test -}
+    {-planeSeparationRGBA8Test -}
+    {-planeSeparationYA8Test -}
+
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
+    f <- B.readFile ("tests" </> "gif" </> "Gif_pixel_cube.gif")
+    print $ (decode f :: Either String GifFile)
+
+    f <- B.readFile ("tests" </> "gif" </> "animated.gif")
+    print $ (decode f :: Either String GifFile)
+
+    f <- B.readFile ("tests" </> "gif" </> "magceit.gif")
+    print $ (decode f :: Either String GifFile)
 

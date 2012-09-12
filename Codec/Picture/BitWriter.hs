@@ -5,7 +5,10 @@ module Codec.Picture.BitWriter( BoolWriter
                               , BoolReader
                               , writeBits
                               , byteAlignJpg
+                              , getNextBit
+                              , getNextBits
                               , getNextBitJpg
+                              , setDecodedString 
                               , setDecodedStringJpg
                               , runBoolWriter
                               ) where
@@ -52,6 +55,27 @@ byteAlignJpg = do
   (idx, _, chain) <- S.get
   when (idx /= 7) (setDecodedStringJpg chain)
 
+{-# INLINE getNextBit #-}
+getNextBit :: BoolReader s Bool
+getNextBit = do
+    (idx, v, chain) <- S.get
+    let val = (v .&. (1 `shiftL` idx)) /= 0
+    if idx == 0
+      then setDecodedString chain
+      else S.put (idx - 1, v, chain)
+    return val
+
+{-# INLINE getNextBits #-}
+getNextBits :: Int -> BoolReader s Word32
+getNextBits count = aux 0 count
+  where aux acc 0 = return acc
+        aux acc n = do
+            bit <- getNextBit
+            let shifted = acc `shiftL` 1
+                nextVal | bit = shifted .|. 1
+                        | otherwise = shifted
+            aux nextVal (n - 1)
+
 -- | Return the next bit in the input stream.
 {-# INLINE getNextBitJpg #-}
 getNextBitJpg :: BoolReader s Bool
@@ -63,7 +87,8 @@ getNextBitJpg = do
       else S.put (idx - 1, v, chain)
     return val
 
--- | Bitify a list of things to decode.
+-- | Bitify a list of things to decode. Handle Jpeg escape
+-- code (0xFF 0x00), thus should be only used in JPEG decoding.
 setDecodedStringJpg :: B.ByteString -> BoolReader s ()
 setDecodedStringJpg str = case B.uncons str of
      Nothing        -> S.put (maxBound, 0, B.empty)
