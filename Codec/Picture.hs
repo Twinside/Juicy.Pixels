@@ -33,6 +33,11 @@ module Codec.Picture (
                      , encodeDynamicBitmap 
                      , writeDynamicBitmap 
 
+                     -- ** Gif handling
+                     , readGif
+                     , decodeGif
+                     , decodeGifImages
+
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg 
@@ -69,7 +74,7 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
-import Codec.Picture.Gif
+import Codec.Picture.Gif( decodeGif, decodeGifImages )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
@@ -114,6 +119,10 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
 readPng = withImageDecoder decodePng 
+
+-- | Helper function trying to load a gif file from a file on disk.
+readGif :: FilePath -> IO (Either String DynamicImage)
+readGif = withImageDecoder decodeGif
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can

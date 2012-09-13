@@ -10,12 +10,11 @@ module Codec.Picture.BitWriter( BoolWriter
                               , setDecodedString
                               , setDecodedStringJpg
                               , runBoolWriter
+                              , runBoolReader
                               ) where
 
 import Control.Monad( when )
-import Control.Monad.ST( ST
-                       -- , runST
-                       )
+import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
 import Control.Monad.Trans.Class( MonadTrans( .. ) )
 import Data.Word( Word8, Word32 )
@@ -40,6 +39,9 @@ type BoolState = (Int, Word8, B.ByteString)
 
 -- | Type used to read bits
 type BoolReader s a = S.StateT BoolState (ST s) a
+
+runBoolReader :: BoolReader s a -> ST s a
+runBoolReader action = S.evalStateT action (0, 0, B.empty)
 
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()

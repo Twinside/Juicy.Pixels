@@ -43,7 +43,7 @@ reverseByteTable = V.generate 256 revByte
                     | otherwise = (v `shiftL` 1)
 
 reverseIndividualBytes :: B.ByteString -> B.ByteString
-reverseIndividualBytes = B.map (reverseByteTable !!!)
+reverseIndividualBytes = B.map $ (reverseByteTable !!!) . fromIntegral
 
 data LZWEntry = LZWEntry {-# UNPACK #-} !Word16
                          {-# UNPACK #-} !Int
@@ -71,8 +71,9 @@ rangeSetter count vec = aux 0
         aux n = (vec .<-. n) (fromIntegral n) >> aux (n + 1)
 
 -- | Gif image constraint from spec-gif89a, code size max : 12 bits.
-lzw :: Int -> Int -> BoolReader s (V.Vector Word8)
-lzw nMaxBitKeySize initialKeySize = fail ""
+lzw :: Int -> Int -> M.STVector s Word8
+    -> BoolReader s ()
+lzw nMaxBitKeySize initialKeySize outVec = fail ""
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
         maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount)
         initialElementCount = 2 ^ min 12 initialKeySize
@@ -82,10 +83,10 @@ lzw nMaxBitKeySize initialKeySize = fail ""
             rangeSetter initialElementCount t2
 
         -- Allocate buffer of maximum size.
-        initialContext = 
-            LZWContext <$> (M.new tableEntryCount >>= rangeSetter initialElementCount)
-                       <*> (M.new maxDataSize >>= rangeSetter initialElementCount)
-                       <*> (pure initialElementCount )
+        {-initialContext = -}
+            {-LZWContext <$> (M.new tableEntryCount >>= rangeSetter initialElementCount)-}
+                       {-<*> (M.new maxDataSize >>= rangeSetter initialElementCount)-}
+                       {-<*> (pure initialElementCount )-}
 
 --------------------------------------------------
 ----            Meh

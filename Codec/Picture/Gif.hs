@@ -1,19 +1,23 @@
 
-module Codec.Picture.Gif ( GifFile ( .. ), GifImage (..)
+module Codec.Picture.Gif ( decodeGif
+                         , decodeGifImages
                          ) where
 
-{-import Data.Vector (Vector)-}
-import qualified Data.Vector as V
 import Control.Applicative( pure, (<$>), (<*>) )
 import Control.Monad( replicateM )
+import Control.Monad.ST( runST )
+import Control.Monad.Trans.Class( lift )
+
 import Data.Bits( (.&.), shiftR, testBit )
 import Data.Word( Word8, Word16 )
-{-import LZW-}
+
 import qualified Data.ByteString as B
-{-import qualified Data.Vector     as V-}
+import qualified Data.Vector.Storable as V
+import qualified Data.Vector.Storable.Mutable as M
 
 import Data.Serialize( Serialize(..)
                      , Get
+                     , decode
                      , getWord8
                      , getWord16le
                      , getBytes
@@ -29,6 +33,8 @@ import Data.Serialize( Serialize(..)
                      )
 
 import Codec.Picture.Types
+import Codec.Picture.Gif.LZW
+import Codec.Picture.BitWriter
 
 {-
    <GIF Data Stream> ::=     Header <Logical Screen> <Data>* Trailer
@@ -235,4 +241,36 @@ instance Serialize GifFile where
 
         return GifFile { gifHeader = hdr
                        , gifImages = images }
+
+decodeImage :: Palette -> GifImage -> Image Pixel8
+decodeImage globalPalette img = runST $ runBoolReader $ do
+    setDecodedString $ imgData img
+    outputVector <- lift . M.new $ width * height
+    lzw 12 lzwRoot outputVector
+    frozenData <- lift $ V.unsafeFreeze outputVector
+    return Image
+      { imageWidth = width
+      , imageHeight = height
+      , imageData = frozenData
+      }
+  where lzwRoot = fromIntegral $ imgLzwRootSize img
+        width = fromIntegral $ gDescImageWidth descriptor
+        height = fromIntegral $ gDescImageHeight descriptor
+        descriptor = imgDescriptor img
+        _palette = case imgLocalPalette img of
+            Nothing -> globalPalette
+            Just p  -> p
+
+decodeGifImages :: GifFile -> [Image Pixel8]
+decodeGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
+                        , gifImages = lst } = map (decodeImage palette) lst
+
+decodeFirstGifImage :: GifFile -> Either String (Image Pixel8)
+decodeFirstGifImage
+        GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
+                , gifImages = (gif:_) } = Right $ decodeImage palette gif
+decodeFirstGifImage _ = Left "No image in gif file"
+
+decodeGif :: B.ByteString -> Either String DynamicImage
+decodeGif img = ImageY8 <$> (decode img >>= decodeFirstGifImage)
 
