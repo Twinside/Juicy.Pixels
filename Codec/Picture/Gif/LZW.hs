@@ -2,12 +2,14 @@ module Codec.Picture.Gif.LZW( lzw ) where
 
 import Data.List( foldl' )
 import Data.Bits( shiftL, (.&.), (.|.) )
-import Data.Word( Word8, Word16 )
-import Control.Applicative( pure, (<$>), (<*>) )
+import Data.Word( Word8 )
+import Control.Applicative( (<$>) )
 
-import Control.Monad.ST( ST )
-import Foreign.Storable ( Storable )
+{-import Control.Monad.ST( ST )-}
+import Control.Monad.Trans.Class( lift )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
+
+import Foreign.Storable ( Storable )
 
 import qualified Data.ByteString as B
 import qualified Data.Vector.Unboxed as V
@@ -45,15 +47,6 @@ reverseByteTable = V.generate 256 revByte
 reverseIndividualBytes :: B.ByteString -> B.ByteString
 reverseIndividualBytes = B.map $ (reverseByteTable !!!) . fromIntegral
 
-data LZWEntry = LZWEntry {-# UNPACK #-} !Word16
-                         {-# UNPACK #-} !Int
-
-data LZWContext s = LZWContext
-    { lzwTable   :: M.STVector s Int
-    , lzwData    :: M.STVector s Word8
-    , lzwMaxCode :: {-# UNPACK #-} !Int
-    }
-
 duplicateData :: (PrimMonad m, Storable a)
               => M.STVector (PrimState m) a -> M.STVector (PrimState m) a
               -> Int -> Int -> Int -> m ()
@@ -73,20 +66,41 @@ rangeSetter count vec = aux 0
 -- | Gif image constraint from spec-gif89a, code size max : 12 bits.
 lzw :: Int -> Int -> M.STVector s Word8
     -> BoolReader s ()
-lzw nMaxBitKeySize initialKeySize outVec = fail ""
+lzw nMaxBitKeySize initialKeySize outVec = do
+    -- Allocate buffer of maximum size.
+    lzwOffsetTable <- lift (M.new tableEntryCount) >>= resetArray
+    lzwSizeTable <- lift $ M.new tableEntryCount
+    lift $ lzwSizeTable `M.set` 1
+    lzwData <- lift (M.new maxDataSize) >>= resetArray
+    let loop outWriteIdx writeIdx dicWriteIdx codeSize code
+          | code == endOfInfo codeSize = return ()
+          | code == clearCode codeSize =
+              getNextCode initialKeySize >>=
+                loop outWriteIdx initialElementCount initialElementCount initialKeySize
+          | otherwise = do
+              dataOffset <- lift $ lzwOffsetTable .!!!. code
+              dataSize <- lift $ lzwSizeTable  .!!!. code
+              lift $ duplicateData lzwData outVec dataOffset dataSize outWriteIdx
+              lift $ duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
+
+              getNextCode codeSize >>=
+                loop (outWriteIdx + dataSize)
+                     (writeIdx + 1)
+                     (dicWriteIdx + dataSize) codeSize
+
+    getNextCode initialKeySize >>=
+        loop 0 initialElementCount initialElementCount initialKeySize
+
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
         maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount)
-        initialElementCount = 2 ^ min 12 initialKeySize
+        initialElementCount = 2 ^ min 12 initialKeySize :: Int
 
-        resetContext (LZWContext t1 t2 _) = do
-            rangeSetter initialElementCount t1
-            rangeSetter initialElementCount t2
+        resetArray a = lift $ rangeSetter initialElementCount a
 
-        -- Allocate buffer of maximum size.
-        {-initialContext = -}
-            {-LZWContext <$> (M.new tableEntryCount >>= rangeSetter initialElementCount)-}
-                       {-<*> (M.new maxDataSize >>= rangeSetter initialElementCount)-}
-                       {-<*> (pure initialElementCount )-}
+        getNextCode s = fromIntegral <$> getNextBits s
+
+        clearCode size = 2 ^ (size - 1)
+        endOfInfo size = clearCode size + 1
 
 --------------------------------------------------
 ----            Meh
