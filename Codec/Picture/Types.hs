@@ -144,6 +144,14 @@ instance ColorPlane PixelRGBA8 PlaneBlue where
 instance ColorPlane PixelRGBA8 PlaneAlpha where
     toComponentIndex _ _ = 3
 
+-- | Extract a color plane from an image given a present plane in the image
+-- examples :
+--
+-- @
+--  extractRedPlane :: Image PixelRGB8-> Image Pixel8
+--  extractRedPlane = extractComponent PlaneRed
+-- @
+--
 extractComponent :: forall px plane. (Pixel px, ColorPlane px plane)
                  => plane -> Image px -> Image Pixel8
 extractComponent plane = unsafeExtractComponent idx

@@ -1,7 +1,6 @@
-
+-- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( decodeGif
                          , decodeGifImages
-                         , decodeFirstGifImage 
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -275,9 +274,17 @@ decodeFirstGifImage
                 , gifImages = (gif:_) } = Right $ decodeImage palette gif
 decodeFirstGifImage _ = Left "No image in gif file"
 
+-- | Transform a raw gif image to an image, witout
+-- modifying the pixels.
+-- This function can output the following pixel types :
+--
+--  * PixelRGB8
+--
 decodeGif :: B.ByteString -> Either String DynamicImage
 decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 
+-- | Transform a raw gif to a list of images, representing
+-- all the images of an animation.
 decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
 decodeGifImages img = decodeAllGifImages <$> decode img
 

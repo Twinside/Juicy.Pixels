@@ -126,6 +126,8 @@ readPng = withImageDecoder decodePng
 readGif :: FilePath -> IO (Either String DynamicImage)
 readGif = withImageDecoder decodeGif
 
+-- | Helper function trying to load all the images of an animated
+-- gif file.
 readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
 readGifImages = withImageDecoder decodeGifImages
 

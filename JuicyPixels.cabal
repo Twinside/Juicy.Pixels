@@ -1,9 +1,9 @@
 Name:                JuicyPixels
-Version:             1.3
-Synopsis:            Picture loading/serialization (in png, jpeg and bitmap)
+Version:             2.0
+Synopsis:            Picture loading/serialization (in png, jpeg, bitmap and gif)
 Description:
-    This library can load and store images in various image formats,
- for now mainly in PNG/Bitmap and Jpeg
+    This library can load and store images in PNG/Bitmap and Jpeg, and
+  read Gif images.
 
 homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
@@ -25,7 +25,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v1.3
+    Tag:       v2.0
 
 Executable imageTest
   Default-Language: Haskell2010
@@ -36,7 +36,7 @@ Executable imageTest
                  bytestring          >= 0.9     && < 0.10,
                  mtl                 >= 1.1     && < 2.2,
                  cereal              >= 0.3.3.0 && < 0.4,
-                 zlib                >= 0.5.3.1,
+                 zlib                >= 0.5.3.1 && < 0.6,
                  transformers        >= 0.2.2   && < 0.4,
                  vector              >= 0.9     && < 1.0,
                  primitive           >= 0.4     && < 0.5,
@@ -48,6 +48,7 @@ Library
   Default-Language: Haskell2010
   Exposed-modules:  Codec.Picture,
                     Codec.Picture.Bitmap,
+                    Codec.Picture.Gif,
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.Saving,
@@ -58,7 +59,7 @@ Library
                  bytestring          >= 0.9     && < 0.10,
                  mtl                 >= 1.1     && < 2.2,
                  cereal              >= 0.3.3.0 && < 0.4,
-                 zlib                >= 0.5.3.1,
+                 zlib                >= 0.5.3.1 && < 0.6,
                  transformers        >= 0.2.2   && < 0.4,
                  vector              >= 0.9     && < 1.0,
                  primitive           >= 0.4     && < 0.5,
@@ -69,6 +70,8 @@ Library
                  Codec.Picture.Jpg.FastIdct,
                  Codec.Picture.Jpg.FastDct,
                  Codec.Picture.Jpg.Types,
+                 Codec.Picture.Gif.LZW,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
                  Codec.Picture.BitWriter
+
