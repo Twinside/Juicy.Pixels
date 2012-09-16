@@ -242,13 +242,16 @@ instance Serialize GifFile where
         return GifFile { gifHeader = hdr
                        , gifImages = images }
 
-decodeImage :: Palette -> GifImage -> Image Pixel8
+substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
+substituteColors palette = pixelMap swaper
+  where swaper n = palette V.! (fromIntegral n)
+
+decodeImage :: Palette -> GifImage -> Image PixelRGB8
 decodeImage globalPalette img = runST $ runBoolReader $ do
-    setDecodedString $ imgData img
     outputVector <- lift . M.new $ width * height
-    lzw 12 lzwRoot outputVector
+    decodeLzw (imgData img) 12 lzwRoot outputVector
     frozenData <- lift $ V.unsafeFreeze outputVector
-    return Image
+    return $ substituteColors palette Image
       { imageWidth = width
       , imageHeight = height
       , imageData = frozenData
@@ -257,20 +260,20 @@ decodeImage globalPalette img = runST $ runBoolReader $ do
         width = fromIntegral $ gDescImageWidth descriptor
         height = fromIntegral $ gDescImageHeight descriptor
         descriptor = imgDescriptor img
-        _palette = case imgLocalPalette img of
+        palette = case imgLocalPalette img of
             Nothing -> globalPalette
             Just p  -> p
 
-decodeGifImages :: GifFile -> [Image Pixel8]
+decodeGifImages :: GifFile -> [Image PixelRGB8]
 decodeGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
                         , gifImages = lst } = map (decodeImage palette) lst
 
-decodeFirstGifImage :: GifFile -> Either String (Image Pixel8)
+decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
 decodeFirstGifImage
         GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
                 , gifImages = (gif:_) } = Right $ decodeImage palette gif
 decodeFirstGifImage _ = Left "No image in gif file"
 
 decodeGif :: B.ByteString -> Either String DynamicImage
-decodeGif img = ImageY8 <$> (decode img >>= decodeFirstGifImage)
+decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 

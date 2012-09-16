@@ -6,94 +6,12 @@ import Codec.Picture.Gif
 import System.Environment
 
 import Data.Serialize
-import Codec.Picture.Gif
 import Data.Word( Word8 )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
 import Codec.Picture.Types
 import qualified Data.Vector.Storable as V
-
-convertPngToBmp :: FilePath -> IO ()
-convertPngToBmp filePath = do
-    putStrLn $ "(PNG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodePng file)
-                 (\err -> return $ Left (show err))
-    putStrLn "(PNG->BMP) Writing"
-    case rez of
-        Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 _) -> putStr $ "\n(X) Bitmap write error, can't encode YCbCr8"
-        Right (ImageRGB8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageRGBA8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageY8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageYA8 img) -> writeBitmap (filePath ++ ".bmp") converted
-            where converted = promoteImage img :: Image PixelRGBA8
-
-convertBitmapToPng :: FilePath -> IO ()
-convertBitmapToPng filePath = do
-    putStrLn $ "(BMP) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeBitmap file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageRGB8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageRGB8"
-            writePng (filePath ++ ".png") img
-        Right (ImageRGBA8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageRGBA8"
-            writePng (filePath ++ ".png") img
-        Right (ImageY8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageY8"
-            writePng (filePath ++ ".png") img
-        Right _ -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")"
-
-convertJpegToPngStr :: B.ByteString -> IO ()
-convertJpegToPngStr file = do
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: ()" ++ err
-        Right (ImageYCbCr8 img) -> do
-            let rgbImage  = convertImage img :: Image PixelRGB8
-            putStrLn "(JPG->PNG) Write ImageRGB8"
-            writePng "string.png" rgbImage
-        Right (ImageY8 img) -> do
-            putStrLn "(JPG->PNG) Write ImageY8"
-            writePng "string.png" img
-        Right _ -> putStr $ "\n(X) JPEG loading error: ()"
-
-convertJpegToPng :: FilePath -> IO ()
-convertJpegToPng filePath = do
-    putStrLn $ "(JPG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 img) -> do
-            let rgbImage  = convertImage img :: Image PixelRGB8
-            putStrLn "(JPG->PNG) Write ImageRGB8"
-            writePng (filePath ++ ".png") rgbImage
-        Right (ImageY8 img) -> do
-            putStrLn "(JPG->PNG) Write ImageY8"
-            writePng (filePath ++ ".png") img
-        Right _ -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")"
-
-convertJpegToBmp :: FilePath -> IO ()
-convertJpegToBmp filePath = do
-    putStrLn $ "(JPG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    putStrLn "(JPG->BMP) Bmp"
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 img) -> writeBitmap (filePath ++ ".bmp") rgbImage
-                  where rgbImage  = convertImage img :: Image PixelRGB8
-        Right (ImageY8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right _ -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")"
 
 validTests :: [FilePath]
 validTests = 
@@ -272,6 +190,9 @@ planeSeparationYA8Test = do
     B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
     B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
+gifTest :: [FilePath]
+gifTest = ["Gif_pixel_cube.gif", "animated.gif", "magceit.gif"]
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
@@ -284,14 +205,13 @@ main = do
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
+    mapM_ (imgToImg . (("tests" </> "gif") </>)) $ ["Gif_pixel_cube.gif"]
+
     {-planeSeparationRGB8Test -}
     {-planeSeparationRGBA8Test -}
     {-planeSeparationYA8Test -}
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
-    f <- B.readFile ("tests" </> "gif" </> "Gif_pixel_cube.gif")
-    {-f <- B.readFile ("tests" </> "gif" </> "animated.gif")-}
-    {-f <- B.readFile ("tests" </> "gif" </> "magceit.gif")-}
     return ()
 

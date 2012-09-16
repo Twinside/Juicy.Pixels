@@ -113,6 +113,7 @@ readImage = withImageDecoder decodeImage
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
+                                 ,("GIF", decodeGif)
                                  ,("Bitmap", decodeBitmap)
                                  ]
     
