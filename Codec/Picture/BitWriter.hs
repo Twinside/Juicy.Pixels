@@ -24,6 +24,7 @@ import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
 
 import qualified Data.ByteString as B
 
+import Debug.Trace
 {-# INLINE (.>>.) #-}
 {-# INLINE (.<<.) #-}
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
@@ -46,8 +47,8 @@ runBoolReader action = S.evalStateT action (0, 0, B.empty)
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()
 setDecodedString str = case B.uncons str of
-     Nothing        -> S.put (maxBound, 0, B.empty)
-     Just (v, rest) -> S.put (       7, v,    rest)
+     Nothing        -> S.put (      0, 0, B.empty)
+     Just (v, rest) -> S.put (       0, v,    rest)
 
 -- | Drop all bit until the bit of indice 0, usefull to parse restart
 -- marker, as they are byte aligned, but Huffman might not.
@@ -68,23 +69,23 @@ getNextBitJpg = do
 
 {-# INLINE getNextBits #-}
 getNextBits :: Int -> BoolReader s Word32
-getNextBits count = aux 0 count
+getNextBits count = trace "=" $ aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBit
-            let shifted = acc `shiftL` 1
-                nextVal | bit = shifted .|. 1
-                        | otherwise = shifted
-            aux nextVal (n - 1)
+            let shifted = acc .<<. 1
+                nextVal | bit = acc .|. (1 .<<. (count - n))
+                        | otherwise = acc -- shifted
+            trace (if bit then "1" else "0") aux nextVal (n - 1)
 
 {-# INLINE getNextBit #-}
 getNextBit :: BoolReader s Bool
 getNextBit = do
     (idx, v, chain) <- S.get
     let val = (v .&. (1 `shiftL` idx)) /= 0
-    if idx == 0
+    if idx == 7
       then setDecodedString chain
-      else S.put (idx - 1, v, chain)
+      else S.put (idx + 1, v, chain)
     return val
 
 -- | Bitify a list of things to decode. Handle Jpeg escape
