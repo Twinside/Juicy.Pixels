@@ -35,6 +35,7 @@ module Codec.Picture (
 
                      -- ** Gif handling
                      , readGif
+                     , readGifImages
                      , decodeGif
                      , decodeGifImages
 
@@ -124,6 +125,9 @@ readPng = withImageDecoder decodePng
 -- | Helper function trying to load a gif file from a file on disk.
 readGif :: FilePath -> IO (Either String DynamicImage)
 readGif = withImageDecoder decodeGif
+
+readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
+readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can

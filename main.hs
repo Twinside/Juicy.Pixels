@@ -1,5 +1,6 @@
 -- test file, don't care about unused, on the contrary...
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
@@ -7,6 +8,7 @@ import System.Environment
 
 import Data.Serialize
 import Data.Word( Word8 )
+import Control.Monad( forM_ )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
@@ -81,6 +83,25 @@ bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
 validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
+
+gifToImg :: FilePath -> IO ()
+gifToImg path = do
+    rez <- readGifImages path
+    case rez of
+        Left err -> putStrLn $ "Error : " ++ err
+        Right v -> forM_ (zip [0..] v) $ \(i :: Int, img) -> do
+            let ycbcr = convertImage img
+                jpg = validationJpegEncode ycbcr
+                png = encodePng img
+                bmp = encodeBitmap img
+            putStrLn $ "PixelRGB8 : " ++ path
+
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.jpg") jpg
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.bmp") bmp
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.png") png
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -205,7 +226,7 @@ main = do
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
-    mapM_ (imgToImg . (("tests" </> "gif") </>)) $ ["Gif_pixel_cube.gif"]
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
 
     {-planeSeparationRGB8Test -}
     {-planeSeparationRGBA8Test -}

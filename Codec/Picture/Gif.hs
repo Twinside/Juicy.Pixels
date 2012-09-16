@@ -1,6 +1,7 @@
 
 module Codec.Picture.Gif ( decodeGif
                          , decodeGifImages
+                         , decodeFirstGifImage 
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -264,8 +265,8 @@ decodeImage globalPalette img = runST $ runBoolReader $ do
             Nothing -> globalPalette
             Just p  -> p
 
-decodeGifImages :: GifFile -> [Image PixelRGB8]
-decodeGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
+decodeAllGifImages :: GifFile -> [Image PixelRGB8]
+decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
                         , gifImages = lst } = map (decodeImage palette) lst
 
 decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
@@ -276,4 +277,7 @@ decodeFirstGifImage _ = Left "No image in gif file"
 
 decodeGif :: B.ByteString -> Either String DynamicImage
 decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
+
+decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
+decodeGifImages img = decodeAllGifImages <$> decode img
 

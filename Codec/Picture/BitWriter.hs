@@ -24,7 +24,6 @@ import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
 
 import qualified Data.ByteString as B
 
-import Debug.Trace
 {-# INLINE (.>>.) #-}
 {-# INLINE (.<<.) #-}
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
@@ -69,14 +68,13 @@ getNextBitJpg = do
 
 {-# INLINE getNextBits #-}
 getNextBits :: Int -> BoolReader s Word32
-getNextBits count = trace "=" $ aux 0 count
+getNextBits count = aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBit
-            let shifted = acc .<<. 1
-                nextVal | bit = acc .|. (1 .<<. (count - n))
-                        | otherwise = acc -- shifted
-            trace (if bit then "1" else "0") aux nextVal (n - 1)
+            let nextVal | bit = acc .|. (1 .<<. (count - n))
+                        | otherwise = acc
+            aux nextVal (n - 1)
 
 {-# INLINE getNextBit #-}
 getNextBit :: BoolReader s Bool
