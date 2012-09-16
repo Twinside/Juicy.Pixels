@@ -45,6 +45,9 @@ Status
     * Reading non-interlaced baseline DCT image, seems to be OK
     * Writing
 
+ - Gif (.gif)
+    * Reading non-interlaced normal & animated Gif image
+
 _I love juicy pixels_
 
 You can make [donations on this page](http://twinside.github.com/Juicy.Pixels/).

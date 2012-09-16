@@ -215,12 +215,12 @@ buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
 -- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
-huffmanDecode originalTree = getNextBit >>= huffDecode originalTree
+huffmanDecode originalTree = getNextBitJpg >>= huffDecode originalTree
   where huffDecode Empty                   _ = return 0
         huffDecode (Branch (Leaf v) _) False = return v
-        huffDecode (Branch l       _ ) False = getNextBit >>= huffDecode l
+        huffDecode (Branch l       _ ) False = getNextBitJpg >>= huffDecode l
         huffDecode (Branch _ (Leaf v)) True  = return v
-        huffDecode (Branch _       r ) True  = getNextBit >>= huffDecode r
+        huffDecode (Branch _       r ) True  = getNextBitJpg >>= huffDecode r
         huffDecode (Leaf v) _ = return v
 
 --------------------------------------------------
@@ -565,7 +565,7 @@ packInt = foldl' bitStep 0
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int32 -> BoolReader s Int32
-unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBit
+unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBitJpg
 
 powerOf :: Int32 -> Word32
 powerOf 0 = 0
@@ -580,7 +580,7 @@ encodeInt ssss n         = writeBits (fromIntegral $ n - 1) (fromIntegral ssss)
 
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
-    signBit <- getNextBit
+    signBit <- getNextBitJpg
     let dataRange = 1 `shiftL` fromIntegral (ssss - 1)
         leftBitCount = ssss - 1
     -- First following bits store the sign of the coefficient, and counted in
@@ -687,10 +687,10 @@ type DctCoefficients = DcCoefficient
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
-  bits <- replicateM 8 getNextBit
+  bits <- replicateM 8 getNextBitJpg
   if bits == replicate 8 True
      then do
-         marker <- replicateM 8 getNextBit
+         marker <- replicateM 8 getNextBitJpg
          return $ packInt marker
      else return (-1)
         -}
@@ -713,7 +713,7 @@ decodeImage compCount decoder img = do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $
                      \c -> lift $ (dcArray .<-. c) 0
-                 byteAlign
+                 byteAlignJpg
                  _restartCode <- decodeRestartInterval
                  -- if 0xD0 <= restartCode && restartCode <= 0xD7
                  return ())
@@ -851,7 +851,7 @@ decodeJpeg file = case decode file of
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
-                setDecodedString imgData
+                setDecodedStringJpg imgData
                 decodeImage compCount (buildJpegImageDecoder img) wrapped
                 return resultImage) (-1, 0, B.empty)
 

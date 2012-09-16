@@ -27,11 +27,24 @@ module Codec.Picture.Types( -- * Types
 
                             -- * Helper functions
                           , canConvertTo
-                          , extractComponent
                           , pixelMap
                           , dropAlphaLayer
                           , generateImage
                           , generateFoldImage
+
+                            -- * Color plane extraction
+                          , ColorPlane ( )
+
+                          , PlaneRed( .. )
+                          , PlaneGreen( .. )
+                          , PlaneBlue( .. )
+                          , PlaneAlpha( .. )
+                          , PlaneLuma( .. )
+                          , PlaneCr( .. )
+                          , PlaneCb( .. )
+
+                          , extractComponent
+                          , unsafeExtractComponent
                           ) where
 
 import Control.Monad( forM_, foldM )
@@ -66,15 +79,93 @@ data Image a = Image
 (!!!) :: (Storable e) => V.Vector e -> Int -> e
 (!!!) = V.unsafeIndex
 
+-- | Class used to describle plane present in the pixel
+-- type. If a pixel has a plane description associated,
+-- you can use the plane name to extract planes independently.
+class ColorPlane pixel planeToken where
+    -- | Retrieve the index of the component in the
+    -- given pixel type.
+    toComponentIndex :: pixel -> planeToken -> Int
+
+-- | Define the plane for the red color component
+data PlaneRed = PlaneRed
+
+-- | Define the plane for the green color component
+data PlaneGreen = PlaneGreen
+
+-- | Define the plane for the blue color component
+data PlaneBlue = PlaneBlue
+
+-- | Define the plane for the alpha (transparency) component
+data PlaneAlpha = PlaneAlpha
+
+-- | Define the plane for the luma component
+data PlaneLuma = PlaneLuma 
+
+-- | Define the plane for the Cr component
+data PlaneCr = PlaneCr
+
+-- | Define the plane for the Cb component
+data PlaneCb = PlaneCb
+
+instance ColorPlane PixelYCbCr8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYCbCr8 PlaneCb where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelYCbCr8 PlaneCr where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelYA8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYA8 PlaneAlpha where
+    toComponentIndex _ _ = 1
+    
+instance ColorPlane PixelRGB8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGB8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGB8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBA8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBA8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA8 PlaneAlpha where
+    toComponentIndex _ _ = 3
+
+-- | Extract a color plane from an image given a present plane in the image
+-- examples :
+--
+-- @
+--  extractRedPlane :: Image PixelRGB8-> Image Pixel8
+--  extractRedPlane = extractComponent PlaneRed
+-- @
+--
+extractComponent :: forall px plane. (Pixel px, ColorPlane px plane)
+                 => plane -> Image px -> Image Pixel8
+extractComponent plane = unsafeExtractComponent idx
+    where idx = toComponentIndex (undefined :: px) plane
+
 -- | Extract an image plane of an image, returning an image which
 -- can be represented by a gray scale image.
 -- If you ask a component out of bound, the `error` function will
 -- be called
-extractComponent :: forall a. (Pixel a) 
-                 => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
-                 -> Image a -- ^ Source image
-                 -> Image Pixel8
-extractComponent comp img@(Image { imageWidth = w, imageHeight = h })
+unsafeExtractComponent :: forall a. (Pixel a) 
+                       => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
+                       -> Image a -- ^ Source image
+                       -> Image Pixel8
+unsafeExtractComponent comp img@(Image { imageWidth = w, imageHeight = h })
   | comp >= padd = error $ "extractComponent : invalid component index (" 
                          ++ show comp ++ ", max:" ++ show padd ++ ")"
   | otherwise = Image { imageWidth = w, imageHeight = h, imageData = plane }
@@ -529,12 +620,12 @@ instance LumaPlaneExtractable PixelRGBA8 where
 instance LumaPlaneExtractable PixelYA8 where
     {-# INLINE computeLuma #-}
     computeLuma (PixelYA8 y _) = y
-    extractLumaPlane = extractComponent 0
+    extractLumaPlane = extractComponent PlaneLuma
 
 instance LumaPlaneExtractable PixelYCbCr8 where
     {-# INLINE computeLuma #-}
     computeLuma (PixelYCbCr8 y _ _) = y
-    extractLumaPlane = extractComponent 0
+    extractLumaPlane = extractComponent PlaneLuma
 
 -- | Free promotion for identic pixel types
 instance (Pixel a) => ColorConvertible a a where

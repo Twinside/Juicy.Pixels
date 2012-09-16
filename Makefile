@@ -14,9 +14,10 @@ ctest:
 clean:
 	runhaskell Setup.hs clean
 	rm -f tests/pngsuite/*.bmp
-
-run:
-	dist\build\imageTest\imageTest.exe tests/jpeg/sheep.jpg > out_log_file 2>&1 
+	rm -f tests/pngsuite/*.jpg
+	rm -f tests/gif/*.jpg
+	rm -f tests/gif/*.png
+	rm -f tests/gif/*.bmp
 
 prof:
 	dist\build\imageTest\imageTest.exe +RTS -hy -p -sstderr -RTS tests/pngsuite/huge.png
@@ -31,7 +32,7 @@ lint:
 sdist:
 	runhaskell Setup.hs sdist
 
-JUICYPIXEL_VERSION:=1.3
+JUICYPIXEL_VERSION:=2.0
 
 pack:
 	mkdir JuicyPixels-$(JUICYPIXEL_VERSION)
