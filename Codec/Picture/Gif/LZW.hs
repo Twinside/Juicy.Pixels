@@ -2,6 +2,7 @@ module Codec.Picture.Gif.LZW( decodeLzw, lzw ) where
 
 import Data.Word( Word8 )
 import Control.Applicative( (<$>) )
+import Control.Monad( when )
 
 {-import Control.Monad.ST( ST )-}
 import Control.Monad.Trans.Class( MonadTrans, lift )
@@ -14,12 +15,6 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.BitWriter
 
-import Debug.Trace
-import Text.Printf
-
---------------------------------------------------
-----            My LZW
---------------------------------------------------
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
         => M.STVector (PrimState m) a -> Int -> m a
@@ -46,11 +41,12 @@ import Text.Printf
 duplicateData :: (MonadTrans t, PrimMonad m, Storable a)
               => M.STVector (PrimState m) a -> M.STVector (PrimState m) a
               -> Int -> Int -> Int -> t m ()
-duplicateData src dest sourceIndex size destIndex = trace (printf "[%d:] <- [%3d:]:%d" destIndex sourceIndex size) $ lift $ aux 0
-  where aux n | n == size = return ()
-        aux n = do
-          src .!!!. sourceIndex >>= (dest .<-. destIndex)
-          aux (n + 1)
+duplicateData src dest sourceIndex size destIndex = lift $ aux sourceIndex destIndex
+  where endIndex = sourceIndex + size
+        aux i _ | i == endIndex  = return ()
+        aux i j = do
+          src .!!!. i >>= (dest .<-. j)
+          aux (i + 1) (j + 1)
 
 rangeSetter :: (PrimMonad m, Storable a, Num a)
             => Int -> M.STVector (PrimState m) a
@@ -62,21 +58,22 @@ rangeSetter count vec = aux 0
 decodeLzw :: B.ByteString -> Int -> Int -> M.STVector s Word8
           -> BoolReader s ()
 decodeLzw str maxBitKey initialKey outVec = do
-    setDecodedString . trace (concatMap (printf "%2X ") $ B.unpack $ str) $ str
-    trace "Mooh" $ lzw maxBitKey initialKey outVec
+    setDecodedString str
+    lzw maxBitKey initialKey outVec
 
 -- | Gif image constraint from spec-gif89a, code size max : 12 bits.
 lzw :: Int -> Int -> M.STVector s Word8
     -> BoolReader s ()
 lzw nMaxBitKeySize initialKeySize outVec = do
     -- Allocate buffer of maximum size.
+    lzwData <- lift (M.new maxDataSize) >>= resetArray
     lzwOffsetTable <- lift (M.new tableEntryCount) >>= resetArray
     lzwSizeTable <- lift $ M.new tableEntryCount
     lift $ lzwSizeTable `M.set` 1
-    lzwData <- lift (M.new maxDataSize) >>= resetArray
+
     let loop outWriteIdx writeIdx dicWriteIdx codeSize code
-          | code == endOfInfo = trace "END" $ return ()
-          | code == clearCode = trace "RESET" $
+          | code == endOfInfo = return ()
+          | code == clearCode =
               getNextCode startCodeSize >>=
                 loop outWriteIdx firstFreeIndex firstFreeIndex startCodeSize
 
@@ -84,24 +81,20 @@ lzw nMaxBitKeySize initialKeySize outVec = do
               dataOffset <- lzwOffsetTable ..!!!.. code
               dataSize <- lzwSizeTable  ..!!!.. code
 
-              dicIdx <- if outWriteIdx /= 0
-                 then do firstVal <- lzwData ..!!!.. dataOffset
-                         (lzwData ..<-.. dicWriteIdx) firstVal
-                         return $ dicWriteIdx + 1
-                 else return dicWriteIdx
+              when (outWriteIdx /= 0) $ do
+                 firstVal <- lzwData ..!!!.. dataOffset
+                 (lzwData ..<-.. (dicWriteIdx - 1)) firstVal
 
-              trace (printf "write:%4d dicIdx:%4d size:%4d code:%4d (s:%3d, o:%4d)"
-                                        outWriteIdx dicIdx codeSize code dataSize dataOffset) $ duplicateData lzwData outVec dataOffset dataSize outWriteIdx
-
-              duplicateData lzwData lzwData dataOffset dataSize dicIdx
+              duplicateData lzwData outVec dataOffset dataSize outWriteIdx
+              duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
 
               (lzwSizeTable ..<-.. writeIdx) $ dataSize + 1
-              (lzwOffsetTable ..<-.. writeIdx) dicIdx
+              (lzwOffsetTable ..<-.. writeIdx) dicWriteIdx
 
               getNextCode codeSize >>=
                 loop (outWriteIdx + dataSize)
                      (writeIdx + 1)
-                     (dicIdx + dataSize) (updateCodeSize codeSize $ writeIdx + 1)
+                     (dicWriteIdx + dataSize + 1) (updateCodeSize codeSize $ writeIdx + 1)
 
     getNextCode startCodeSize >>=
         loop 0 firstFreeIndex firstFreeIndex startCodeSize
