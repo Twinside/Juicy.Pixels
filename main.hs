@@ -1,96 +1,19 @@
 -- test file, don't care about unused, on the contrary...
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
+import Codec.Picture.Gif
 import System.Environment
 
+import Data.Serialize
 import Data.Word( Word8 )
+import Control.Monad( forM_ )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
 import Codec.Picture.Types
 import qualified Data.Vector.Storable as V
-
-convertPngToBmp :: FilePath -> IO ()
-convertPngToBmp filePath = do
-    putStrLn $ "(PNG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodePng file)
-                 (\err -> return $ Left (show err))
-    putStrLn "(PNG->BMP) Writing"
-    case rez of
-        Left err -> putStr $ "\n(X) PNG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 _) -> putStr $ "\n(X) Bitmap write error, can't encode YCbCr8"
-        Right (ImageRGB8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageRGBA8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageY8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right (ImageYA8 img) -> writeBitmap (filePath ++ ".bmp") converted
-            where converted = promoteImage img :: Image PixelRGBA8
-
-convertBitmapToPng :: FilePath -> IO ()
-convertBitmapToPng filePath = do
-    putStrLn $ "(BMP) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeBitmap file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageRGB8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageRGB8"
-            writePng (filePath ++ ".png") img
-        Right (ImageRGBA8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageRGBA8"
-            writePng (filePath ++ ".png") img
-        Right (ImageY8 img) -> do
-            putStrLn "(BMP->PNG) Write ImageY8"
-            writePng (filePath ++ ".png") img
-        Right _ -> putStr $ "\n(X) BMP loading error: (" ++ filePath ++ ")"
-
-convertJpegToPngStr :: B.ByteString -> IO ()
-convertJpegToPngStr file = do
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: ()" ++ err
-        Right (ImageYCbCr8 img) -> do
-            let rgbImage  = convertImage img :: Image PixelRGB8
-            putStrLn "(JPG->PNG) Write ImageRGB8"
-            writePng "string.png" rgbImage
-        Right (ImageY8 img) -> do
-            putStrLn "(JPG->PNG) Write ImageY8"
-            writePng "string.png" img
-        Right _ -> putStr $ "\n(X) JPEG loading error: ()"
-
-convertJpegToPng :: FilePath -> IO ()
-convertJpegToPng filePath = do
-    putStrLn $ "(JPG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 img) -> do
-            let rgbImage  = convertImage img :: Image PixelRGB8
-            putStrLn "(JPG->PNG) Write ImageRGB8"
-            writePng (filePath ++ ".png") rgbImage
-        Right (ImageY8 img) -> do
-            putStrLn "(JPG->PNG) Write ImageY8"
-            writePng (filePath ++ ".png") img
-        Right _ -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")"
-
-convertJpegToBmp :: FilePath -> IO ()
-convertJpegToBmp filePath = do
-    putStrLn $ "(JPG) Loading " ++ filePath
-    file <- B.readFile filePath
-    rez <- catch (return $ decodeJpeg file)
-                 (\err -> return $ Left (show err))
-    putStrLn "(JPG->BMP) Bmp"
-    case rez of
-        Left err -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")" ++ err
-        Right (ImageYCbCr8 img) -> writeBitmap (filePath ++ ".bmp") rgbImage
-                  where rgbImage  = convertImage img :: Image PixelRGB8
-        Right (ImageY8 img) -> writeBitmap (filePath ++ ".bmp") img
-        Right _ -> putStr $ "\n(X) JPEG loading error: (" ++ filePath ++ ")"
 
 validTests :: [FilePath]
 validTests = 
@@ -160,6 +83,25 @@ bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
 validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
+
+gifToImg :: FilePath -> IO ()
+gifToImg path = do
+    rez <- readGifImages path
+    case rez of
+        Left err -> putStrLn $ "Error : " ++ err
+        Right v -> forM_ (zip [0..] v) $ \(i :: Int, img) -> do
+            let ycbcr = convertImage img
+                jpg = validationJpegEncode ycbcr
+                png = encodePng img
+                bmp = encodeBitmap img
+            putStrLn $ "PixelRGB8 : " ++ path
+
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.jpg") jpg
+            putStrLn "-> BMP"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.bmp") bmp
+            putStrLn "-> PNG"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.png") png
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -269,6 +211,9 @@ planeSeparationYA8Test = do
     B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
     B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
+gifTest :: [FilePath]
+gifTest = ["Gif_pixel_cube.gif", "animated.gif", "magceit.gif"]
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
@@ -281,9 +226,13 @@ main = do
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
     {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
-    planeSeparationRGB8Test 
-    planeSeparationRGBA8Test 
-    planeSeparationYA8Test 
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+
+    {-planeSeparationRGB8Test -}
+    {-planeSeparationRGBA8Test -}
+    {-planeSeparationYA8Test -}
+
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
+    return ()
 
