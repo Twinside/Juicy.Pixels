@@ -68,7 +68,7 @@ module Codec.Picture (
 
 import Control.Applicative( (<$>) )
 import Control.DeepSeq( NFData, deepseq )
-import Control.Exception( catch, IOException )
+import qualified Control.Exception as Ex ( catch, IOException )
 import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
                            , writeBitmap, encodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
@@ -79,7 +79,7 @@ import Codec.Picture.Gif( decodeGif, decodeGifImages )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
-import Prelude hiding(catch)
+
 
 import qualified Data.ByteString as B
 
@@ -94,8 +94,8 @@ eitherLoad v = inner ""
 withImageDecoder :: (NFData a)
                  => (B.ByteString -> Either String a) -> FilePath
                  -> IO (Either String a)
-withImageDecoder decoder path = catch doit
-                    (\e -> return . Left $ show (e :: IOException))
+withImageDecoder decoder path = Ex.catch doit
+                    (\e -> return . Left $ show (e :: Ex.IOException))
     where doit = withFile path ReadMode $ \h ->
                     force . decoder <$> B.hGetContents h
           -- force appeared in deepseq 1.3, Haskell Platform
