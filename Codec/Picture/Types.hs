@@ -538,8 +538,15 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
                 writePixel mutImage x y $ f x y
             V.unsafeFreeze arr
 
--- | This function implement the same algorithm as 'generateImage',
--- and let use an user-defined state
+-- | Create an image given a function to generate pixels.
+-- The function will receive value from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- left corner of the image, and (width-1, height-1) the lower right corner.
+--
+-- the acc parameter is a user defined one.
+--
+-- The function is called for each pixel in the line from left to right (0 to width - 1)
+-- and for each line (0 to height - 1).
 generateFoldImage :: forall a acc. (Pixel a)
                   => (acc -> Int -> Int -> (acc, a)) -- ^ Function taking the state, x and y
                   -> acc        -- ^ Initial state
