@@ -18,8 +18,7 @@ import Codec.Picture.BitWriter
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
         => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.read
-          -- M.unsafeRead
+(.!!!.) = M.unsafeRead -- M.read
 
 {-# INLINE (..!!!..) #-}
 (..!!!..) :: (MonadTrans t, PrimMonad m, Storable a)
@@ -29,8 +28,7 @@ import Codec.Picture.BitWriter
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a)
        => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.write 
-         -- M.unsafeWrite
+(.<-.) = M.unsafeWrite -- M.write 
 
 {-# INLINE (..<-..) #-}
 (..<-..) :: (MonadTrans t, PrimMonad m, Storable a)
