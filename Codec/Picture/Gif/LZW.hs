@@ -81,15 +81,16 @@ lzw nMaxBitKeySize initialKeySize outVec = do
               dataOffset <- lzwOffsetTable ..!!!.. code
               dataSize <- lzwSizeTable  ..!!!.. code
 
-              when (outWriteIdx /= 0) $ do
-                 firstVal <- lzwData ..!!!.. dataOffset
-                 (lzwData ..<-.. (dicWriteIdx - 1)) firstVal
-
-              duplicateData lzwData outVec dataOffset dataSize outWriteIdx
-              duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
-
-              (lzwSizeTable ..<-.. writeIdx) $ dataSize + 1
-              (lzwOffsetTable ..<-.. writeIdx) dicWriteIdx
+              when (writeIdx < tableEntryCount) $ do
+                  when (outWriteIdx /= 0) $ do
+                     firstVal <- lzwData ..!!!.. dataOffset
+                     (lzwData ..<-.. (dicWriteIdx - 1)) firstVal
+               
+                  duplicateData lzwData outVec dataOffset dataSize outWriteIdx
+                  duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
+               
+                  (lzwSizeTable ..<-.. writeIdx) $ dataSize + 1
+                  (lzwOffsetTable ..<-.. writeIdx) dicWriteIdx
 
               getNextCode codeSize >>=
                 loop (outWriteIdx + dataSize)
