@@ -9,6 +9,7 @@ module Codec.Picture.BitWriter( BoolWriter
                               , getNextBitJpg
                               , setDecodedString
                               , setDecodedStringJpg
+                              , pushByte
                               , runBoolWriter
                               , runBoolReader
                               ) where

@@ -96,12 +96,12 @@ gifToImg path = do
                 bmp = encodeBitmap img
             putStrLn $ "PixelRGB8 : " ++ path
 
-            putStrLn "-> JPG"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.jpg") jpg
             putStrLn "-> BMP"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.bmp") bmp
+            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.bmp") bmp
             putStrLn "-> PNG"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromYCbCr8.png") png
+            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.png") png
+            putStrLn "-> JPG"
+            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -212,7 +212,7 @@ planeSeparationYA8Test = do
     B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 gifTest :: [FilePath]
-gifTest = ["Gif_pixel_cube.gif", "animated.gif", "magceit.gif"]
+gifTest = ["Gif_pixel_cube.gif", "animated.gif", "magceit.gif", "huge.gif", "2k.gif"]
 
 main :: IO ()
 main = do 
@@ -221,16 +221,15 @@ main = do
     {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
-    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ["huge.jpg" ]-}
 
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
 
-    {-planeSeparationRGB8Test -}
-    {-planeSeparationRGBA8Test -}
-    {-planeSeparationYA8Test -}
+    planeSeparationRGB8Test 
+    planeSeparationRGBA8Test 
+    planeSeparationYA8Test 
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
