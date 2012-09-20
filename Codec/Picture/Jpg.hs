@@ -823,7 +823,8 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'colorSpaceConversion'
+-- convert it to RGB using 'convertImage' from the 'ColorSpaceConvertible'
+-- typeclass.
 --
 -- This function can output the following pixel types :
 --

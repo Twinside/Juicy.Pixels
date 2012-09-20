@@ -19,13 +19,14 @@ import Control.Monad.Primitive ( PrimMonad, PrimState )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Serialize( Serialize( .. )
-                     , putWord8, putWord16le, putWord32le
+                     , putWord16le, putWord32le
                      , getWord16le, getWord32le
                      , Get, Put, runGet, runPut
-                     , remaining, getBytes )
+                     , remaining, getBytes, putByteString )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
 
+import Codec.Picture.BitWriter
 import Codec.Picture.Types
 
 data BmpHeader = BmpHeader
@@ -140,54 +141,57 @@ class BmpEncodable pixel where
 (!!!) = V.unsafeIndex
 
 {-# INLINE stridePut #-}
-stridePut :: Int -> Put
+stridePut :: Int -> BoolWriter s ()
 stridePut 0 = return ()
-stridePut 1 = putWord8 0
-stridePut n = putWord8 0 >> stridePut (n - 1)
+stridePut 1 = pushByte 0
+stridePut n = pushByte 0 >> stridePut (n - 1)
 
 instance BmpEncodable Pixel8 where
     defaultPalette _ = BmpPalette [(x,x,x, 255) | x <- [0 .. 255]]
     bitsPerPixel _ = 8
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine $ h - 1
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
+      putByteString $ runST $ runBoolWriter . putLine $ h - 1
         where stride = fromIntegral $ linePadding 8 w
 
               putLine line | line < 0 = return ()
               putLine line = do
                   let lineIdx = line * w
                       inner col | col >= w = return ()
-                                | otherwise = put (arr !!! (lineIdx + col)) >> inner (col + 1)
+                                | otherwise = pushByte (arr !!! (lineIdx + col)) >> inner (col + 1)
                   inner 0
                   stridePut stride
                   putLine (line - 1)
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine (h - 1)
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
+        putByteString $ runST $ runBoolWriter . putLine $ h - 1
       where putLine line | line < 0 = return ()
             putLine line = do
                 let initialIndex = line * w * 4
                     inner col _ | col >= w = return ()
                     inner col readIdx = do
-                        put (arr !!! (readIdx + 2))
-                        put (arr !!! (readIdx + 1))
-                        put (arr !!! readIdx)
-                        put (arr !!! (readIdx + 3))
+                        pushByte (arr !!! (readIdx + 2))
+                        pushByte (arr !!! (readIdx + 1))
+                        pushByte (arr !!! readIdx)
+                        pushByte (arr !!! (readIdx + 3))
                         inner (col + 1) (readIdx + 4)
                 inner 0 initialIndex
                 putLine (line - 1)
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = putLine (h - 1)
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
+       putByteString $ runST $ runBoolWriter . putLine $ h - 1
         where stride = fromIntegral . linePadding 24 $ w
               putLine line | line < 0 = return ()
               putLine line = do
                   let initialIndex = line * w * 3
                       inner col _ | col >= w = return ()
                       inner col readIdx = do
-                          put (arr !!! (readIdx + 2))
-                          put (arr !!! (readIdx + 1))
-                          put (arr !!! readIdx)
+                          pushByte (arr !!! (readIdx + 2))
+                          pushByte (arr !!! (readIdx + 1))
+                          pushByte (arr !!! readIdx)
                           inner (col + 1) (readIdx + 3)
                   inner 0 initialIndex
                   stridePut stride
