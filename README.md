@@ -1,3 +1,5 @@
+![Juicy logo](http://twinside.github.com/Juicy.Pixels/juicy.png)
+
 Juicy.Pixels
 ============
 
