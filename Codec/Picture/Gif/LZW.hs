@@ -28,7 +28,7 @@ import Codec.Picture.BitWriter
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a)
        => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite -- M.write 
+(.<-.) = M.unsafeWrite -- M.write
 
 {-# INLINE (..<-..) #-}
 (..<-..) :: (MonadTrans t, PrimMonad m, Storable a)
@@ -69,7 +69,9 @@ lzw nMaxBitKeySize initialKeySize outVec = do
     lzwSizeTable <- lift $ M.new tableEntryCount
     lift $ lzwSizeTable `M.set` 1
 
-    let loop outWriteIdx writeIdx dicWriteIdx codeSize code
+    let maxWrite = M.length outVec
+        loop outWriteIdx writeIdx dicWriteIdx codeSize code
+          | outWriteIdx >= maxWrite = return ()
           | code == endOfInfo = return ()
           | code == clearCode =
               getNextCode startCodeSize >>=
@@ -83,10 +85,13 @@ lzw nMaxBitKeySize initialKeySize outVec = do
                   when (outWriteIdx /= 0) $ do
                      firstVal <- lzwData ..!!!.. dataOffset
                      (lzwData ..<-.. (dicWriteIdx - 1)) firstVal
-               
-                  duplicateData lzwData outVec dataOffset dataSize outWriteIdx
-                  duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
-               
+
+                  when (outWriteIdx + dataSize <= maxWrite) $
+                       duplicateData lzwData outVec dataOffset dataSize outWriteIdx
+
+                  when (dicWriteIdx + dataSize <= maxDataSize) $
+                       duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
+
                   (lzwSizeTable ..<-.. writeIdx) $ dataSize + 1
                   (lzwOffsetTable ..<-.. writeIdx) dicWriteIdx
 
