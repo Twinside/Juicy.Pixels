@@ -23,7 +23,7 @@ import Data.Serialize( Serialize(..)
                      , getBytes
                      , lookAhead
                      {-, decode-}
-                     {-, remaining-}
+                     , remaining
 
                      {-, Put-}
                      {-, putWord8-}
@@ -187,9 +187,9 @@ instance Serialize GifImage where
     put _ = undefined
     get = do
         desc <- get
-        let paletteSize = gDescLocalColorTableSize desc
-        palette <- if paletteSize > 0
-           then Just <$> getPalette paletteSize
+        let hasLocalColorTable = gDescHasLocalMap desc
+        palette <- if hasLocalColorTable
+           then Just <$> getPalette (gDescLocalColorTableSize desc)
            else pure Nothing
 
         GifImage desc palette <$> getWord8 <*> parseDataBlocks
@@ -209,7 +209,9 @@ parseGifBlocks = lookAhead getWord8 >>= blockParse
                    then getWord8 >> parseDataBlocks >> parseGifBlocks
                    else (:) <$> (BlockGraphicControl <$> get) <*> parseGifBlocks
 
-        blockParse v = fail ("Unrecognize gif block " ++ show v)
+        blockParse v = do
+            remain <- remaining
+            fail ("Unrecognized gif block " ++ show v ++ " remaining: " ++ show remain)
 
 instance Serialize ImageDescriptor where
     put _ = undefined
