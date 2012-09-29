@@ -137,10 +137,12 @@ imageSeparator      = 0x2C
 extensionIntroducer = 0x21
 gifTrailer          = 0x3B
 
-{-commentLabel, graphicControlLabel, graphicControlLabel,-}
-              {-applicationLabel :: Word8-}
+graphicControlLabel :: Word8
+graphicControlLabel = 0xF9
+
+--commentLabel, graphicControlLabel, applicationLabel
+--
 {-commentLabel        = 0xFE-}
-{-graphicControlLabel = 0xF9-}
 {-plainTextLabel      = 0x01-}
 {-applicationLabel    = 0xFF-}
 
@@ -148,6 +150,31 @@ parseDataBlocks :: Get B.ByteString
 parseDataBlocks = B.concat <$> (getWord8 >>= aux)
  where aux    0 = pure []
        aux size = (:) <$> getBytes (fromIntegral size) <*> (getWord8 >>= aux)
+
+data GraphicControlExtension = GraphicControlExtension
+    { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
+    , gceUserInputFlag         :: !Bool
+    , gceTransparentFlag       :: !Bool
+    , gceDelay                 :: !Word16
+    , gceTransparentColorIndex :: !Word8
+    }
+
+instance Serialize GraphicControlExtension where
+    put _ = undefined
+    get = do
+        _extensionLabel  <- getWord8
+        _size            <- getWord8
+        packedFields     <- getWord8
+        delay            <- getWord16le
+        idx              <- getWord8
+        _blockTerminator <- getWord8
+        return GraphicControlExtension
+            { gceDisposalMethod        = (packedFields `shiftR` 2) .&. 0x07
+            , gceUserInputFlag         = packedFields `testBit` 1
+            , gceTransparentFlag       = packedFields `testBit` 0
+            , gceDelay                 = delay
+            , gceTransparentColorIndex = idx
+            }
 
 data GifImage = GifImage
     { imgDescriptor   :: !ImageDescriptor
@@ -167,13 +194,21 @@ instance Serialize GifImage where
 
         GifImage desc palette <$> getWord8 <*> parseDataBlocks
 
-parseGifBlocks :: Get [GifImage]
+data Block = BlockImage GifImage
+           | BlockGraphicControl GraphicControlExtension
+
+parseGifBlocks :: Get [Block]
 parseGifBlocks = lookAhead getWord8 >>= blockParse
   where blockParse v
           | v == gifTrailer = getWord8 >> pure []
-          | v == imageSeparator = (:) <$> get <*> parseGifBlocks
-          | v == extensionIntroducer =
-               getWord8 >> getWord8 >> parseDataBlocks >> parseGifBlocks
+          | v == imageSeparator = (:) <$> (BlockImage <$> get) <*> parseGifBlocks
+          | v == extensionIntroducer = do
+                _ <- getWord8
+                extensionCode <- lookAhead getWord8
+                if extensionCode /= graphicControlLabel
+                   then getWord8 >> parseDataBlocks >> parseGifBlocks
+                   else (:) <$> (BlockGraphicControl <$> get) <*> parseGifBlocks
+
         blockParse v = fail ("Unrecognize gif block " ++ show v)
 
 instance Serialize ImageDescriptor where
@@ -229,29 +264,36 @@ instance Serialize GifHeader where
             }
 
 data GifFile = GifFile
-    { gifHeader :: !GifHeader
-    , gifImages :: [GifImage]
+    { gifHeader  :: !GifHeader
+    , gifImages  :: [(Maybe GraphicControlExtension, GifImage)]
     }
+
+associateDescr :: [Block] -> [(Maybe GraphicControlExtension, GifImage)]
+associateDescr [] = []
+associateDescr [BlockGraphicControl _] = []
+associateDescr (BlockGraphicControl _ : rest@(BlockGraphicControl _ : _)) = associateDescr rest
+associateDescr (BlockImage img:xs) = (Nothing, img) : associateDescr xs
+associateDescr (BlockGraphicControl ctrl : BlockImage img : xs) =
+    (Just ctrl, img) : associateDescr xs
 
 instance Serialize GifFile where
     put _ = undefined
     get = do
         hdr <- get
-        images <- parseGifBlocks
-
+        blocks <- parseGifBlocks
         return GifFile { gifHeader = hdr
-                       , gifImages = images }
+                       , gifImages = associateDescr blocks }
 
 substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
 substituteColors palette = pixelMap swaper
   where swaper n = palette V.! (fromIntegral n)
 
-decodeImage :: Palette -> GifImage -> Image PixelRGB8
-decodeImage globalPalette img = runST $ runBoolReader $ do
+decodeImage :: GifImage -> Image Pixel8
+decodeImage img = runST $ runBoolReader $ do
     outputVector <- lift . M.new $ width * height
     decodeLzw (imgData img) 12 lzwRoot outputVector
     frozenData <- lift $ V.unsafeFreeze outputVector
-    return $ substituteColors palette Image
+    return $ Image
       { imageWidth = width
       , imageHeight = height
       , imageData = frozenData
@@ -260,18 +302,54 @@ decodeImage globalPalette img = runST $ runBoolReader $ do
         width = fromIntegral $ gDescImageWidth descriptor
         height = fromIntegral $ gDescImageHeight descriptor
         descriptor = imgDescriptor img
-        palette = case imgLocalPalette img of
-            Nothing -> globalPalette
-            Just p  -> p
+
+paletteOf :: Palette -> GifImage -> Palette
+paletteOf global GifImage { imgLocalPalette = Nothing } = global
+paletteOf      _ GifImage { imgLocalPalette = Just p  } = p
 
 decodeAllGifImages :: GifFile -> [Image PixelRGB8]
-decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
-                        , gifImages = lst } = map (decodeImage palette) lst
+decodeAllGifImages GifFile { gifImages = [] } = []
+decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
+                                                   , gifScreenDescriptor = wholeDescriptor
+                                                   }
+                           , gifImages = (_, firstImage) : rest } = map paletteApplyer $
+ scanl generator (paletteOf palette firstImage, decodeImage firstImage) rest
+    where globalWidth = fromIntegral $ screenWidth wholeDescriptor
+          globalHeight = fromIntegral $ screenHeight wholeDescriptor
+
+          {-background = backgroundIndex wholeDescriptor-}
+
+          paletteApplyer (pal, img) = substituteColors pal img
+
+          generator (_, img1) (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
+                        (paletteOf palette img2, generateImage pixeler globalWidth globalHeight)
+               where localWidth = fromIntegral $ gDescImageWidth descriptor
+                     localHeight = fromIntegral $ gDescImageHeight descriptor
+
+                     left = fromIntegral $ gDescPixelsFromLeft descriptor
+                     top = fromIntegral $ gDescPixelsFromTop descriptor
+
+                     isPixelInLocalImage x y =
+                         x >= left && x < left + localWidth && y >= top && y < top + localHeight
+
+                     decoded = decodeImage img2
+
+                     transparent :: Int
+                     transparent = case controlExt of
+                        Nothing  -> 300
+                        Just ext -> if gceTransparentFlag ext
+                            then fromIntegral $ gceTransparentColorIndex ext
+                            else 300
+
+                     pixeler x y
+                        | isPixelInLocalImage x y && fromIntegral val /= transparent = val
+                            where val = pixelAt decoded (x - left) (y - top)
+                     pixeler x y = pixelAt img1 x y
 
 decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
 decodeFirstGifImage
         GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
-                , gifImages = (gif:_) } = Right $ decodeImage palette gif
+                , gifImages = ((_, gif):_) } = Right . substituteColors palette $ decodeImage gif
 decodeFirstGifImage _ = Left "No image in gif file"
 
 -- | Transform a raw gif image to an image, witout
