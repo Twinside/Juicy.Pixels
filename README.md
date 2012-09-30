@@ -48,7 +48,7 @@ Status
     * Writing
 
  - Gif (.gif)
-    * Reading non-interlaced normal & animated Gif image
+    * Reading single image & animated Gif image, handles interlaced images.
 
 _I love juicy pixels_
 
