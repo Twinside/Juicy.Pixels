@@ -295,7 +295,7 @@ decodeImage img = runST $ runBoolReader $ do
     outputVector <- lift . M.new $ width * height
     decodeLzw (imgData img) 12 lzwRoot outputVector
     frozenData <- lift $ V.unsafeFreeze outputVector
-    return $ Image
+    return . deinterlaceGif $ Image
       { imageWidth = width
       , imageHeight = height
       , imageData = frozenData
@@ -303,7 +303,26 @@ decodeImage img = runST $ runBoolReader $ do
   where lzwRoot = fromIntegral $ imgLzwRootSize img
         width = fromIntegral $ gDescImageWidth descriptor
         height = fromIntegral $ gDescImageHeight descriptor
+        isInterlaced = gDescIsInterlaced descriptor
         descriptor = imgDescriptor img
+
+        deinterlaceGif | not isInterlaced = id
+                       | otherwise = deinterlaceGifImage
+
+deinterlaceGifImage :: Image Pixel8 -> Image Pixel8
+deinterlaceGifImage img@(Image { imageWidth = w, imageHeight = h }) = generateImage generator w h
+   where lineIndices = gifInterlacingIndices h
+         generator x y = pixelAt img x y'
+            where y' = lineIndices V.! y
+
+gifInterlacingIndices :: Int -> V.Vector Int
+gifInterlacingIndices height = V.accum (\_ v -> v) (V.replicate height 0) indices
+    where indices = flip zip [0..] $
+                concat [ [0,     8 .. height - 1]
+                       , [4, 4 + 8 .. height - 1]
+                       , [2, 2 + 4 .. height - 1]
+                       , [1, 1 + 2 .. height - 1]
+                       ]
 
 paletteOf :: Palette -> GifImage -> Palette
 paletteOf global GifImage { imgLocalPalette = Nothing } = global
