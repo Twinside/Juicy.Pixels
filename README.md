@@ -1,3 +1,5 @@
+![Juicy logo](http://twinside.github.com/Juicy.Pixels/juicy.png)
+
 Juicy.Pixels
 ============
 
@@ -46,7 +48,7 @@ Status
     * Writing
 
  - Gif (.gif)
-    * Reading non-interlaced normal & animated Gif image
+    * Reading single image & animated Gif image, handles interlaced images.
 
 _I love juicy pixels_
 

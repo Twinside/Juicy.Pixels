@@ -212,7 +212,15 @@ planeSeparationYA8Test = do
     B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 gifTest :: [FilePath]
-gifTest = ["Gif_pixel_cube.gif", "animated.gif", "magceit.gif", "huge.gif", "2k.gif"]
+gifTest = ["delta.gif"
+          ,"delta2.gif"
+          ,"animated.gif"
+          ,"Gif_pixel_cube.gif"
+          ,"magceit.gif"
+          ,"huge.gif"
+          ,"2k.gif"
+          ,"interleaved.gif"
+          ]
 
 main :: IO ()
 main = do 

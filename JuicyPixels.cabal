@@ -1,5 +1,5 @@
 Name:                JuicyPixels
-Version:             2.0.1
+Version:             2.0.2
 Synopsis:            Picture loading/serialization (in png, jpeg, bitmap and gif)
 Description:
     This library can load and store images in PNG/Bitmap and Jpeg, and
@@ -47,7 +47,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v2.0.1
+    Tag:       v2.0.2
 
 Library
   Default-Language: Haskell2010
@@ -66,8 +66,8 @@ Library
                  cereal              >= 0.3.3.0 && < 0.4,
                  zlib                >= 0.5.3.1 && < 0.6,
                  transformers        >= 0.2.2   && < 0.4,
-                 vector              >= 0.9     && < 1.0,
-                 primitive           >= 0.4     && < 0.5,
+                 vector              >= 0.10    && < 0.11,
+                 primitive           >= 0.5     && < 0.6,
                  deepseq             >= 1.1     && < 1.4
 
   -- Modules not exported by this package.
