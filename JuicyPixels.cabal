@@ -5,6 +5,12 @@ Description:
     This library can load and store images in PNG/Bitmap and Jpeg, and
     read Gif images.
     .
+    Version 2.0.2 changelog:
+    .
+      * Decoding of interleaved gif image, and delta coded gif animation.
+    .
+      * Bumping dependencies.
+    .
     Version 2.0.1 changelog:
     .
       * Documentation enhancements.
