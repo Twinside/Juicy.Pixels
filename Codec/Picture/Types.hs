@@ -3,6 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.Types( -- * Types
@@ -13,6 +15,7 @@ module Codec.Picture.Types( -- * Types
                           , PixelType( .. )
                             -- ** Pixel types
                           , Pixel8
+                          , PixelF
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
                           , PixelRGBA8( .. )
@@ -72,7 +75,7 @@ data Image a = Image
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
-    , imageData   :: V.Vector Word8
+    , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
 {-# INLINE (!!!) #-}
@@ -100,7 +103,7 @@ data PlaneBlue = PlaneBlue
 data PlaneAlpha = PlaneAlpha
 
 -- | Define the plane for the luma component
-data PlaneLuma = PlaneLuma 
+data PlaneLuma = PlaneLuma
 
 -- | Define the plane for the Cr component
 data PlaneCr = PlaneCr
@@ -122,7 +125,7 @@ instance ColorPlane PixelYA8 PlaneLuma where
 
 instance ColorPlane PixelYA8 PlaneAlpha where
     toComponentIndex _ _ = 1
-    
+
 instance ColorPlane PixelRGB8 PlaneRed where
     toComponentIndex _ _ = 0
 
@@ -152,8 +155,12 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 --  extractRedPlane = extractComponent PlaneRed
 -- @
 --
-extractComponent :: forall px plane. (Pixel px, ColorPlane px plane)
-                 => plane -> Image px -> Image Pixel8
+extractComponent :: forall px plane. ( Pixel px
+                                     , Pixel (PixelBaseComponent px)
+                                     , PixelBaseComponent (PixelBaseComponent px)
+                                                    ~ PixelBaseComponent px
+                                     , ColorPlane px plane )
+                 => plane -> Image px -> Image (PixelBaseComponent px)
 extractComponent plane = unsafeExtractComponent idx
     where idx = toComponentIndex (undefined :: px) plane
 
@@ -161,12 +168,16 @@ extractComponent plane = unsafeExtractComponent idx
 -- can be represented by a gray scale image.
 -- If you ask a component out of bound, the `error` function will
 -- be called
-unsafeExtractComponent :: forall a. (Pixel a) 
+unsafeExtractComponent :: forall a
+                        . ( Pixel a
+                          , Pixel (PixelBaseComponent a)
+                          , PixelBaseComponent (PixelBaseComponent a)
+                                              ~ PixelBaseComponent a)
                        => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
                        -> Image a -- ^ Source image
-                       -> Image Pixel8
+                       -> Image (PixelBaseComponent a)
 unsafeExtractComponent comp img@(Image { imageWidth = w, imageHeight = h })
-  | comp >= padd = error $ "extractComponent : invalid component index (" 
+  | comp >= padd = error $ "extractComponent : invalid component index ("
                          ++ show comp ++ ", max:" ++ show padd ++ ")"
   | otherwise = Image { imageWidth = w, imageHeight = h, imageData = plane }
       where plane = stride img 1 padd comp
@@ -191,7 +202,8 @@ instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
 
-stride :: Image a -> Int -> Int -> Int -> V.Vector Word8
+stride :: (Storable (PixelBaseComponent a))
+       => Image a -> Int -> Int -> Int -> V.Vector (PixelBaseComponent a)
 stride Image { imageWidth = w, imageHeight = h, imageData = array }
         run padd firstComponent = runST $ do
     let cell_count = w * h * run
@@ -202,7 +214,7 @@ stride Image { imageWidth = w, imageHeight = h, imageData = array }
             forM_ [0 .. run - 1] $ \i ->
                 (outArray .<-. (write_idx + i)) $ array !!! (read_idx + i)
             strideWrite (write_idx + run) (read_idx + padd)
-            
+
     strideWrite 0 firstComponent
     V.unsafeFreeze outArray
 
@@ -215,7 +227,7 @@ instance NFData (Image a) where
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
 -- position first, then the vertical one. The image can be transformed in place.
-data MutableImage s a = MutableImage 
+data MutableImage s a = MutableImage
     { -- | Width of the image in pixels
 	  mutableImageWidth  :: {-# UNPACK #-} !Int
 
@@ -224,7 +236,7 @@ data MutableImage s a = MutableImage
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
-    , mutableImageData   :: M.STVector s Word8
+    , mutableImageData   :: M.STVector s (PixelBaseComponent a)
     }
 
 instance NFData (MutableImage s a) where
@@ -256,6 +268,10 @@ instance NFData DynamicImage where
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
+
+-- | Floating greyscale value, the 0 to 255 8 bit range maps
+-- to 0 to 1 in this floating version
+type PixelF = Float
 
 -- | Pixel type storing Luminance (Y) and alpha information
 -- on 8 bits.
@@ -445,7 +461,17 @@ data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
 
 -- | Typeclass used to query a type about it's properties
 -- regarding casting to other pixel types
-class (Serialize a) => Pixel a where
+class ( Serialize a
+      , Storable (PixelBaseComponent a)) => Pixel a where
+    -- | Type of the pixel component, "classical" images
+    -- would have Word8 type as their PixelBaseComponent,
+    -- HDR image would have Float for instance
+    type PixelBaseComponent a :: *
+
+    -- | Initial filling value used by different manipulation
+    -- function
+    basePixelValue :: a -> PixelBaseComponent a
+
     -- | Tell if a pixel can be converted to another pixel,
     -- the first value should not be used, and 'undefined' can
     -- be used as a valid value.
@@ -566,7 +592,7 @@ generateFoldImage f intialAcc w h =
                     let (acc', px) = f acc x y
                     writePixel mutImage x y px
                     return acc') intialAcc [(x,y) | y <- [0 .. h-1], x <- [0 .. w-1]]
-                
+
             frozen <- V.unsafeFreeze arr
             return (foldResult, frozen)
 
@@ -583,8 +609,10 @@ generateFoldImage f intialAcc w h =
 pixelMap :: forall a b. (Pixel a, Pixel b) => (a -> b) -> Image a -> Image b
 pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
     Image w h pixels
-        where pixels = runST $ do
-                newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
+        where initialValue = basePixelValue (undefined :: b)
+              pixels = runST $ do
+                newArr <- M.replicate (w * h * componentCount (undefined :: b))
+                                      initialValue
                 let wrapped = MutableImage w h newArr
                     promotedPixel :: Int -> Int -> b
                     promotedPixel x y = f $ pixelAt image x y
@@ -614,13 +642,13 @@ instance LumaPlaneExtractable Pixel8 where
 
 instance LumaPlaneExtractable PixelRGB8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r + 
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
                                             0.59 * toRational g +
                                             0.11 * toRational b
 
 instance LumaPlaneExtractable PixelRGBA8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r + 
+    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r +
                                              0.59 * toRational g +
                                              0.11 * toRational b
 
@@ -654,14 +682,32 @@ instance (Pixel a) => ColorConvertible a a where
 ----            Pixel8 instances
 --------------------------------------------------
 instance Pixel Pixel8 where
-    canPromoteTo _ a = a /= PixelMonochromatic 
+    type PixelBaseComponent Pixel8 = Word8
+
+    basePixelValue _ = 0
+    canPromoteTo _ a = a /= PixelMonochromatic
     promotionType _ = PixelGreyscale
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
         arr .!!!. mutablePixelBaseIndex image x y
-    
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr .<-. mutablePixelBaseIndex image x y
+
+instance Pixel PixelF where
+    type PixelBaseComponent PixelF = Float
+
+    basePixelValue _ = 0
+    canPromoteTo _ _ = False
+    promotionType _ = PixelGreyscale
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr .!!!. mutablePixelBaseIndex image x y
+
     writePixel image@(MutableImage { mutableImageData = arr }) x y =
         arr .<-. mutablePixelBaseIndex image x y
 
@@ -681,7 +727,10 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 ----            PixelYA8 instances
 --------------------------------------------------
 instance Pixel PixelYA8 where
-    canPromoteTo _ a = a == PixelRedGreenBlueAlpha8 
+    type PixelBaseComponent PixelYA8 = Word8
+
+    basePixelValue _ = 0
+    canPromoteTo _ a = a == PixelRedGreenBlueAlpha8
     promotionType _  = PixelGreyscaleAlpha
     componentCount _ = 2
     pixelAt image@(Image { imageData = arr }) x y = PixelYA8 (arr ! (baseIdx + 0))
@@ -693,7 +742,7 @@ instance Pixel PixelYA8 where
         av <- arr .!!!. (baseIdx + 1)
         return $ PixelYA8 yv av
         where baseIdx = mutablePixelBaseIndex image x y
-    
+
     writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYA8 yv av) = do
         let baseIdx = mutablePixelBaseIndex image x y
         (arr .<-. (baseIdx + 0)) yv
@@ -712,6 +761,9 @@ instance ColorConvertible PixelYA8 PixelRGBA8 where
 ----            PixelRGB8 instances
 --------------------------------------------------
 instance Pixel PixelRGB8 where
+    type PixelBaseComponent PixelRGB8 = Word8
+
+    basePixelValue _ = 0
     canPromoteTo _ PixelMonochromatic = False
     canPromoteTo _ PixelGreyscale = False
     canPromoteTo _ _ = True
@@ -731,7 +783,7 @@ instance Pixel PixelRGB8 where
         bv <- arr .!!!. (baseIdx + 2)
         return $ PixelRGB8 rv gv bv
         where baseIdx = mutablePixelBaseIndex image x y
-    
+
     writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGB8 rv gv bv) = do
         let baseIdx = mutablePixelBaseIndex image x y
         (arr .<-. (baseIdx + 0)) rv
@@ -746,6 +798,9 @@ instance ColorConvertible PixelRGB8 PixelRGBA8 where
 ----            PixelRGBA8 instances
 --------------------------------------------------
 instance Pixel PixelRGBA8 where
+    type PixelBaseComponent PixelRGBA8 = Word8
+
+    basePixelValue _ = 0
     canPromoteTo _ PixelRedGreenBlueAlpha8 = True
     canPromoteTo _ _ = False
 
@@ -766,7 +821,7 @@ instance Pixel PixelRGBA8 where
         av <- arr .!!!. (baseIdx + 3)
         return $ PixelRGBA8 rv gv bv av
         where baseIdx = mutablePixelBaseIndex image x y
-    
+
     writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGBA8 rv gv bv av) = do
         let baseIdx = mutablePixelBaseIndex image x y
         (arr .<-. (baseIdx + 0)) rv
@@ -778,6 +833,9 @@ instance Pixel PixelRGBA8 where
 ----            PixelYCbCr8 instances
 --------------------------------------------------
 instance Pixel PixelYCbCr8 where
+    type PixelBaseComponent PixelYCbCr8 = Word8
+
+    basePixelValue _ = 0
     canPromoteTo _ _ = False
     promotionType _ = PixelYChromaRChromaB8
     componentCount _ = 3
@@ -792,7 +850,7 @@ instance Pixel PixelYCbCr8 where
         crv <- arr .!!!. (baseIdx + 2)
         return $ PixelYCbCr8 yv cbv crv
         where baseIdx = mutablePixelBaseIndex image x y
-    
+
     writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYCbCr8 yv cbv crv) = do
         let baseIdx = mutablePixelBaseIndex image x y
         (arr .<-. (baseIdx + 0)) yv

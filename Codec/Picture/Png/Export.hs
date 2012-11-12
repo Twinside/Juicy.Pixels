@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
@@ -55,7 +56,8 @@ prepareIDatChunk imgData = PngRawChunk
     , chunkData   = imgData
     }
 
-genericEncodePng :: PngImageType -> Int -> Image a -> B.ByteString
+genericEncodePng :: (PixelBaseComponent a ~ Word8)
+                 => PngImageType -> Int -> Image a -> B.ByteString
 genericEncodePng imgKind compCount 
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr, chunks = [prepareIDatChunk strictEncoded, endChunk]}
