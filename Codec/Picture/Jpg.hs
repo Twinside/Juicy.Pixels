@@ -17,13 +17,13 @@ import Data.List( find, foldl' )
 import Data.Bits( (.|.), (.&.), shiftL, shiftR )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word16, Word32)
-import Data.Serialize( Serialize(..), Get, Put
-                     , getWord8, putWord8
-                     , getWord16be, putWord16be
-                     , remaining, lookAhead, skip
-                     , getBytes, decode
-                     , encode, putByteString 
-                     )
+import Data.Binary( Binary(..), Get, Put
+                  , getWord8, putWord8
+                  , getWord16be, putWord16be
+                  , remaining, lookAhead, skip
+                  , getBytes, decode
+                  , encode, putByteString 
+                  )
 import Data.Maybe( fromJust )
 import qualified Data.Vector as V
 import Data.Vector.Unboxed( (!) )

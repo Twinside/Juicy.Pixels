@@ -15,22 +15,22 @@ import qualified Data.ByteString as B
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
-import Data.Serialize( Serialize(..)
-                     , Get
-                     , decode
-                     , getWord8
-                     , getWord16le
-                     , getBytes
-                     , lookAhead
-                     {-, decode-}
-                     , remaining
+import Data.Binary( Binary(..)
+                  , Get
+                  , decode
+                  , getWord8
+                  , getWord16le
+                  , getBytes
+                  , lookAhead
+                  {-, decode-}
+                  , remaining
 
-                     {-, Put-}
-                     {-, putWord8-}
-                     {-, putWord16be-}
-                     {-, encode-}
-                     {-, putByteString -}
-                     )
+                  {-, Put-}
+                  {-, putWord8-}
+                  {-, putWord16be-}
+                  {-, encode-}
+                  {-, putByteString -}
+                  )
 
 import Codec.Picture.Types
 import Codec.Picture.Gif.LZW

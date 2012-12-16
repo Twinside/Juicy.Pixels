@@ -18,11 +18,11 @@ import Control.Monad.ST ( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Serialize( Serialize( .. )
-                     , putWord16le, putWord32le
-                     , getWord16le, getWord32le
-                     , Get, Put, runGet, runPut
-                     , remaining, getBytes, putByteString )
+import Data.Binary( Binary( .. )
+                  , putWord16le, putWord32le
+                  , getWord16le, getWord32le
+                  , Get, Put, runGet, runPut
+                  , remaining, getBytes, putByteString )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
 

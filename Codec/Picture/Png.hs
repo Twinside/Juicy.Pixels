@@ -23,7 +23,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
-import Data.Serialize( Serialize, runGet, get)
+import Data.Binary( Binary, runGetOrFail, get)
 
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M

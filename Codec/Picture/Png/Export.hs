@@ -9,7 +9,7 @@ module Codec.Picture.Png.Export( PngSavable( .. )
                                , writeDynamicPng
                                ) where
 
-import Data.Serialize(encode)
+import Data.Binary( encode )
 import Data.Vector.Storable ( (!) )
 import Data.Word(Word8)
 import qualified Codec.Compression.Zlib as Z

@@ -20,10 +20,10 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
 import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM )
 import Data.Bits( xor, (.&.), shiftR )
-import Data.Serialize( Serialize(..), Get, get, runGet, runPut
-                     , putWord8, getWord8
-                     , putWord32be, getWord32be
-                     , getByteString, putByteString )
+import Data.Binary( Binary(..), Get, get, runGet, runPut
+                  , putWord8, getWord8
+                  , putWord32be, getWord32be
+                  , getByteString, putByteString )
 import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
