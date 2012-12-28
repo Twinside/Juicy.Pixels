@@ -18,14 +18,26 @@ import Control.Monad.ST ( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Binary( Binary( .. )
-                  , putWord16le, putWord32le
-                  , getWord16le, getWord32le
-                  , Get, Put, runGet, runPut
-                  , remaining, getBytes, putByteString )
+import Data.Binary( Binary( .. ) )
+import Data.Binary.Put( Put
+                      , runPut
+                      , putWord16le
+                      , putWord32le
+                      , putByteString 
+                      )
+
+import Data.Binary.Get( Get
+                      , getWord16le 
+                      , getWord32le
+                      , remaining
+                      , getByteString
+                      )
+
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
 
+import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 
@@ -40,7 +52,7 @@ data BmpHeader = BmpHeader
 bitmapMagicIdentifier :: Word16
 bitmapMagicIdentifier = 0x4D42
 
-instance Serialize BmpHeader where
+instance Binary BmpHeader where
     put hdr = do
         putWord16le $ magicIdentifier hdr
         putWord32le $ fileSize hdr
@@ -83,7 +95,7 @@ sizeofBmpHeader, sizeofBmpInfo  :: Word32
 sizeofBmpHeader = 2 + 4 + 2 + 2 + 4
 sizeofBmpInfo = 3 * 4 + 2 * 2 + 6 * 4
 
-instance Serialize BmpInfoHeader where
+instance Binary BmpInfoHeader where
     put hdr = do
         putWord32le $ size hdr
         putWord32le $ width hdr
@@ -232,14 +244,14 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
 --    * PixelRGB8
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
-decodeBitmap str = flip runGet str $ do
+decodeBitmap str = flip runGetStrict str $ do
   _hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
     (24, 1, 0) -> do
-        rest <- remaining >>= getBytes
+        rest <- remaining >>= getByteString . fromIntegral
         return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
     _          -> fail "Can't handle BMP file"
 
@@ -247,7 +259,7 @@ decodeBitmap str = flip runGet str $ do
 -- | Write an image in a file use the bitmap format.
 writeBitmap :: (BmpEncodable pixel)
             => FilePath -> Image pixel -> IO ()
-writeBitmap filename img = B.writeFile filename $ encodeBitmap img
+writeBitmap filename img = L.writeFile filename $ encodeBitmap img
 
 linePadding :: Int -> Int -> Int
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
@@ -255,7 +267,7 @@ linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
 
 -- | Encode an image into a bytestring in .bmp format ready to be written
 -- on disk.
-encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> B.ByteString
+encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> L.ByteString
 encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
 
 
@@ -264,7 +276,7 @@ encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
 writeDynamicBitmap :: FilePath -> DynamicImage -> IO (Either String Bool)
 writeDynamicBitmap path img = case encodeDynamicBitmap img of
         Left err -> return $ Left err
-        Right b  -> B.writeFile path b >> return (Right True)
+        Right b  -> L.writeFile path b >> return (Right True)
 
 -- | Encode a dynamic image in bmp if possible, supported pixel type are :
 --
@@ -274,7 +286,7 @@ writeDynamicBitmap path img = case encodeDynamicBitmap img of
 --
 --   - Y8
 --
-encodeDynamicBitmap :: DynamicImage -> Either String B.ByteString
+encodeDynamicBitmap :: DynamicImage -> Either String L.ByteString
 encodeDynamicBitmap (ImageRGB8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
@@ -283,7 +295,7 @@ encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
 
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)
-                        => BmpPalette -> Image pixel -> B.ByteString
+                        => BmpPalette -> Image pixel -> L.ByteString
 encodeBitmapWithPalette pal@(BmpPalette palette) img =
   runPut $ put hdr >> put info >> putPalette pal >> bmpEncode img
     where imgWidth = fromIntegral $ imageWidth img

@@ -23,7 +23,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
-import Data.Binary( Binary, runGetOrFail, get)
+import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -38,6 +38,7 @@ import Foreign.Storable ( Storable )
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
+import Codec.Picture.InternalHelper
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
@@ -416,7 +417,7 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
 --
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do
-    rawImg <- runGet get byte
+    rawImg <- runGetStrict get byte
     let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
         compressedImageData =
               B.concat [chunkData chunk | chunk <- chunks rawImg

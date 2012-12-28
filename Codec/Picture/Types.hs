@@ -61,7 +61,7 @@ import Data.Word( Word8 )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Serialize( Serialize, put, get )
+import Data.Binary( Binary, put, get )
 
 
 -- | Image or pixel buffer, the coordinates are assumed to start
@@ -326,7 +326,7 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Blue
                              {-# UNPACK #-} !Word8 -- Alpha
 
-instance Serialize PixelYA8 where
+instance Binary PixelYA8 where
     {-# INLINE put #-}
     put (PixelYA8 y a) = put y >> put a
     {-# INLINE get #-}
@@ -353,7 +353,7 @@ instance Storable PixelYA8 where
       poke (ptr `plusPtr` yOff) y
       poke (ptr `plusPtr` aOff) a
 
-instance Serialize PixelRGB8 where
+instance Binary PixelRGB8 where
     {-# INLINE put #-}
     put (PixelRGB8 r g b) = put r >> put g >> put b
     {-# INLINE get #-}
@@ -384,7 +384,7 @@ instance Storable PixelRGB8 where
       poke (ptr `plusPtr` gOff) g
       poke (ptr `plusPtr` bOff) b
 
-instance Serialize PixelYCbCr8 where
+instance Binary PixelYCbCr8 where
     {-# INLINE put #-}
     put (PixelYCbCr8 y cb cr) = put y >> put cb >> put cr
     {-# INLINE get #-}
@@ -415,7 +415,7 @@ instance Storable PixelYCbCr8 where
       poke (ptr `plusPtr` cbOff) cb
       poke (ptr `plusPtr` crOff) cr
 
-instance Serialize PixelRGBA8 where
+instance Binary PixelRGBA8 where
     {-# INLINE put #-}
     put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
     {-# INLINE get #-}
@@ -461,7 +461,7 @@ data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
 
 -- | Typeclass used to query a type about it's properties
 -- regarding casting to other pixel types
-class ( Serialize a
+class ( Binary a
       , Storable (PixelBaseComponent a)) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,

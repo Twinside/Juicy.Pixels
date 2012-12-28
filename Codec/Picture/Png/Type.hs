@@ -20,17 +20,25 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
 import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM )
 import Data.Bits( xor, (.&.), shiftR )
-import Data.Binary( Binary(..), Get, get, runGet, runPut
-                  , putWord8, getWord8
-                  , putWord32be, getWord32be
-                  , getByteString, putByteString )
+import Data.Binary( Binary(..), Get, get )
+import Data.Binary.Get( getWord8
+                      , getWord32be
+                      , getByteString
+                      )
+import Data.Binary.Put( runPut
+                      , putWord8
+                      , putWord32be
+                      , putByteString 
+                      )
 import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
 
 import Codec.Picture.Types
+import Codec.Picture.InternalHelper
 
 --------------------------------------------------
 ----            Types
@@ -74,7 +82,7 @@ type PngPalette = V.Vector PixelRGB8
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
- | otherwise = V.fromListN pixelCount <$> runGet pixelUnpacker (chunkData plte)
+ | otherwise = V.fromListN pixelCount <$> runGetStrict pixelUnpacker (chunkData plte)
     where pixelUnpacker = replicateM (fromIntegral pixelCount) get
           pixelCount = fromIntegral $ chunkLength plte `div` 3
 
@@ -133,7 +141,7 @@ data PngInterlaceMethod =
 --------------------------------------------------
 ----            Instances
 --------------------------------------------------
-instance Serialize PngFilter where
+instance Binary PngFilter where
     put = putWord8 . toEnum . fromEnum
     get = getWord8 >>= \w -> case w of
         0 -> return FilterNone
@@ -143,7 +151,7 @@ instance Serialize PngFilter where
         4 -> return FilterPaeth
         _ -> fail "Invalid scanline filter"
 
-instance Serialize PngRawImage where
+instance Binary PngRawImage where
     put img = do
         putByteString pngSignature
         put $ header img
@@ -151,7 +159,7 @@ instance Serialize PngRawImage where
 
     get = parseRawPngImage
 
-instance Serialize PngRawChunk where
+instance Binary PngRawChunk where
     put chunk = do
         putWord32be $ chunkLength chunk
         putByteString $ chunkType chunk
@@ -178,7 +186,7 @@ instance Serialize PngRawChunk where
         	chunkType = chunkSig
         }
 
-instance Serialize PngIHdr where
+instance Binary PngIHdr where
     put hdr = do
         putWord32be 13
         let inner = runPut $ do
@@ -190,8 +198,9 @@ instance Serialize PngIHdr where
                 put $ compressionMethod hdr
                 put $ filterMethod hdr
                 put $ interlaceMethod hdr
-            crc = pngComputeCrc [inner]
-        putByteString inner
+            strictList = L.toChunks inner
+            crc = pngComputeCrc strictList
+        mapM_ putByteString strictList
         putWord32be crc
 
     get = do
@@ -227,7 +236,7 @@ parseChunks = do
        else (chunk:) <$> parseChunks
 
 
-instance Serialize PngInterlaceMethod where
+instance Binary PngInterlaceMethod where
     get = getWord8 >>= \w -> case w of
         0 -> return PngNoInterlace
         1 -> return PngInterlaceAdam7
@@ -280,7 +289,7 @@ iDATSignature = signature [73, 68, 65, 84]
 iENDSignature :: ChunkSignature
 iENDSignature = signature [73, 69, 78, 68]
 
-instance Serialize PngImageType where
+instance Binary PngImageType where
     put PngGreyscale = putWord8 0
     put PngTrueColour = putWord8 2
     put PngIndexedColor = putWord8 3

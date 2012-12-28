@@ -16,22 +16,19 @@ import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
 import Data.Binary( Binary(..)
-                  , Get
-                  , decode
-                  , getWord8
-                  , getWord16le
-                  , getBytes
-                  , lookAhead
-                  {-, decode-}
-                  , remaining
-
                   {-, Put-}
                   {-, putWord8-}
                   {-, putWord16be-}
                   {-, encode-}
                   {-, putByteString -}
                   )
+import Data.Binary.Get( Get
+                      , getWord8
+                      , getWord16le
+                      , getByteString
+                      )
 
+import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
 import Codec.Picture.BitWriter
@@ -64,16 +61,16 @@ gif87aSignature, gif89aSignature :: B.ByteString
 gif87aSignature = B.pack $ map (fromIntegral . fromEnum) "GIF87a"
 gif89aSignature = B.pack $ map (fromIntegral . fromEnum) "GIF89a"
 
-instance Serialize GifVersion where
+instance Binary GifVersion where
     put GIF87a = put gif87aSignature
     put GIF89a = put gif89aSignature
 
     get = do
-        sig <- getBytes (B.length gif87aSignature)
+        sig <- getByteString (B.length gif87aSignature)
         case (sig == gif87aSignature, sig == gif89aSignature) of
             (True, _)  -> pure GIF87a
             (_ , True) -> pure GIF89a
-            _          -> fail "Invalid Gif signature"
+            _          -> fail $ "Invalid Gif signature : " ++ (toEnum . fromEnum <$> B.unpack sig)
 
 
 --------------------------------------------------
@@ -98,7 +95,7 @@ data LogicalScreenDescriptor = LogicalScreenDescriptor
   , colorTableSize        :: !Word8
   }
 
-instance Serialize LogicalScreenDescriptor where
+instance Binary LogicalScreenDescriptor where
     put _ = undefined
     get = do
         w <- getWord16le
@@ -149,7 +146,7 @@ graphicControlLabel = 0xF9
 parseDataBlocks :: Get B.ByteString
 parseDataBlocks = B.concat <$> (getWord8 >>= aux)
  where aux    0 = pure []
-       aux size = (:) <$> getBytes (fromIntegral size) <*> (getWord8 >>= aux)
+       aux size = (:) <$> getByteString (fromIntegral size) <*> (getWord8 >>= aux)
 
 data GraphicControlExtension = GraphicControlExtension
     { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
@@ -159,10 +156,11 @@ data GraphicControlExtension = GraphicControlExtension
     , gceTransparentColorIndex :: !Word8
     }
 
-instance Serialize GraphicControlExtension where
+instance Binary GraphicControlExtension where
     put _ = undefined
     get = do
-        _extensionLabel  <- getWord8
+        -- due to missing lookahead
+        {-_extensionLabel  <- getWord8-}
         _size            <- getWord8
         packedFields     <- getWord8
         delay            <- getWord16le
@@ -183,7 +181,7 @@ data GifImage = GifImage
     , imgData         :: B.ByteString
     }
 
-instance Serialize GifImage where
+instance Binary GifImage where
     put _ = undefined
     get = do
         desc <- get
@@ -198,25 +196,24 @@ data Block = BlockImage GifImage
            | BlockGraphicControl GraphicControlExtension
 
 parseGifBlocks :: Get [Block]
-parseGifBlocks = lookAhead getWord8 >>= blockParse
+parseGifBlocks = getWord8 >>= blockParse
   where blockParse v
-          | v == gifTrailer = getWord8 >> pure []
+          | v == gifTrailer = pure []
           | v == imageSeparator = (:) <$> (BlockImage <$> get) <*> parseGifBlocks
           | v == extensionIntroducer = do
-                _ <- getWord8
-                extensionCode <- lookAhead getWord8
+                extensionCode <- getWord8
                 if extensionCode /= graphicControlLabel
-                   then getWord8 >> parseDataBlocks >> parseGifBlocks
+                   then parseDataBlocks >> parseGifBlocks
                    else (:) <$> (BlockGraphicControl <$> get) <*> parseGifBlocks
 
         blockParse v = do
-            remain <- remaining
-            fail ("Unrecognized gif block " ++ show v ++ " remaining: " ++ show remain)
+            fail ("Unrecognized gif block " ++ show v)
 
-instance Serialize ImageDescriptor where
+instance Binary ImageDescriptor where
     put _ = undefined
     get = do
-        _imageSeparator <- getWord8
+        -- due to missing lookahead
+        {-_imageSeparator <- getWord8-}
         imgLeftPos <- getWord16le
         imgTopPos  <- getWord16le
         imgWidth   <- getWord16le
@@ -253,7 +250,7 @@ data GifHeader = GifHeader
   , gifGlobalMap        :: !Palette
   }
 
-instance Serialize GifHeader where
+instance Binary GifHeader where
     put _ = undefined
     get = do
         version    <- get
@@ -278,7 +275,7 @@ associateDescr (BlockImage img:xs) = (Nothing, img) : associateDescr xs
 associateDescr (BlockGraphicControl ctrl : BlockImage img : xs) =
     (Just ctrl, img) : associateDescr xs
 
-instance Serialize GifFile where
+instance Binary GifFile where
     put _ = undefined
     get = do
         hdr <- get

@@ -73,5 +73,6 @@ Library
                  Codec.Picture.Gif.LZW,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
-                 Codec.Picture.BitWriter
+                 Codec.Picture.BitWriter,
+                 Codec.Picture.InternalHelper
 
