@@ -23,7 +23,8 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16be
                       , getByteString
-                      , remaining, skip
+                      , skip
+                      , bytesRead
                       )
 
 import Data.Binary.Put( Put
@@ -180,10 +181,10 @@ instance (SizeCalculable a, Binary a) => Binary (TableList a) where
       where innerParse :: Int -> Get [a]
             innerParse 0    = return []
             innerParse size = do
-                onStart <- fromIntegral <$> remaining
+                onStart <- fromIntegral <$> bytesRead
                 table <- get
-                onEnd <- fromIntegral <$> remaining
-                (table :) <$> innerParse (size - (onStart - onEnd))
+                onEnd <- fromIntegral <$> bytesRead
+                (table :) <$> innerParse (size - (onEnd - onStart))
 
 instance SizeCalculable JpgQuantTableSpec where
     calculateSize table =
@@ -319,9 +320,9 @@ parseFrames = do
     let parseNextFrame = do
             word <- getWord8
             when (word /= 0xFF) $ do
-                leftData <- remaining
+                readedData <- bytesRead
                 fail $ "Invalid Frame marker (" ++ show word
-                     ++ ", remaining : " ++ show leftData ++ ")"
+                     ++ ", bytes read : " ++ show readedData ++ ")"
             parseFrames
 
     case kind of
@@ -339,7 +340,7 @@ parseFrames = do
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
-                            <$> get <*> (remaining >>= getByteString . fromIntegral)
+                            <$> get <*> getRemainingBytes
 
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
 
@@ -427,16 +428,16 @@ instance Binary JpgComponent where
 
 instance Binary JpgFrameHeader where
     get = do
-        beginOffset <- fromIntegral <$> remaining
+        beginOffset <- fromIntegral <$> bytesRead
         frmHLength <- getWord16be
         samplePrec <- getWord8
         h <- getWord16be
         w <- getWord16be
         compCount <- getWord8
         components <- replicateM (fromIntegral compCount) get
-        endOffset <- fromIntegral <$> remaining
+        endOffset <- fromIntegral <$> bytesRead
         when (beginOffset - endOffset < fromIntegral frmHLength)
-             (skip $ fromIntegral frmHLength - (beginOffset - endOffset))
+             (skip $ fromIntegral frmHLength - (endOffset - beginOffset))
         return JpgFrameHeader
             { jpgFrameHeaderLength = frmHLength
             , jpgSamplePrecision = samplePrec

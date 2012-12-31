@@ -29,8 +29,6 @@ import Data.Binary.Put( Put
 import Data.Binary.Get( Get
                       , getWord16le 
                       , getWord32le
-                      , remaining
-                      , getByteString
                       )
 
 import Data.Word( Word32, Word16, Word8 )
@@ -251,7 +249,7 @@ decodeBitmap str = flip runGetStrict str $ do
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
     (24, 1, 0) -> do
-        rest <- remaining >>= getByteString . fromIntegral
+        rest <- getRemainingBytes
         return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
     _          -> fail "Can't handle BMP file"
 
