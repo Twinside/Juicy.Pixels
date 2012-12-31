@@ -233,7 +233,7 @@ main = do
 
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
 
     planeSeparationRGB8Test 
