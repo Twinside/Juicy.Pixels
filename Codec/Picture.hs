@@ -53,6 +53,10 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** HDR (Radiance/RGBE) handling
+                     , decodeHDR
+                     , encodeHDR
+
                      -- * Image types and pixel types
                      -- ** Image
                      , Image( .. )
@@ -76,6 +80,7 @@ import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Gif( decodeGif, decodeGifImages )
+import Codec.Picture.HDR( decodeHDR, encodeHDR )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
