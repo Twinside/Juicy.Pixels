@@ -173,6 +173,28 @@ imgToImg path = do
         Left err ->
             putStrLn $ "Error loading " ++ path ++ " " ++ show err
 
+toStandardDef :: Image PixelRGBF -> Image PixelRGB8
+toStandardDef img = pixelMap pixelConverter img
+  where fix v = truncate $ 255.0 * ((v - mini) / range)
+        pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
+          where r = fix rf
+                g = fix gf
+                b = fix bf
+
+        mini = V.minimum $ imageData img
+        maxi = V.maximum $ imageData img
+
+        range = maxi - mini
+
+radianceToBitmap :: FilePath -> IO ()
+radianceToBitmap path = do
+    rez <- readImage path
+    case rez of
+      Left err -> putStrLn $ "Error loading " ++ path ++ " " ++ err
+      Right (ImageRGBF img) -> do
+          writeBitmap (path ++ ".bmp") $ toStandardDef img
+          
+
 toJpg :: String -> Image PixelRGB8 -> IO ()
 toJpg name img = do
     let jpg = validationJpegEncode (convertImage img)
@@ -223,6 +245,9 @@ gifTest = ["delta.gif"
           ,"interleaved.gif"
           ]
 
+radianceTest :: [FilePath]
+radianceTest = ["sunrise.hdr"]
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
@@ -231,10 +256,11 @@ main = do
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
 
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
+    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
 
     planeSeparationRGB8Test 
     planeSeparationRGBA8Test 

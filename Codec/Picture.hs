@@ -54,8 +54,9 @@ module Codec.Picture (
                      , writeDynamicPng
 
                      -- ** HDR (Radiance/RGBE) handling
+                     , readHDR
                      , decodeHDR
-                     , encodeHDR
+                     {-, encodeHDR-}
 
                      -- * Image types and pixel types
                      -- ** Image
@@ -80,7 +81,9 @@ import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Gif( decodeGif, decodeGifImages )
-import Codec.Picture.HDR( decodeHDR, encodeHDR )
+import Codec.Picture.HDR( decodeHDR
+                        {-, encodeHDR-}
+                        )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
@@ -122,6 +125,7 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
                                  ,("Bitmap", decodeBitmap)
                                  ,("GIF", decodeGif)
+                                 ,("HDR", decodeHDR)
                                  ]
     
 -- | Helper function trying to load a png file from a file on disk.
@@ -146,6 +150,11 @@ readJpeg = withImageDecoder decodeJpeg
 -- | Try to load a .bmp file. The colorspace would be RGB or RGBA
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
+
+-- | Try to load a .pic file. The colorspace can only be
+-- RGB with floating point precision.
+readHDR :: FilePath -> IO (Either String DynamicImage)
+readHDR = withImageDecoder decodeHDR
 
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> String -> DynamicImage -> IO ()

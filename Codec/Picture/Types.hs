@@ -12,13 +12,13 @@ module Codec.Picture.Types( -- * Types
                             Image( .. )
                           , MutableImage( .. )
                           , DynamicImage( .. )
+
                             -- ** Image functions
                           , freezeImage
-                          , unsafeFreeze
-
-                          , PixelType( .. )
+                          , unsafeFreezeImage 
 
                             -- ** Pixel types
+                          , PixelType( .. )
                           , Pixel8
                           , PixelF
                           , PixelYA8( .. )
@@ -261,9 +261,9 @@ freezeImage (MutableImage w h d) = Image w h <$> V.freeze d
 
 -- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
 -- The mutable image may not be used after this operation.
-unsafeFreeze ::  (Storable (PixelBaseComponent a))
-             => MutableImage s a -> ST s (Image a)
-unsafeFreeze (MutableImage w h d) = Image w h <$> V.unsafeFreeze d
+unsafeFreezeImage ::  (Storable (PixelBaseComponent a))
+                  => MutableImage s a -> ST s (Image a)
+unsafeFreezeImage (MutableImage w h d) = Image w h <$> V.unsafeFreeze d
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
