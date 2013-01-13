@@ -1,12 +1,13 @@
 module Codec.Picture.HDR( decodeHDR ) where
 
-import Data.Bits( Bits, (.&.), (.|.), shiftL, shiftR, testBit )
+import Data.Bits( Bits, (.&.), (.|.), shiftL )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
-import Data.Int( Int32 )
 import Data.Monoid( (<>) )
 import Control.Applicative( pure, (<$>), (<*>) )
 import Control.Monad( when, foldM, foldM_, forM_ )
+import Control.Monad.Trans.Class( lift )
+import Control.Monad.Trans.Error( ErrorT, throwError, runErrorT )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Char8 as BC
@@ -28,10 +29,8 @@ import Debug.Trace
 import Text.Printf( printf )
 
 {-# INLINE (.<<.) #-}
-{-# INLINE (.>>.) #-}
-(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
+(.<<.) :: (Bits a) => a -> Int -> a
 (.<<.) = shiftL
-(.>>.) = shiftR
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
@@ -44,6 +43,8 @@ import Text.Printf( printf )
        => M.STVector (PrimState m) a -> Int -> a -> m ()
 (.<-.) = M.write 
          {-M.unsafeWrite-}
+
+type HDRReader s a = ErrorT String (ST s) a
 
 data RGBE = RGBE !Word8 !Word8 !Word8 !Word8
 
@@ -109,7 +110,6 @@ storeColor vec idx (RGBE r g b e) = do
     (vec .<-. (idx + 2)) b
     (vec .<-. (idx + 3)) e
 
-
 parsePair :: Char -> Get (B.ByteString, B.ByteString)
 parsePair firstChar = do
     let eol c = c == fromIntegral (ord '\n')
@@ -133,11 +133,11 @@ decodeInfos = do
 
 
 decodeHDR :: B.ByteString -> Either String DynamicImage
-decodeHDR str = runST $ do
+decodeHDR str = runST $ runErrorT $ do
     case runGet decodeHeader $ L.fromChunks [str] of
-      Left err -> pure $ Left err
+      Left err -> throwError err
       Right rez ->
-        Right . ImageRGBF <$> (decodeRadiancePicture rez >>= unsafeFreezeImage)
+          ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
 
 {-encodeHDR :: a -> L.ByteString-}
 {-encodeHDR _ = L.empty-}
@@ -169,20 +169,28 @@ decodeNum = do
     getChar8 >>= numDec 0
 
 strideCopy :: B.ByteString -> M.STVector s Word8
-           -> Int -> Int -> Int -> Int -> ST s Int
-strideCopy src dest sourceIndex size destIndex stride = aux sourceIndex destIndex
+           -> Int -> Int -> Int -> Int -> HDRReader s Int
+strideCopy src dest sourceIndex size destIndex stride 
+   | endIndex > B.length src = throwError "Out of bound HDR input"
+   | writeEndBound > M.length dest + stride = throwError "Out of bound HDR scanline"
+   | otherwise = aux sourceIndex destIndex
   where endIndex = sourceIndex + size
-        aux i j | i >= endIndex  = return j
+        writeEndBound = destIndex + size * stride
+        aux i j | i >= endIndex  = pure j
         aux i j = do
-          (dest .<-. j) $ B.index src i
+          lift $ (dest .<-. j) $ B.index src i
           aux (i + 1) (j + stride)
 
-strideSet :: M.STVector s Word8 -> Int -> Int -> Int -> Word8 -> ST s Int
-strideSet dest count destIndex stride val = aux destIndex
-  where endIndex = -- min (M.length dest) $
-                   destIndex + count * stride
-        aux i | i >= endIndex  = return endIndex
-        aux i = (dest .<-. i) val >> aux (i + stride)
+strideSet :: M.STVector s Word8 -> Int -> Int -> Int -> Word8
+          -> HDRReader s Int
+strideSet dest count destIndex stride val 
+   | endIndex > M.length dest + stride = throwError "Out of bound HDR scanline"
+   | otherwise = aux destIndex
+  where endIndex = destIndex + count * stride
+        aux i | i >= endIndex = pure endIndex
+        aux i = do
+            lift $ (dest .<-. i) val
+            aux (i + stride)
 
 copyPrevColor :: M.STVector s Word8 -> Int -> ST s ()
 copyPrevColor scanLine idx = do
@@ -197,43 +205,46 @@ copyPrevColor scanLine idx = do
     (scanLine .<-. (idx + 3)) e
 
 oldStyleRLE :: B.ByteString -> Int -> M.STVector s Word8
-            -> ST s Int
+            -> HDRReader s Int
 oldStyleRLE inputData initialIdx scanLine = trace "oldStyleRLE" $ inner initialIdx 0 0
   where maxOutput = M.length scanLine
         maxInput = B.length inputData
 
         inner readIdx writeIdx _
-            | readIdx >= maxInput || writeIdx >= maxOutput = return readIdx
+            | readIdx >= maxInput || writeIdx >= maxOutput = pure readIdx
         inner readIdx writeIdx shift = trace (printf "r:%d w:%d (mi:%d mo:%d)" readIdx writeIdx maxInput maxOutput) $ do
           let color@(RGBE r g b e) = unpackColor inputData readIdx
               isRun = r == 1 && g == 1 && b == 1
 
           if not isRun
             then do
-              storeColor scanLine writeIdx color
+              lift $ storeColor scanLine writeIdx color
               inner (readIdx + 4) (writeIdx + 4) 0
          
             else do
               let count = fromIntegral e .<<. shift
-              forM_ [0 .. count] $ \i -> copyPrevColor scanLine (writeIdx + 4 * i)
+              lift $ forM_ [0 .. count] $ \i -> copyPrevColor scanLine (writeIdx + 4 * i)
               inner (readIdx + 4) (writeIdx + 4 * count) (shift + 8)
 
 newStyleRLE :: B.ByteString -> Int -> M.STVector s Word8
-            -> ST s Int
+            -> HDRReader s Int
 newStyleRLE inputData initialIdx scanline = foldm [0 .. 3] initialIdx inner
-  where dataAt = B.index inputData
+  where dataAt idx
+            | idx >= maxInput = throwError $ "Read index out of bound (" ++ show idx ++ ")"
+            | otherwise = pure $ B.index inputData idx
+
         maxOutput = M.length scanline
         maxInput = B.length inputData
         foldm lst acc f = foldM f acc lst
 
         inner readIdx writeIdx
-            | readIdx >= maxInput || writeIdx >= maxOutput = return readIdx
-        inner readIdx writeIdx = 
-          let code = dataAt readIdx
-          in if code > 128
+            | readIdx >= maxInput || writeIdx >= maxOutput = pure readIdx
+        inner readIdx writeIdx = do
+          code <- dataAt readIdx
+          if code > 128
             then do
               let repeatCount = fromIntegral code .&. 0x7F
-                  newVal = dataAt $ readIdx + 1
+              newVal <- dataAt $ readIdx + 1
               endIndex <- strideSet scanline repeatCount writeIdx 4 newVal
               inner (readIdx + 2) endIndex 
 
@@ -249,7 +260,7 @@ decodeHeader = do
          (fail "Invalid radiance file signature")
 
     infos <- decodeInfos
-    let formatKey = trace (show infos) $ BC.pack "FORMAT"
+    let formatKey = BC.pack "FORMAT"
     case partition (\(k,_) -> k /= formatKey) infos of
       (_, []) -> fail "No radiance format specified"
       (info, [(_, formatString)]) ->
@@ -269,14 +280,14 @@ toFloat (RGBE r g b e) = PixelRGBF rf gf bf
         gf = (fromIntegral g + 0.5) * f
         bf = (fromIntegral b + 0.5) * f
 
-decodeRadiancePicture :: RadianceHeader -> ST s (MutableImage s (PixelRGBF))
+decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s (PixelRGBF))
 decodeRadiancePicture hdr = do
     let width = abs $ radianceWidth hdr
         height = abs $ radianceHeight hdr
         packedData = radianceData hdr
 
-    scanLine <- M.new $ width * 4
-    resultBuffer <- M.new $ width * height * 3
+    scanLine <- lift $ M.new $ width * 4
+    resultBuffer <- lift $ M.new $ width * height * 3
 
     let scanLineImage = MutableImage
                       { mutableImageWidth = width
@@ -291,19 +302,22 @@ decodeRadiancePicture hdr = do
                    }
 
     let scanLineExtractor readIdx line = do
-            newRead <- inner readIdx scanLine
-            forM_ [0 .. width - 1] $ \i -> do
-                -- mokay, it's a hack, but I don't want to define a
-                -- pixel instance of RGBE...
-                PixelRGBA8 r g b e <- readPixel scanLineImage i 0
-                writePixel finalImage i line . toFloat $ RGBE r g b e
+          let color = unpackColor packedData readIdx
+              inner | isNewRunLengthMarker color = do
+                          let calcSize = checkLineLength color
+                          when (calcSize /= width)
+                               (throwError "Invalid sanline size")
+                          pure $ \idx -> newStyleRLE packedData (idx + 4)
+                    | otherwise = pure $ oldStyleRLE packedData
+          f <- inner
+          newRead <- f readIdx scanLine
+          forM_ [0 .. width - 1] $ \i -> do
+              -- mokay, it's a hack, but I don't want to define a
+              -- pixel instance of RGBE...
+              PixelRGBA8 r g b e <- lift $ readPixel scanLineImage i 0
+              lift $ writePixel finalImage i line . toFloat $ RGBE r g b e
 
-            return newRead
-
-           where color = unpackColor packedData readIdx
-                 inner | isNewRunLengthMarker color = 
-                            trace (printf "check : %d" $ checkLineLength color) $ \idx -> newStyleRLE packedData (idx + 4)
-                       | otherwise = oldStyleRLE packedData
+          return newRead
 
     foldM_ scanLineExtractor 0 [0 .. height - 1]
 
