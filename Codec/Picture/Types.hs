@@ -12,6 +12,10 @@ module Codec.Picture.Types( -- * Types
                             Image( .. )
                           , MutableImage( .. )
                           , DynamicImage( .. )
+                            -- ** Image functions
+                          , freezeImage
+                          , unsafeFreeze
+
                           , PixelType( .. )
                             -- ** Pixel types
                           , Pixel8
@@ -238,6 +242,17 @@ data MutableImage s a = MutableImage
       -- you should use the helpers functions.
     , mutableImageData   :: M.STVector s (PixelBaseComponent a)
     }
+
+-- | `O(n)` Yield an immutable copy of an image by making a copy of it
+freezeImage :: (Storable (PixelBaseComponent a))
+            => MutableImage s a -> ST s (Image a)
+freezeImage (MutableImage w h d) = Image w h <$> V.freeze d
+
+-- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
+-- The mutable image may not be used after this operation.
+unsafeFreeze ::  (Storable (PixelBaseComponent a))
+             => MutableImage s a -> ST s (Image a)
+unsafeFreeze (MutableImage w h d) = Image w h <$> V.unsafeFreeze d
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
