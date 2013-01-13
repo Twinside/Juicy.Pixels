@@ -17,11 +17,13 @@ module Codec.Picture.Types( -- * Types
                           , unsafeFreeze
 
                           , PixelType( .. )
+
                             -- ** Pixel types
                           , Pixel8
                           , PixelF
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
+                          , PixelRGBF( .. )
                           , PixelRGBA8( .. )
                           , PixelYCbCr8( .. )
 
@@ -137,6 +139,15 @@ instance ColorPlane PixelRGB8 PlaneGreen where
     toComponentIndex _ _ = 1
 
 instance ColorPlane PixelRGB8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBF PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBF PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBF PlaneBlue where
     toComponentIndex _ _ = 2
 
 instance ColorPlane PixelRGBA8 PlaneRed where
@@ -265,10 +276,14 @@ instance NFData (MutableImage s a) where
 data DynamicImage =
        -- | A greyscale image.
        ImageY8   (Image Pixel8)
+       -- | A greyscale HDR image 
+     | ImageYF   (Image PixelF)
        -- | An image in greyscale with an alpha channel.
      | ImageYA8  (Image PixelYA8)
        -- | An image in true color.
      | ImageRGB8 (Image PixelRGB8)
+       -- | An image with HDR pixels
+     | ImageRGBF (Image PixelRGBF)
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
        -- | An image in the colorspace used by Jpeg images.
@@ -276,8 +291,10 @@ data DynamicImage =
 
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
+    rnf (ImageYF img)     = rnf img
     rnf (ImageYA8 img)    = rnf img
     rnf (ImageRGB8 img)   = rnf img
+    rnf (ImageRGBF img)   = rnf img
     rnf (ImageRGBA8 img)  = rnf img
     rnf (ImageYCbCr8 img) = rnf img
 
@@ -311,6 +328,19 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
 data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
                            {-# UNPACK #-} !Word8 -- Green
                            {-# UNPACK #-} !Word8 -- Blue
+
+-- | Pixel type storing HDR pixel on 32 bits float
+-- Value are stored in the following order :
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
+                           {-# UNPACK #-} !PixelF -- Green
+                           {-# UNPACK #-} !PixelF -- Blue
 
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in the following order :
@@ -367,6 +397,37 @@ instance Storable PixelYA8 where
           aOff = sizeOf __ * 1
       poke (ptr `plusPtr` yOff) y
       poke (ptr `plusPtr` aOff) a
+
+instance Binary PixelRGBF where
+    {-# INLINE put #-}
+    put (PixelRGBF r g b) = put r >> put g >> put b
+    {-# INLINE get #-}
+    get = PixelRGBF <$> get <*> get <*> get
+
+instance Storable PixelRGBF where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOf (undefined :: PixelF) * 3
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: PixelF)
+    {-# INLINE peek #-}
+    peek ptr = do
+      let __   = undefined :: PixelF
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+      r <- peek $ ptr `plusPtr` rOff
+      g <- peek $ ptr `plusPtr` gOff
+      b <- peek $ ptr `plusPtr` bOff
+      return (PixelRGBF r g b)
+    {-# INLINE poke #-}
+    poke ptr (PixelRGBF r g b) = do
+      let __   = undefined :: PixelF
+          rOff = sizeOf __ * 0
+          gOff = sizeOf __ * 1
+          bOff = sizeOf __ * 2
+      poke (ptr `plusPtr` rOff) r
+      poke (ptr `plusPtr` gOff) g
+      poke (ptr `plusPtr` bOff) b
 
 instance Binary PixelRGB8 where
     {-# INLINE put #-}
@@ -468,8 +529,10 @@ instance Storable PixelRGBA8 where
 -- | Describe pixel kind at runtime
 data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
                | PixelGreyscale
+               | PixelGreyscaleF
                | PixelGreyscaleAlpha
                | PixelRedGreenBlue8
+               | PixelRedGreenBlueF
                | PixelRedGreenBlueAlpha8
                | PixelYChromaRChromaB8
                deriving Eq
@@ -640,17 +703,22 @@ pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
 
 -- | Helper class to help extract a luma plane out
 -- of an image or a pixel
-class (Pixel a) => LumaPlaneExtractable a where
+class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- | Compute the luminance part of a pixel
-    computeLuma      :: a -> Pixel8
+    computeLuma      :: a -> (PixelBaseComponent a)
 
     -- | Extract a luma plane out of an image. This
     -- method is in the typeclass to help performant
     -- implementation.
-    extractLumaPlane :: Image a -> Image Pixel8
+    extractLumaPlane :: Image a -> Image (PixelBaseComponent a)
     extractLumaPlane = pixelMap computeLuma
 
 instance LumaPlaneExtractable Pixel8 where
+    {-# INLINE computeLuma #-}
+    computeLuma = id
+    extractLumaPlane = id
+
+instance LumaPlaneExtractable PixelF where
     {-# INLINE computeLuma #-}
     computeLuma = id
     extractLumaPlane = id
@@ -660,6 +728,11 @@ instance LumaPlaneExtractable PixelRGB8 where
     computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
                                             0.59 * toRational g +
                                             0.11 * toRational b
+
+instance LumaPlaneExtractable PixelRGBF where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGBF r g b) =
+        0.3 * r + 0.59 * g + 0.11 * b
 
 instance LumaPlaneExtractable PixelRGBA8 where
     {-# INLINE computeLuma #-}
@@ -716,7 +789,7 @@ instance Pixel PixelF where
 
     basePixelValue _ = 0
     canPromoteTo _ _ = False
-    promotionType _ = PixelGreyscale
+    promotionType _ = PixelGreyscaleF
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
@@ -771,6 +844,36 @@ instance ColorConvertible PixelYA8 PixelRGB8 where
 instance ColorConvertible PixelYA8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
+
+--------------------------------------------------
+----            PixelRGBF instances
+--------------------------------------------------
+instance Pixel PixelRGBF where
+    type PixelBaseComponent PixelRGBF = PixelF
+
+    basePixelValue _ = 0
+    canPromoteTo _ _ = False
+    componentCount _ = 3
+
+    promotionType _ = PixelRedGreenBlueF
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGBF (arr ! (baseIdx + 0))
+                                                              (arr ! (baseIdx + 1))
+                                                              (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        return $ PixelRGBF rv gv bv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGBF rv gv bv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
 
 --------------------------------------------------
 ----            PixelRGB8 instances
