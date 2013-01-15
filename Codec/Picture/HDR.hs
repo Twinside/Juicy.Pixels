@@ -78,6 +78,16 @@ instance Binary RadianceFormat where
             | sig == radiance32bitRleXYZEFromat = pure FormatXYZE
             | otherwise = fail "Unrecognized Radiance format"
 
+toRGBE :: PixelRGBF -> RGBE
+toRGBE (PixelRGBF r g b)
+    | d <= 1e-32 = RGBE 0 0 0 0
+    | otherwise = RGBE (fix r) (fix g) (fix b) (fromIntegral $ e + 128)
+  where d = maximum [r, g, b]
+        e = exponent d
+        coeff = significand d *  255.9999 / d
+        fix v = truncate $ v * coeff
+
+
 dropUntil :: Word8 -> Get ()
 dropUntil c = getWord8 >>= inner
   where inner val | val == c = pure ()
