@@ -168,30 +168,6 @@ decodeNum = do
 
     getChar8 >>= numDec 0
 
-strideCopy :: B.ByteString -> M.STVector s Word8
-           -> Int -> Int -> Int -> Int -> HDRReader s Int
-strideCopy src dest sourceIndex size destIndex stride 
-   | endIndex > B.length src = throwError "Out of bound HDR input"
-   | writeEndBound > M.length dest + stride = throwError "Out of bound HDR scanline"
-   | otherwise = aux sourceIndex destIndex
-  where endIndex = sourceIndex + size
-        writeEndBound = destIndex + size * stride
-        aux i j | i >= endIndex  = pure j
-        aux i j = do
-          lift $ (dest .<-. j) $ B.index src i
-          aux (i + 1) (j + stride)
-
-strideSet :: M.STVector s Word8 -> Int -> Int -> Int -> Word8
-          -> HDRReader s Int
-strideSet dest count destIndex stride val 
-   | endIndex > M.length dest + stride = throwError "Out of bound HDR scanline"
-   | otherwise = aux destIndex
-  where endIndex = destIndex + count * stride
-        aux i | i >= endIndex = pure endIndex
-        aux i = do
-            lift $ (dest .<-. i) val
-            aux (i + stride)
-
 copyPrevColor :: M.STVector s Word8 -> Int -> ST s ()
 copyPrevColor scanLine idx = do
     r <- scanLine .!!!. (idx - 4)
@@ -228,14 +204,35 @@ oldStyleRLE inputData initialIdx scanLine = trace "oldStyleRLE" $ inner initialI
 
 newStyleRLE :: B.ByteString -> Int -> M.STVector s Word8
             -> HDRReader s Int
-newStyleRLE inputData initialIdx scanline = foldm [0 .. 3] initialIdx inner
+newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
   where dataAt idx
             | idx >= maxInput = throwError $ "Read index out of bound (" ++ show idx ++ ")"
             | otherwise = pure $ B.index inputData idx
 
         maxOutput = M.length scanline
         maxInput = B.length inputData
-        foldm lst acc f = foldM f acc lst
+        stride = 4
+
+
+        strideSet count destIndex _ | endIndex > maxOutput + stride = throwError "Out of bound HDR scanline"
+            where endIndex = destIndex + count * stride
+        strideSet count destIndex val = aux destIndex count
+            where aux i 0 =  pure i
+                  aux i c = do
+                    lift $ (scanline .<-. i) val
+                    aux (i + stride) (c - 1)
+
+
+        strideCopy _ count destIndex
+            | writeEndBound > maxOutput + stride = throwError "Out of bound HDR scanline"
+                where writeEndBound = destIndex + count * stride
+        strideCopy sourceIndex count destIndex = aux sourceIndex destIndex count
+          where aux _ j 0 = pure j
+                aux i j c = do
+                    val <- dataAt i
+                    lift $ (scanline .<-. j) val
+                    aux (i + 1) (j + stride) (c - 1)
+
 
         inner readIdx writeIdx
             | readIdx >= maxInput || writeIdx >= maxOutput = pure readIdx
@@ -245,13 +242,14 @@ newStyleRLE inputData initialIdx scanline = foldm [0 .. 3] initialIdx inner
             then do
               let repeatCount = fromIntegral code .&. 0x7F
               newVal <- dataAt $ readIdx + 1
-              endIndex <- strideSet scanline repeatCount writeIdx 4 newVal
+              endIndex <- strideSet repeatCount writeIdx newVal
               inner (readIdx + 2) endIndex 
 
             else do
               let iCode = fromIntegral code
-              endIndex <- strideCopy inputData scanline readIdx iCode writeIdx 4
+              endIndex <- strideCopy (readIdx + 1) iCode writeIdx
               inner (readIdx + iCode + 1) endIndex
+
 
 decodeHeader :: Get RadianceHeader
 decodeHeader = do

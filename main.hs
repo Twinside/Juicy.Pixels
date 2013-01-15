@@ -175,16 +175,11 @@ imgToImg path = do
 
 toStandardDef :: Image PixelRGBF -> Image PixelRGB8
 toStandardDef img = pixelMap pixelConverter img
-  where fix v = truncate $ 255.0 * ((v - mini) / range)
+  where fix = truncate . (255 *) . min 1.0 . max 0.0
         pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
           where r = fix rf
                 g = fix gf
                 b = fix bf
-
-        mini = V.minimum $ imageData img
-        maxi = V.maximum $ imageData img
-
-        range = maxi - mini
 
 radianceToBitmap :: FilePath -> IO ()
 radianceToBitmap path = do
