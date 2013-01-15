@@ -3,11 +3,25 @@ module Codec.Picture.Saving( imageToJpg
                            , imageToBitmap
                            ) where
 
+import Data.Word( Word8 )
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
 import Codec.Picture.Png
 import Codec.Picture.Types
+
+componentToLDR :: Float -> Word8
+componentToLDR = truncate . (255 *) . min 1.0 . max 0.0
+
+toStandardDef :: Image PixelRGBF -> Image PixelRGB8
+toStandardDef img = pixelMap pixelConverter img
+  where pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
+          where r = componentToLDR rf
+                g = componentToLDR gf
+                b = componentToLDR bf
+
+greyScaleToStandardDef :: Image PixelF -> Image Pixel8
+greyScaleToStandardDef = pixelMap componentToLDR
 
 -- | This function will try to do anything to encode an image
 -- as JPEG, make all color conversion and such. Equivalent
@@ -18,7 +32,9 @@ imageToJpg quality dynImage =
     in case dynImage of
         ImageYCbCr8 img -> encodeAtQuality img
         ImageRGB8   img -> encodeAtQuality (convertImage img)
+        ImageRGBF   img -> imageToJpg quality . ImageRGB8 $ toStandardDef img
         ImageRGBA8  img -> encodeAtQuality (convertImage $ dropAlphaLayer img)
+        ImageYF     img -> imageToJpg quality . ImageY8 $ greyScaleToStandardDef img
         ImageY8     img -> encodeAtQuality . convertImage
                                            $ (promoteImage img :: Image PixelRGB8)
         ImageYA8    img -> encodeAtQuality $
@@ -30,8 +46,10 @@ imageToJpg quality dynImage =
 imageToPng :: DynamicImage -> L.ByteString
 imageToPng (ImageYCbCr8 img) = encodePng (convertImage img :: Image PixelRGB8)
 imageToPng (ImageRGB8   img) = encodePng img
+imageToPng (ImageRGBF   img) = encodePng $ toStandardDef img
 imageToPng (ImageRGBA8  img) = encodePng img
 imageToPng (ImageY8     img) = encodePng img
+imageToPng (ImageYF     img) = encodePng $ greyScaleToStandardDef img
 imageToPng (ImageYA8    img) = encodePng (promoteImage img :: Image PixelRGBA8)
 
 -- | This function will try to do anything to encode an image
@@ -39,8 +57,10 @@ imageToPng (ImageYA8    img) = encodePng (promoteImage img :: Image PixelRGBA8)
 -- of 'decodeImage' for Bitmap encoding
 imageToBitmap :: DynamicImage -> L.ByteString
 imageToBitmap (ImageYCbCr8 img) = encodeBitmap (convertImage img :: Image PixelRGB8)
+imageToBitmap (ImageRGBF   img) = encodeBitmap $ toStandardDef img
 imageToBitmap (ImageRGB8   img) = encodeBitmap img
 imageToBitmap (ImageRGBA8  img) = encodeBitmap img
 imageToBitmap (ImageY8     img) = encodeBitmap img
+imageToBitmap (ImageYF     img) = encodeBitmap $ greyScaleToStandardDef img
 imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image PixelRGBA8)
 

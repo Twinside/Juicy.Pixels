@@ -14,6 +14,7 @@ import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
+import Codec.Picture.Saving
 import qualified Data.Vector.Storable as V
 
 validTests :: [FilePath]
@@ -121,6 +122,9 @@ imgToImg path = do
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYCbCr8.png") png
 
+        Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
+
         Right (ImageRGB8 img) -> do
             let jpg = validationJpegEncode (convertImage img)
                 png = encodePng img
@@ -173,22 +177,12 @@ imgToImg path = do
         Left err ->
             putStrLn $ "Error loading " ++ path ++ " " ++ show err
 
-toStandardDef :: Image PixelRGBF -> Image PixelRGB8
-toStandardDef img = pixelMap pixelConverter img
-  where fix = truncate . (255 *) . min 1.0 . max 0.0
-        pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
-          where r = fix rf
-                g = fix gf
-                b = fix bf
-
 radianceToBitmap :: FilePath -> IO ()
 radianceToBitmap path = do
     rez <- readImage path
     case rez of
       Left err -> putStrLn $ "Error loading " ++ path ++ " " ++ err
-      Right (ImageRGBF img) -> do
-          writeBitmap (path ++ ".bmp") $ toStandardDef img
-          
+      Right img -> L.writeFile (path ++ ".bmp") $ imageToBitmap img
 
 toJpg :: String -> Image PixelRGB8 -> IO ()
 toJpg name img = do
