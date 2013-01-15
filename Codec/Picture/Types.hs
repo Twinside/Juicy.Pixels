@@ -558,6 +558,9 @@ class ( Binary a
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
 
+    -- | Apply a function to all color component of a pixel.
+    colorMap :: (PixelBaseComponent a -> PixelBaseComponent a) -> a -> a
+
     -- | Calculate the index for the begining of the pixel
     pixelBaseIndex :: Image a -> Int -> Int -> Int
     pixelBaseIndex (Image { imageWidth = w }) x y =
@@ -772,6 +775,9 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE colorMap #-}
+    colorMap f = f
+
     basePixelValue _ = 0
     canPromoteTo _ a = a /= PixelMonochromatic
     promotionType _ = PixelGreyscale
@@ -787,6 +793,8 @@ instance Pixel Pixel8 where
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
 
+    {-# INLINE colorMap #-}
+    colorMap f = f
     basePixelValue _ = 0
     canPromoteTo _ _ = False
     promotionType _ = PixelGreyscaleF
@@ -817,6 +825,8 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
 
+    {-# INLINE colorMap #-}
+    colorMap f (PixelYA8 y a) = PixelYA8 (f y) (f a)
     basePixelValue _ = 0
     canPromoteTo _ a = a == PixelRedGreenBlueAlpha8
     promotionType _  = PixelGreyscaleAlpha
@@ -851,6 +861,9 @@ instance ColorConvertible PixelYA8 PixelRGBA8 where
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
 
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGBF r g b) = PixelRGBF (f r) (f g) (f b)
+
     basePixelValue _ = 0
     canPromoteTo _ _ = False
     componentCount _ = 3
@@ -880,6 +893,9 @@ instance Pixel PixelRGBF where
 --------------------------------------------------
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGB8 r g b) = PixelRGB8 (f r) (f g) (f b)
 
     basePixelValue _ = 0
     canPromoteTo _ PixelMonochromatic = False
@@ -918,6 +934,9 @@ instance ColorConvertible PixelRGB8 PixelRGBA8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
+
     basePixelValue _ = 0
     canPromoteTo _ PixelRedGreenBlueAlpha8 = True
     canPromoteTo _ _ = False
@@ -953,6 +972,8 @@ instance Pixel PixelRGBA8 where
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
 
+    {-# INLINE colorMap #-}
+    colorMap f (PixelYCbCr8 y cb cr) = PixelYCbCr8 (f y) (f cb) (f cr)
     basePixelValue _ = 0
     canPromoteTo _ _ = False
     promotionType _ = PixelYChromaRChromaB8
