@@ -76,15 +76,16 @@ data PngRawImage = PngRawImage
     }
 
 -- | Palette with indices beginning at 0 to elemcount - 1
-type PngPalette = V.Vector PixelRGB8
+type PngPalette = Image PixelRGB8
 
 -- | Parse a palette from a png chunk.
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
  | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
- | otherwise = V.fromListN pixelCount <$> runGetStrict pixelUnpacker (chunkData plte)
-    where pixelUnpacker = replicateM (fromIntegral pixelCount) get
+ | otherwise = Image pixelCount 1 . V.fromListN (3 * pixelCount) <$> pixels
+    where pixelUnpacker = replicateM (fromIntegral pixelCount * 3) get
           pixelCount = fromIntegral $ chunkLength plte `div` 3
+          pixels = runGetStrict pixelUnpacker (chunkData plte)
 
 -- | Data structure during real png loading/parsing
 data PngRawChunk = PngRawChunk

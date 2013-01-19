@@ -58,19 +58,16 @@ module Codec.Picture.Types( -- * Types
                           ) where
 
 import Control.Monad( forM_, foldM )
-import Control.Applicative( (<$>), (<*>) )
+import Control.Applicative( (<$>) )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
-import Foreign.Storable ( Storable, sizeOf, alignment, peek, poke )
-import Foreign.Ptr ( plusPtr )
+import Foreign.Storable ( Storable )
 import Data.Word( Word8 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Binary( Binary, put, get )
-
 
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
@@ -373,174 +370,11 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Blue
                              {-# UNPACK #-} !Word8 -- Alpha
 
-instance Binary PixelYA8 where
-    {-# INLINE put #-}
-    put (PixelYA8 y a) = put y >> put a
-    {-# INLINE get #-}
-    get = PixelYA8 <$> get <*> get
-
-instance Storable PixelYA8 where
-    {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOf (undefined :: Word8) * 2
-    {-# INLINE alignment #-}
-    alignment _ = alignment (undefined :: Word8)
-    {-# INLINE peek #-}
-    peek ptr = do
-      let __   = undefined :: Word8
-          yOff = sizeOf __ * 0
-          aOff = sizeOf __ * 1
-      y <- peek $ ptr `plusPtr` yOff
-      a <- peek $ ptr `plusPtr` aOff
-      return (PixelYA8 y a)
-    {-# INLINE poke #-}
-    poke ptr (PixelYA8 y a) = do
-      let __   = undefined :: Word8
-          yOff = sizeOf __ * 0
-          aOff = sizeOf __ * 1
-      poke (ptr `plusPtr` yOff) y
-      poke (ptr `plusPtr` aOff) a
-
-instance Binary PixelRGBF where
-    {-# INLINE put #-}
-    put (PixelRGBF r g b) = put r >> put g >> put b
-    {-# INLINE get #-}
-    get = PixelRGBF <$> get <*> get <*> get
-
-instance Storable PixelRGBF where
-    {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOf (undefined :: PixelF) * 3
-    {-# INLINE alignment #-}
-    alignment _ = alignment (undefined :: PixelF)
-    {-# INLINE peek #-}
-    peek ptr = do
-      let __   = undefined :: PixelF
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-      r <- peek $ ptr `plusPtr` rOff
-      g <- peek $ ptr `plusPtr` gOff
-      b <- peek $ ptr `plusPtr` bOff
-      return (PixelRGBF r g b)
-    {-# INLINE poke #-}
-    poke ptr (PixelRGBF r g b) = do
-      let __   = undefined :: PixelF
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-      poke (ptr `plusPtr` rOff) r
-      poke (ptr `plusPtr` gOff) g
-      poke (ptr `plusPtr` bOff) b
-
-instance Binary PixelRGB8 where
-    {-# INLINE put #-}
-    put (PixelRGB8 r g b) = put r >> put g >> put b
-    {-# INLINE get #-}
-    get = PixelRGB8 <$> get <*> get <*> get
-
-instance Storable PixelRGB8 where
-    {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOf (undefined :: Word8) * 3
-    {-# INLINE alignment #-}
-    alignment _ = alignment (undefined :: Word8)
-    {-# INLINE peek #-}
-    peek ptr = do
-      let __   = undefined :: Word8
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-      r <- peek $ ptr `plusPtr` rOff
-      g <- peek $ ptr `plusPtr` gOff
-      b <- peek $ ptr `plusPtr` bOff
-      return (PixelRGB8 r g b)
-    {-# INLINE poke #-}
-    poke ptr (PixelRGB8 r g b) = do
-      let __   = undefined :: Word8
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-      poke (ptr `plusPtr` rOff) r
-      poke (ptr `plusPtr` gOff) g
-      poke (ptr `plusPtr` bOff) b
-
-instance Binary PixelYCbCr8 where
-    {-# INLINE put #-}
-    put (PixelYCbCr8 y cb cr) = put y >> put cb >> put cr
-    {-# INLINE get #-}
-    get = PixelYCbCr8 <$> get <*> get <*> get
-
-instance Storable PixelYCbCr8 where
-    {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOf (undefined :: Word8) * 3
-    {-# INLINE alignment #-}
-    alignment _ = alignment (undefined :: Word8)
-    {-# INLINE peek #-}
-    peek ptr = do
-      let __   = undefined :: Word8
-          yOff = sizeOf __ * 0
-          cbOff = sizeOf __ * 1
-          crOff = sizeOf __ * 2
-      y  <- peek $ ptr `plusPtr` yOff
-      cb <- peek $ ptr `plusPtr` cbOff
-      cr <- peek $ ptr `plusPtr` crOff
-      return (PixelYCbCr8 y cb cr)
-    {-# INLINE poke #-}
-    poke ptr (PixelYCbCr8 y cb cr) = do
-      let __   = undefined :: Word8
-          yOff  = sizeOf __ * 0
-          cbOff = sizeOf __ * 1
-          crOff = sizeOf __ * 2
-      poke (ptr `plusPtr`  yOff) y
-      poke (ptr `plusPtr` cbOff) cb
-      poke (ptr `plusPtr` crOff) cr
-
-instance Binary PixelRGBA8 where
-    {-# INLINE put #-}
-    put (PixelRGBA8 r g b a) = put r >> put g >> put b >> put a
-    {-# INLINE get #-}
-    get = PixelRGBA8 <$> get <*> get <*> get <*> get
-
-instance Storable PixelRGBA8 where
-    {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOf (undefined :: Word8) * 4
-    {-# INLINE alignment #-}
-    alignment _ = alignment (undefined :: Word8)
-    {-# INLINE peek #-}
-    peek ptr = do
-      let __   = undefined :: Word8
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-          aOff = sizeOf __ * 3
-      r <- peek $ ptr `plusPtr` rOff
-      g <- peek $ ptr `plusPtr` gOff
-      b <- peek $ ptr `plusPtr` bOff
-      a <- peek $ ptr `plusPtr` aOff
-      return (PixelRGBA8 r g b a)
-    {-# INLINE poke #-}
-    poke ptr (PixelRGBA8 r g b a) = do
-      let __   = undefined :: Word8
-          rOff = sizeOf __ * 0
-          gOff = sizeOf __ * 1
-          bOff = sizeOf __ * 2
-          aOff = sizeOf __ * 3
-      poke (ptr `plusPtr` rOff) r
-      poke (ptr `plusPtr` gOff) g
-      poke (ptr `plusPtr` bOff) b
-      poke (ptr `plusPtr` aOff) a
-
--- | Typeclass used to query a type about it's properties
--- regarding casting to other pixel types
-class ( Binary a
-      , Storable (PixelBaseComponent a)
-      , Num (PixelBaseComponent a) ) => Pixel a where
+class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
     type PixelBaseComponent a :: *
-
-    -- | Initial filling value used by different manipulation
-    -- function
-    basePixelValue :: a -> PixelBaseComponent a
 
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
@@ -767,7 +601,6 @@ instance Pixel Pixel8 where
     {-# INLINE colorMap #-}
     colorMap f = f
 
-    basePixelValue _ = 0
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
@@ -782,7 +615,6 @@ instance Pixel PixelF where
 
     {-# INLINE colorMap #-}
     colorMap f = f
-    basePixelValue _ = 0
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
@@ -802,23 +634,15 @@ instance ColorConvertible Pixel8 PixelF where
 
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
-    promotePixel c = PixelRGB8 r g b
-      where fixCoeff coeff = floor $ toRational c / coeff
-            r = fixCoeff 0.3
-            g = fixCoeff 0.59
-            b = fixCoeff 0.11
+    promotePixel c = PixelRGB8 c c c
 
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
-    promotePixel c = PixelRGBA8 r g b 255
-      where fixCoeff coeff = floor $ toRational c / coeff
-            r = fixCoeff 0.3
-            g = fixCoeff 0.59
-            b = fixCoeff 0.11
+    promotePixel c = PixelRGBA8 c c c 255
 
 instance ColorConvertible PixelF PixelRGBF where
     {-# INLINE promotePixel #-}
-    promotePixel c = PixelRGBF (c / 0.3) (c / 0.59)  (c / 0.11)
+    promotePixel c = PixelRGBF c c c-- (c / 0.3) (c / 0.59)  (c / 0.11)
 
 --------------------------------------------------
 ----            PixelYA8 instances
@@ -828,7 +652,6 @@ instance Pixel PixelYA8 where
 
     {-# INLINE colorMap #-}
     colorMap f (PixelYA8 y a) = PixelYA8 (f y) (f a)
-    basePixelValue _ = 0
     componentCount _ = 2
     pixelAt image@(Image { imageData = arr }) x y = PixelYA8 (arr ! (baseIdx + 0))
                                                              (arr ! (baseIdx + 1))
@@ -863,7 +686,6 @@ instance Pixel PixelRGBF where
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBF r g b) = PixelRGBF (f r) (f g) (f b)
 
-    basePixelValue _ = 0
     componentCount _ = 3
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGBF (arr ! (baseIdx + 0))
@@ -893,7 +715,6 @@ instance Pixel PixelRGB8 where
     {-# INLINE colorMap #-}
     colorMap f (PixelRGB8 r g b) = PixelRGB8 (f r) (f g) (f b)
 
-    basePixelValue _ = 0
     componentCount _ = 3
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGB8 (arr ! (baseIdx + 0))
@@ -932,7 +753,6 @@ instance Pixel PixelRGBA8 where
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
-    basePixelValue _ = 0
     componentCount _ = 4
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGBA8 (arr ! (baseIdx + 0))
@@ -964,7 +784,6 @@ instance Pixel PixelYCbCr8 where
 
     {-# INLINE colorMap #-}
     colorMap f (PixelYCbCr8 y cb cr) = PixelYCbCr8 (f y) (f cb) (f cr)
-    basePixelValue _ = 0
     componentCount _ = 3
     pixelAt image@(Image { imageData = arr }) x y = PixelYCbCr8 (arr ! (baseIdx + 0))
                                                                 (arr ! (baseIdx + 1))

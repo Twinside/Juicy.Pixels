@@ -79,10 +79,6 @@ getNextByte = do str <- S.get
                     Just (v, rest) -> S.put rest >> return v
                     Nothing -> return 0
 
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = V.unsafeIndex
-
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
 (.!!!.) = M.unsafeRead
@@ -372,10 +368,11 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = V.fromListN (fromIntegral possibilities + 1) pixels
+generateGreyscalePalette times = Image possibilities 0 vec
     where possibilities = 2 ^ times - 1
-          pixels = [PixelRGB8 i i i | n <- [0..possibilities]
-                                    , let i = n * (255 `div` possibilities)]
+          vec = V.fromListN ((fromIntegral possibilities + 1) * 3) $ concat pixels
+          pixels = [[i, i, i] | n <- [0 .. possibilities]
+                              , let i = fromIntegral $ n * (255 `div` possibilities)]
 
 sampleCountOfImageType :: PngImageType -> Word32
 sampleCountOfImageType PngGreyscale = 1
@@ -397,7 +394,7 @@ applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
 applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- V.toList img
-                                     , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
+                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,

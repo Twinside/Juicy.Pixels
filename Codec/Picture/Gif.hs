@@ -15,13 +15,7 @@ import qualified Data.ByteString as B
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
-import Data.Binary( Binary(..)
-                  {-, Put-}
-                  {-, putWord8-}
-                  {-, putWord16be-}
-                  {-, encode-}
-                  {-, putByteString -}
-                  )
+import Data.Binary( Binary(..) )
 import Data.Binary.Get( Get
                       , getWord8
                       , getWord16le
@@ -235,10 +229,10 @@ instance Binary ImageDescriptor where
 --------------------------------------------------
 ----            Palette
 --------------------------------------------------
-type Palette = V.Vector PixelRGB8
+type Palette = Image PixelRGB8
 
 getPalette :: Word8 -> Get Palette
-getPalette bitDepth = replicateM size get >>= return . V.fromList
+getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
 --------------------------------------------------
@@ -285,7 +279,7 @@ instance Binary GifFile where
 
 substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
 substituteColors palette = pixelMap swaper
-  where swaper n = palette V.! (fromIntegral n)
+  where swaper n = pixelAt palette (fromIntegral n) 0
 
 decodeImage :: GifImage -> Image Pixel8
 decodeImage img = runST $ runBoolReader $ do

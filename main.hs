@@ -258,10 +258,10 @@ main = do
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
 
-    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
-    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
 
     planeSeparationRGB8Test 
