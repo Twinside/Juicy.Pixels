@@ -1058,14 +1058,20 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
               b = cb * (2 - 2 * cblue) + y
               g = (y - cblue * b - cred * r) / cgreen
 
-gammaCorrection :: PixelF -> Image PixelRGBF -> Image PixelRGBF
+-- | Perform a gamma correction for an image with HDR pixels.
+gammaCorrection :: PixelF          -- ^ Gamma value, should be between 0.5 and 3.0
+                -> Image PixelRGBF -- ^ Image to treat.
+                -> Image PixelRGBF
 gammaCorrection gammaVal = pixelMap gammaCorrector
   where gammaExponent = 1.0 / gammaVal
         fixVal v = v ** gammaExponent
         gammaCorrector (PixelRGBF r g b) =
             PixelRGBF (fixVal r) (fixVal g) (fixVal b)
 
-toneMapping :: PixelF -> Image PixelRGBF -> Image PixelRGBF
+-- | Perform a tone mapping operation on an High dynamic range image.
+toneMapping :: PixelF          -- ^ Exposure parameter
+            -> Image PixelRGBF -- ^ Image to treat.
+            -> Image PixelRGBF
 toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
  where coeff = exposure * (exposure / maxBrightness + 1.0) / (exposure + 1.0);
        maxBrightness = pixelFold (\luma _ _ px -> max luma $ computeLuma px) 0 img

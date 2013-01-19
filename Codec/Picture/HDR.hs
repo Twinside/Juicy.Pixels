@@ -158,9 +158,6 @@ decodeHDR str = runST $ runErrorT $ do
       Right rez ->
           ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
 
-{-encodeHDR :: a -> L.ByteString-}
-{-encodeHDR _ = L.empty-}
-
 getChar8 :: Get Char
 getChar8 = chr . fromIntegral <$> getWord8
 
@@ -364,9 +361,13 @@ encodeScanlineColor vec = do
         runLength _ _ _ _ =
             error "HDR RLE inconsistent state"
 
+-- | Write an High dynamic range image into a radiance
+-- image file on disk.
 writeHDR :: FilePath -> Image PixelRGBF -> IO ()
 writeHDR filename img = L.writeFile filename $ encodeHDR img
 
+-- | Encode an High dynamic range image into a radiance image
+-- file format.
 encodeHDR :: Image PixelRGBF -> L.ByteString
 encodeHDR pic = encode $ runST $ do
     let w = imageWidth pic
