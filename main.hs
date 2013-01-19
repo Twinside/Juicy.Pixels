@@ -177,12 +177,25 @@ imgToImg path = do
         Left err ->
             putStrLn $ "Error loading " ++ path ++ " " ++ show err
 
+toStandardDef :: Image PixelRGBF -> Image PixelRGB8
+toStandardDef img = pixelMap pixelConverter img
+  where fix = truncate . (254 *) . max 0.0 . min 1.0
+        pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
+          where r = fix rf
+                g = fix gf
+                b = fix bf
+
 radianceToBitmap :: FilePath -> IO ()
 radianceToBitmap path = do
     rez <- readImage path
     case rez of
       Left err -> putStrLn $ "Error loading " ++ path ++ " " ++ err
-      Right img -> L.writeFile (path ++ ".bmp") $ imageToBitmap img
+      Right (ImageRGBF img) -> do
+          L.writeFile (path ++ ".bmp") . imageToBitmap $ ImageRGBF img
+          writeHDR (path ++ ".hdr") img
+
+      Right img -> do
+          L.writeFile (path ++ ".bmp") $ imageToBitmap img
 
 toJpg :: String -> Image PixelRGB8 -> IO ()
 toJpg name img = do
@@ -235,7 +248,7 @@ gifTest = ["delta.gif"
           ]
 
 radianceTest :: [FilePath]
-radianceTest = ["sunrise.hdr"]
+radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
 main :: IO ()
 main = do 

@@ -1,6 +1,8 @@
-module Codec.Picture.HDR( decodeHDR ) where
+-- | Module dedicated of Radiance file decompression (.hdr or .pic) file.
+-- Radiance file format is used for High dynamic range imaging.
+module Codec.Picture.HDR( decodeHDR, encodeHDR, writeHDR ) where
 
-import Data.Bits( Bits, (.&.), (.|.), shiftL )
+import Data.Bits( Bits, (.&.), (.|.), shiftL, shiftR )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
 import Data.Monoid( (<>) )
@@ -13,7 +15,7 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Char8 as BC
 
 import Data.List( partition )
-import Data.Binary( Binary( .. ) )
+import Data.Binary( Binary( .. ), encode )
 import Data.Binary.Get( Get, getByteString, getWord8 )
 import Data.Binary.Put( putByteString )
 
@@ -23,14 +25,16 @@ import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.InternalHelper
+import Codec.Picture.BitWriter
 import Codec.Picture.Types
 
 import Debug.Trace
 import Text.Printf( printf )
 
 {-# INLINE (.<<.) #-}
-(.<<.) :: (Bits a) => a -> Int -> a
+(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
 (.<<.) = shiftL
+(.>>.) = shiftR
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
@@ -99,8 +103,8 @@ getUntil f initialAcc = getWord8 >>= inner initialAcc
         inner acc c = getWord8 >>= inner (B.snoc acc c)
 
 data RadianceHeader = RadianceHeader
-  { _radianceInfos :: [(B.ByteString, B.ByteString)]
-  , _radianceFormat :: RadianceFormat 
+  { radianceInfos :: [(B.ByteString, B.ByteString)]
+  , radianceFormat :: RadianceFormat
   , radianceHeight :: !Int
   , radianceWidth  :: !Int
   , radianceData   :: B.ByteString
@@ -142,6 +146,11 @@ decodeInfos = do
       c -> (:) <$> parsePair c <*> decodeInfos
 
 
+-- | Decode an HDR (radiance) image, the resulting pixel
+-- type can be :
+--
+--  * PixelRGBF
+--
 decodeHDR :: B.ByteString -> Either String DynamicImage
 decodeHDR str = runST $ runErrorT $ do
     case runGet decodeHeader $ L.fromChunks [str] of
@@ -243,7 +252,6 @@ newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
                     lift $ (scanline .<-. j) val
                     aux (i + 1) (j + stride) (c - 1)
 
-
         inner readIdx writeIdx
             | readIdx >= maxInput || writeIdx >= maxOutput = pure readIdx
         inner readIdx writeIdx = do
@@ -259,6 +267,18 @@ newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
               let iCode = fromIntegral code
               endIndex <- strideCopy (readIdx + 1) iCode writeIdx
               inner (readIdx + iCode + 1) endIndex
+
+instance Binary RadianceHeader where
+    get = decodeHeader
+    put hdr = do
+        putByteString radianceFileSignature
+        putByteString $ BC.pack "FORMAT="
+        put $ radianceFormat hdr
+        let sizeString =
+              BC.pack $ "\n\n-Y " ++ show (radianceHeight hdr)
+                        ++ " +X " ++ show (radianceWidth hdr) ++ "\n"
+        putByteString sizeString
+        putByteString $ radianceData hdr
 
 
 decodeHeader :: Get RadianceHeader
@@ -284,9 +304,84 @@ decodeHeader = do
 toFloat :: RGBE -> PixelRGBF
 toFloat (RGBE r g b e) = PixelRGBF rf gf bf
   where f = encodeFloat 1 $ fromIntegral e - (128 + 8)
-        rf = (fromIntegral r + 0.5) * f
-        gf = (fromIntegral g + 0.5) * f
-        bf = (fromIntegral b + 0.5) * f
+        rf = (fromIntegral r + 0.0) * f
+        gf = (fromIntegral g + 0.0) * f
+        bf = (fromIntegral b + 0.0) * f
+
+encodeScanlineColor :: M.MVector s Word8 -> BoolWriter s ()
+encodeScanlineColor vec = basicEncode 0 -- runLength 0 0 0 0
+  where maxIndex = M.length vec
+        rest = max (maxIndex `mod` 127) 0
+
+        pushData start len = do
+            pushByte $ fromIntegral len
+            forM_ [start - len .. start - 1] $ \i ->
+                lift (vec .!!!. i) >>= pushByte
+
+        basicEncode idx
+            | idx + 127 >= maxIndex && rest > 0 = pushData (idx + rest) rest
+            | idx + 127 >= maxIndex = pure ()
+        basicEncode idx =
+            pushData (idx + 127) 127 >> basicEncode (idx + 127)
+
+        runLength 127   _ prev idx =
+            pushByte 0xFF >> pushByte prev >> runLength 0 0 0 idx
+        runLength   _ 127    _ idx =
+            pushData idx 127 >> runLength 0 0 0 idx
+        runLength   0 cpy _ idx | idx >= maxIndex =
+            when (cpy > 0)
+                 (pushByte (fromIntegral cpy) >> pushData idx cpy)
+
+        runLength   n   _ prev idx | idx >= maxIndex =
+            pushByte (n .|. 0x80) >> pushByte prev
+
+        runLength   n _ prev idx = do
+            val <- lift $ vec .!!!. idx
+            if val /= prev then do
+                pushByte (n .|. 0x80)
+                pushByte prev
+                runLength 1 1 val $ idx + 1
+
+            else runLength (n + 1) 0 prev $ idx + 1
+
+writeHDR :: FilePath -> Image PixelRGBF -> IO ()
+writeHDR filename img = L.writeFile filename $ encodeHDR img
+
+encodeHDR :: Image PixelRGBF -> L.ByteString
+encodeHDR pic = encode $ runST $ do
+    let w = imageWidth pic
+        h = imageHeight pic
+
+    scanLineR <- M.new w
+    scanLineG <- M.new w
+    scanLineB <- M.new w
+    scanLineE <- M.new w
+
+    encoded <- runBoolWriter $ do
+        forM_ [0 .. h - 1] $ \line -> do
+            forM_ [0 .. w - 1] $ \i -> do
+                let RGBE r g b e = toRGBE $ pixelAt pic i line
+                lift $ (scanLineR .<-. i) r
+                lift $ (scanLineG .<-. i) g
+                lift $ (scanLineB .<-. i) b
+                lift $ (scanLineE .<-. i) e
+
+            mapM_ pushByte [2, 2
+                           , fromIntegral ((w .>>. 8) .&. 0xFF)
+                           , fromIntegral (w .&. 0xFF)]
+            encodeScanlineColor scanLineR
+            encodeScanlineColor scanLineG
+            encodeScanlineColor scanLineB
+            encodeScanlineColor scanLineE
+
+    pure $ RadianceHeader
+        { radianceInfos = []
+        , radianceFormat = FormatRGBE
+        , radianceHeight = h
+        , radianceWidth  = w
+        , radianceData = encoded 
+        }
+    
 
 decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s (PixelRGBF))
 decodeRadiancePicture hdr = do
@@ -299,7 +394,7 @@ decodeRadiancePicture hdr = do
 
     let scanLineImage = MutableImage
                       { mutableImageWidth = width
-                      , mutableImageHeight = 0
+                      , mutableImageHeight = 1
                       , mutableImageData = scanLine
                       }
 

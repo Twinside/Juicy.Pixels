@@ -1,3 +1,5 @@
+-- | Helper functions to save dynamic images to other file format
+-- with automatic color space/sample format conversion done automatically.
 module Codec.Picture.Saving( imageToJpg
                            , imageToPng
                            , imageToBitmap

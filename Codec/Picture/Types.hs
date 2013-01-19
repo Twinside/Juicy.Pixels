@@ -37,9 +37,12 @@ module Codec.Picture.Types( -- * Types
                             -- * Helper functions
                           , canConvertTo
                           , pixelMap
+                          , pixelFold
                           , dropAlphaLayer
                           , generateImage
                           , generateFoldImage
+                          , gammaCorrection
+                          , toneMapping
 
                             -- * Color plane extraction
                           , ColorPlane ( )
@@ -64,6 +67,7 @@ import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable, sizeOf, alignment, peek, poke )
 import Foreign.Ptr ( plusPtr )
 import Data.Word( Word8 )
+import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -677,7 +681,19 @@ generateFoldImage f intialAcc w h =
             frozen <- V.unsafeFreeze arr
             return (foldResult, frozen)
 
+-- | Fold over the pixel of an image with a raster scan order :
+-- from top to bottom, left to right
+{-# INLINE pixelFold #-}
+pixelFold :: (Pixel pixel) 
+          => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
+pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
+  lineFold 
+    where pixelFolder y acc x = f acc x y $ pixelAt img x y
+          columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
+          lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
+          
 {-# INLINE pixelMap #-}
+{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
 --
@@ -811,6 +827,10 @@ instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelYA8 c 255
 
+instance ColorConvertible Pixel8 PixelF where
+    {-# INLINE promotePixel #-}
+    promotePixel c = fromIntegral c / 255.0
+
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
@@ -900,6 +920,7 @@ instance Pixel PixelRGB8 where
     basePixelValue _ = 0
     canPromoteTo _ PixelMonochromatic = False
     canPromoteTo _ PixelGreyscale = False
+    canPromoteTo _ PixelGreyscaleF = False
     canPromoteTo _ _ = True
 
     componentCount _ = 3
@@ -927,6 +948,11 @@ instance Pixel PixelRGB8 where
 instance ColorConvertible PixelRGB8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b 255
+
+instance ColorConvertible PixelRGB8 PixelRGBF where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGBF (toF r) (toF g) (toF b)
+        where toF v = fromIntegral v / 255
 
 --------------------------------------------------
 ----            PixelRGBA8 instances
@@ -1031,4 +1057,17 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
               r = cr * (2 - 2 * cred) + y
               b = cb * (2 - 2 * cblue) + y
               g = (y - cblue * b - cred * r) / cgreen
+
+gammaCorrection :: PixelF -> Image PixelRGBF -> Image PixelRGBF
+gammaCorrection gammaVal = pixelMap gammaCorrector
+  where gammaExponent = 1.0 / gammaVal
+        fixVal v = v ** gammaExponent
+        gammaCorrector (PixelRGBF r g b) =
+            PixelRGBF (fixVal r) (fixVal g) (fixVal b)
+
+toneMapping :: PixelF -> Image PixelRGBF -> Image PixelRGBF
+toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
+ where coeff = exposure * (exposure / maxBrightness + 1.0) / (exposure + 1.0);
+       maxBrightness = pixelFold (\luma _ _ px -> max luma $ computeLuma px) 0 img
+       scaledData = V.map (* coeff) $ imageData img
 

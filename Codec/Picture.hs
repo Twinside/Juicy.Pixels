@@ -56,7 +56,8 @@ module Codec.Picture (
                      -- ** HDR (Radiance/RGBE) handling
                      , readHDR
                      , decodeHDR
-                     {-, encodeHDR-}
+                     , encodeHDR
+                     , writeHDR
 
                      -- * Image types and pixel types
                      -- ** Image
@@ -82,7 +83,8 @@ import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Gif( decodeGif, decodeGifImages )
 import Codec.Picture.HDR( decodeHDR
-                        {-, encodeHDR-}
+                        , encodeHDR
+                        , writeHDR
                         )
 import Codec.Picture.Saving
 import Codec.Picture.Types
