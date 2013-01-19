@@ -233,7 +233,8 @@ newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
         stride = 4
 
 
-        strideSet count destIndex _ | endIndex > maxOutput + stride = throwError "Out of bound HDR scanline"
+        strideSet count destIndex _ | endIndex > maxOutput + stride =
+          throwError $ "Out of bound HDR scanline " ++ show endIndex ++ " (max " ++ show maxOutput ++ ")"
             where endIndex = destIndex + count * stride
         strideSet count destIndex val = aux destIndex count
             where aux i 0 =  pure i
@@ -309,40 +310,59 @@ toFloat (RGBE r g b e) = PixelRGBF rf gf bf
         bf = (fromIntegral b + 0.0) * f
 
 encodeScanlineColor :: M.MVector s Word8 -> BoolWriter s ()
-encodeScanlineColor vec = basicEncode 0 -- runLength 0 0 0 0
+encodeScanlineColor vec = do
+    val <- lift $ vec .!!!. 0
+    runLength 1 0 val 1
   where maxIndex = M.length vec
-        rest = max (maxIndex `mod` 127) 0
+
+        pushRun len val = do
+            pushByte . fromIntegral $ len .|. 0x80
+            pushByte val
 
         pushData start len = do
             pushByte $ fromIntegral len
             forM_ [start - len .. start - 1] $ \i ->
                 lift (vec .!!!. i) >>= pushByte
 
-        basicEncode idx
-            | idx + 127 >= maxIndex && rest > 0 = pushData (idx + rest) rest
-            | idx + 127 >= maxIndex = pure ()
-        basicEncode idx =
-            pushData (idx + 127) 127 >> basicEncode (idx + 127)
+        -- End of scanline, empty the thing
+        runLength run cpy prev idx | idx >= maxIndex =
+            case (run, cpy) of
+                (0, 0) -> pure ()
+                (0, n) -> pushData idx n
+                (n, 0) -> pushRun n prev
+                (_, _) -> error "HDR - Run length algorithm is wrong"
 
-        runLength 127   _ prev idx =
-            pushByte 0xFF >> pushByte prev >> runLength 0 0 0 idx
-        runLength   _ 127    _ idx =
-            pushData idx 127 >> runLength 0 0 0 idx
-        runLength   0 cpy _ idx | idx >= maxIndex =
-            when (cpy > 0)
-                 (pushByte (fromIntegral cpy) >> pushData idx cpy)
-
-        runLength   n   _ prev idx | idx >= maxIndex =
-            pushByte (n .|. 0x80) >> pushByte prev
-
-        runLength   n _ prev idx = do
+        -- full runlength, we must write the packet
+        runLength r@127   _ prev idx = do
+            pushRun r prev
             val <- lift $ vec .!!!. idx
-            if val /= prev then do
-                pushByte (n .|. 0x80)
-                pushByte prev
-                runLength 1 1 val $ idx + 1
+            runLength 1 0 val $ idx + 1
 
-            else runLength (n + 1) 0 prev $ idx + 1
+        -- full copy, we must write the packet
+        runLength   _ c@127    _ idx = do
+            pushData idx c
+            val <- lift $ vec .!!!. idx
+            runLength 1 0 val $ idx + 1
+
+        runLength n 0 prev idx = do
+            val <- lift $ vec .!!!. idx
+            case val == prev of
+               True -> runLength (n + 1) 0 prev $ idx + 1
+               False | n < 4 -> runLength 0 (n + 1) val $ idx + 1
+               False -> do
+                    pushRun n prev
+                    runLength 1 0 val $ idx + 1
+
+        runLength 0 n prev idx = do
+            val <- lift $ vec .!!!. idx
+            if val /= prev
+               then runLength 0 (n + 1) val $ idx + 1
+               else do
+                pushData (idx - 1) $ n - 1
+                runLength (2 :: Int) 0 val $ idx + 1
+
+        runLength _ _ _ _ =
+            error "HDR RLE inconsistent state"
 
 writeHDR :: FilePath -> Image PixelRGBF -> IO ()
 writeHDR filename img = L.writeFile filename $ encodeHDR img
