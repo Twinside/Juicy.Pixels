@@ -18,7 +18,6 @@ module Codec.Picture.Types( -- * Types
                           , unsafeFreezeImage 
 
                             -- ** Pixel types
-                          , PixelType( .. )
                           , Pixel8
                           , PixelF
                           , PixelYA8( .. )
@@ -35,7 +34,6 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
-                          , canConvertTo
                           , pixelMap
                           , pixelFold
                           , dropAlphaLayer
@@ -530,21 +528,11 @@ instance Storable PixelRGBA8 where
       poke (ptr `plusPtr` bOff) b
       poke (ptr `plusPtr` aOff) a
 
--- | Describe pixel kind at runtime
-data PixelType = PixelMonochromatic         -- ^ For 2 bits pixels
-               | PixelGreyscale
-               | PixelGreyscaleF
-               | PixelGreyscaleAlpha
-               | PixelRedGreenBlue8
-               | PixelRedGreenBlueF
-               | PixelRedGreenBlueAlpha8
-               | PixelYChromaRChromaB8
-               deriving Eq
-
 -- | Typeclass used to query a type about it's properties
 -- regarding casting to other pixel types
 class ( Binary a
-      , Storable (PixelBaseComponent a)) => Pixel a where
+      , Storable (PixelBaseComponent a)
+      , Num (PixelBaseComponent a) ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
@@ -553,11 +541,6 @@ class ( Binary a
     -- | Initial filling value used by different manipulation
     -- function
     basePixelValue :: a -> PixelBaseComponent a
-
-    -- | Tell if a pixel can be converted to another pixel,
-    -- the first value should not be used, and 'undefined' can
-    -- be used as a valid value.
-    canPromoteTo :: a -> PixelType -> Bool
 
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
@@ -575,10 +558,6 @@ class ( Binary a
     mutablePixelBaseIndex (MutableImage { mutableImageWidth = w }) x y =
             (x + y * w) * componentCount (undefined :: a)
 
-    -- | Return the constructor associated to the type, again
-    -- the value in the first parameter is not used, so you can use undefined
-    promotionType :: a -> PixelType
-
     -- | Extract a pixel at a given position, (x, y), the origin
     -- is assumed to be at the corner top left, positive y to the
     -- bottom of the image
@@ -589,11 +568,6 @@ class ( Binary a
 
     -- | Write a pixel in a mutable image at position x y
     writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
-
--- | Tell if you can convert between two pixel types, both arguments
--- are unused.
-canConvertTo :: (Pixel a, Pixel b) => a -> b -> Bool
-canConvertTo a b = canPromoteTo a $ promotionType b
 
 -- | Implement upcasting for pixel types
 -- Minimal declaration declaration `promotePixel`
@@ -703,22 +677,21 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
 -- >            brightFunction (PixelRGB8 r g b) =
 -- >                    PixelRGB8 (up r) (up g) (up b)
 --
-pixelMap :: forall a b. (Pixel a, Pixel b) => (a -> b) -> Image a -> Image b
+pixelMap :: forall a b. (Pixel a, Pixel b)
+         => (a -> b) -> Image a -> Image b
 pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
-    Image w h pixels
-        where initialValue = basePixelValue (undefined :: b)
-              pixels = runST $ do
-                newArr <- M.replicate (w * h * componentCount (undefined :: b))
-                                      initialValue
-                let wrapped = MutableImage w h newArr
-                    promotedPixel :: Int -> Int -> b
-                    promotedPixel x y = f $ pixelAt image x y
-                sequence_ [writePixel wrapped x y $ promotedPixel x y
-                                    | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
-                -- unsafeFreeze avoids making a second copy and it will be
-                -- safe because newArray can't be referenced as a mutable array
-                -- outside of this where block
-                V.unsafeFreeze newArr
+  Image w h pixels
+    where pixels = runST $ do
+            newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
+            let wrapped = MutableImage w h newArr
+                promotedPixel :: Int -> Int -> b
+                promotedPixel x y = f $ pixelAt image x y
+            sequence_ [writePixel wrapped x y $ promotedPixel x y
+                                | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+            -- unsafeFreeze avoids making a second copy and it will be
+            -- safe because newArray can't be referenced as a mutable array
+            -- outside of this where block
+            V.unsafeFreeze newArr
 
 -- | Helper class to help extract a luma plane out
 -- of an image or a pixel
@@ -795,8 +768,6 @@ instance Pixel Pixel8 where
     colorMap f = f
 
     basePixelValue _ = 0
-    canPromoteTo _ a = a /= PixelMonochromatic
-    promotionType _ = PixelGreyscale
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
@@ -812,8 +783,6 @@ instance Pixel PixelF where
     {-# INLINE colorMap #-}
     colorMap f = f
     basePixelValue _ = 0
-    canPromoteTo _ _ = False
-    promotionType _ = PixelGreyscaleF
     componentCount _ = 1
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
@@ -833,11 +802,23 @@ instance ColorConvertible Pixel8 PixelF where
 
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
-    promotePixel c = PixelRGB8 c c c
+    promotePixel c = PixelRGB8 r g b
+      where fixCoeff coeff = floor $ toRational c / coeff
+            r = fixCoeff 0.3
+            g = fixCoeff 0.59
+            b = fixCoeff 0.11
 
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
-    promotePixel c = PixelRGBA8 c c c 255
+    promotePixel c = PixelRGBA8 r g b 255
+      where fixCoeff coeff = floor $ toRational c / coeff
+            r = fixCoeff 0.3
+            g = fixCoeff 0.59
+            b = fixCoeff 0.11
+
+instance ColorConvertible PixelF PixelRGBF where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGBF (c / 0.3) (c / 0.59)  (c / 0.11)
 
 --------------------------------------------------
 ----            PixelYA8 instances
@@ -848,8 +829,6 @@ instance Pixel PixelYA8 where
     {-# INLINE colorMap #-}
     colorMap f (PixelYA8 y a) = PixelYA8 (f y) (f a)
     basePixelValue _ = 0
-    canPromoteTo _ a = a == PixelRedGreenBlueAlpha8
-    promotionType _  = PixelGreyscaleAlpha
     componentCount _ = 2
     pixelAt image@(Image { imageData = arr }) x y = PixelYA8 (arr ! (baseIdx + 0))
                                                              (arr ! (baseIdx + 1))
@@ -885,10 +864,7 @@ instance Pixel PixelRGBF where
     colorMap f (PixelRGBF r g b) = PixelRGBF (f r) (f g) (f b)
 
     basePixelValue _ = 0
-    canPromoteTo _ _ = False
     componentCount _ = 3
-
-    promotionType _ = PixelRedGreenBlueF
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGBF (arr ! (baseIdx + 0))
                                                               (arr ! (baseIdx + 1))
@@ -918,14 +894,7 @@ instance Pixel PixelRGB8 where
     colorMap f (PixelRGB8 r g b) = PixelRGB8 (f r) (f g) (f b)
 
     basePixelValue _ = 0
-    canPromoteTo _ PixelMonochromatic = False
-    canPromoteTo _ PixelGreyscale = False
-    canPromoteTo _ PixelGreyscaleF = False
-    canPromoteTo _ _ = True
-
     componentCount _ = 3
-
-    promotionType _ = PixelRedGreenBlue8
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGB8 (arr ! (baseIdx + 0))
                                                               (arr ! (baseIdx + 1))
@@ -964,11 +933,6 @@ instance Pixel PixelRGBA8 where
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
     basePixelValue _ = 0
-    canPromoteTo _ PixelRedGreenBlueAlpha8 = True
-    canPromoteTo _ _ = False
-
-    promotionType _ = PixelRedGreenBlueAlpha8
-
     componentCount _ = 4
 
     pixelAt image@(Image { imageData = arr }) x y = PixelRGBA8 (arr ! (baseIdx + 0))
@@ -1001,8 +965,6 @@ instance Pixel PixelYCbCr8 where
     {-# INLINE colorMap #-}
     colorMap f (PixelYCbCr8 y cb cr) = PixelYCbCr8 (f y) (f cb) (f cr)
     basePixelValue _ = 0
-    canPromoteTo _ _ = False
-    promotionType _ = PixelYChromaRChromaB8
     componentCount _ = 3
     pixelAt image@(Image { imageData = arr }) x y = PixelYCbCr8 (arr ! (baseIdx + 0))
                                                                 (arr ! (baseIdx + 1))
