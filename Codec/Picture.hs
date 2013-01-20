@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
--- | Main module exporting import/export functions into various
--- image formats.
+{-# LANGUAGE CPP #-}
+-- | Main module for image import/export into various image formats.
 --
 -- To use the library without thinking about it, look after 'decodeImage' and
 -- 'readImage'.
@@ -65,6 +65,7 @@ module Codec.Picture (
                      , DynamicImage( .. )
                      -- ** Pixels
                      , Pixel( .. )
+                     -- $graph
                      , Pixel8
                      , PixelYA8( .. )
                      , PixelRGB8( .. )
@@ -93,6 +94,8 @@ import System.IO ( withFile, IOMode(ReadMode) )
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+
+#include "ConvGraph.hs"
 
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b

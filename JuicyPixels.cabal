@@ -2,8 +2,11 @@ Name:                JuicyPixels
 Version:             3.0
 Synopsis:            Picture loading/serialization (in png, jpeg, bitmap and gif)
 Description:
-    This library can load and store images in PNG/Bitmap and Jpeg, and
-  read Gif images.
+    <<data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADABAMAAACg8nE0AAAAElBMVEUAAABJqDSTWEL/qyb///8AAABH/1GTAAAAAXRSTlMAQObYZgAAAN5JREFUeF7s1sEJgFAQxFBbsAV72v5bEVYWPwT/XDxmCsi7zvHXavYREBDI3XP2GgICqBBYuwIC+/rVayPUAyAg0HvIXBcQoDFDGnUBgWQQ2Bx3AYFaRoBpAQHWb3bt2ARgGAiCYFFuwf3X5HA/McgGJWI2FdykCv4aBYzmKwDwvl6NVmUAAK2vlwEALK7fo88GANB6HQsAAAAAAAAA7P94AQCzswEAAAAAAAAAAAAAAAAAAICzh4UAO4zWAYBfRutHA4Bn5C69JhowAMGoBaMWDG0wCkbBKBgFo2AUAACPmegUST/IJAAAAABJRU5ErkJggg==>>
+    .
+    This library can load and store images in PNG,Bitmap, Jpeg, Radiance and read Gif images.
+
+
 
 homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
@@ -12,8 +15,6 @@ Author:              Vincent Berthoux
 Maintainer:          vincent.berthoux@gmail.com
 Category:            Codec, Graphics
 Build-type:          Simple
-
--- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >= 1.10
@@ -31,6 +32,7 @@ Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
+  Include-Dirs: Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
@@ -76,3 +78,5 @@ Library
                  Codec.Picture.BitWriter,
                  Codec.Picture.InternalHelper
 
+  Install-Includes: Codec/Picture/ConvGraph.hs
+  Include-Dirs: Codec/Picture

@@ -5,6 +5,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE CPP #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.Types( -- * Types
@@ -29,6 +30,7 @@ module Codec.Picture.Types( -- * Types
                           -- * Type classes
                           , ColorConvertible( .. )
                           , Pixel(..)
+                          -- $graph
                           , ColorSpaceConvertible( .. )
                           , LumaPlaneExtractable( .. )
                           , TransparentPixel( .. )
@@ -68,6 +70,8 @@ import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
+
+#include "ConvGraph.hs"
 
 -- | Image or pixel buffer, the coordinates are assumed to start
 -- from the upper-left corner of the image, with the horizontal
@@ -370,6 +374,8 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Blue
                              {-# UNPACK #-} !Word8 -- Alpha
 
+-- | Definition of pixels used in images. Each pixel has a color space, and a representative
+-- component (Word8 or Float).
 class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
