@@ -3,6 +3,7 @@
 module Codec.Picture.Saving( imageToJpg
                            , imageToPng
                            , imageToBitmap
+                           , imageToRadiance
                            ) where
 
 import Data.Word( Word8 )
@@ -10,6 +11,7 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
 import Codec.Picture.Png
+import Codec.Picture.HDR
 import Codec.Picture.Types
 
 componentToLDR :: Float -> Word8
@@ -24,6 +26,24 @@ toStandardDef img = pixelMap pixelConverter img
 
 greyScaleToStandardDef :: Image PixelF -> Image Pixel8
 greyScaleToStandardDef = pixelMap componentToLDR
+
+-- | This function will try to do anything to encode an image
+-- as RADIANCE, make all color conversion and such. Equivalent
+-- of 'decodeImage' for radiance encoding
+imageToRadiance :: DynamicImage -> L.ByteString
+imageToRadiance (ImageYCbCr8 img) =
+    imageToRadiance . ImageRGB8 $ convertImage img
+imageToRadiance (ImageRGB8   img) =
+    imageToRadiance . ImageRGBF $ promoteImage img
+imageToRadiance (ImageRGBF   img) = encodeHDR img
+imageToRadiance (ImageRGBA8  img) =
+    imageToRadiance . ImageRGBF . promoteImage $ dropAlphaLayer img
+imageToRadiance (ImageY8     img) =
+    imageToRadiance . ImageRGB8 $ promoteImage img
+imageToRadiance (ImageYF     img) =
+    imageToRadiance . ImageRGBF $ promoteImage img
+imageToRadiance (ImageYA8    img) =
+    imageToRadiance . ImageRGB8 . promoteImage $ dropAlphaLayer img
 
 -- | This function will try to do anything to encode an image
 -- as JPEG, make all color conversion and such. Equivalent
