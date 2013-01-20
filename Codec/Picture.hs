@@ -20,8 +20,9 @@ module Codec.Picture (
 
                      -- * Generic image writing
                      , saveBmpImage
-                     , saveJpgImage 
-                     , savePngImage 
+                     , saveJpgImage
+                     , savePngImage
+                     , saveRadianceImage
 
                      -- * Specific image format functions
                      -- ** Bitmap handling 
@@ -164,6 +165,10 @@ readHDR = withImageDecoder decodeHDR
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> String -> DynamicImage -> IO ()
 saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
+
+-- | Save an image to a '.hdr' file, will do everything it can to save an image.
+saveRadianceImage :: String -> DynamicImage -> IO ()
+saveRadianceImage path = L.writeFile path . imageToRadiance
 
 -- | Save an image to a '.png' file, will do everything it can to save an image.
 -- For example, a simple transcoder to png
