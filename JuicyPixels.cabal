@@ -53,6 +53,7 @@ Library
                     Codec.Picture.Gif,
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
+                    Codec.Picture.HDR,
                     Codec.Picture.Saving,
                     Codec.Picture.Types
 

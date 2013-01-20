@@ -32,7 +32,7 @@ lint:
 sdist:
 	runhaskell Setup.hs sdist
 
-JUICYPIXEL_VERSION:=2.0
+JUICYPIXEL_VERSION:=3.0
 
 pack:
 	mkdir JuicyPixels-$(JUICYPIXEL_VERSION)
