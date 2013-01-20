@@ -1,37 +1,11 @@
 Name:                JuicyPixels
-Version:             2.0.2
-Synopsis:            Picture loading/serialization (in png, jpeg, bitmap and gif)
+Version:             3.0
+Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, radiance and gif)
 Description:
-    This library can load and store images in PNG/Bitmap and Jpeg, and
+    <<data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADABAMAAACg8nE0AAAAElBMVEUAAABJqDSTWEL/qyb///8AAABH/1GTAAAAAXRSTlMAQObYZgAAAN5JREFUeF7s1sEJgFAQxFBbsAV72v5bEVYWPwT/XDxmCsi7zvHXavYREBDI3XP2GgICqBBYuwIC+/rVayPUAyAg0HvIXBcQoDFDGnUBgWQQ2Bx3AYFaRoBpAQHWb3bt2ARgGAiCYFFuwf3X5HA/McgGJWI2FdykCv4aBYzmKwDwvl6NVmUAAK2vlwEALK7fo88GANB6HQsAAAAAAAAA7P94AQCzswEAAAAAAAAAAAAAAAAAAICzh4UAO4zWAYBfRutHA4Bn5C69JhowAMGoBaMWDG0wCkbBKBgFo2AUAACPmegUST/IJAAAAABJRU5ErkJggg==>>
+    .
+    This library can load and store images in PNG,Bitmap, Jpeg, Radiance and 
     read Gif images.
-    .
-    Version 2.0.2 changelog:
-    .
-      * Decoding of interleaved gif image, and delta coded gif animation.
-    .
-      * Bumping dependencies.
-    .
-    Version 2.0.1 changelog:
-    .
-      * Documentation enhancements.
-    .
-      * Fixing some huge gif file loading.
-    .
-      * Fixing performance problem of Bitmap and Jpeg savings.
-    .
-    Version 2.0 changelog:
-    .
-      * New extractComponent version with type safe plane
-        extraction
-    .
-      * Gif file reading
-    .
-    Version 1.3 changelog:
-    .
-      * Fix extractComponent function
-    .
-      * Adding saving for YA8 functions
-    .
 
 homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
@@ -40,8 +14,6 @@ Author:              Vincent Berthoux
 Maintainer:          vincent.berthoux@gmail.com
 Category:            Codec, Graphics
 Build-type:          Simple
-
--- Extra-source-files:  
 
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >= 1.10
@@ -53,7 +25,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v2.0.2
+    Tag:       v3.0
 
 Library
   Default-Language: Haskell2010
@@ -69,7 +41,7 @@ Library
   Build-depends: base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
                  mtl                 >= 1.1     && < 2.2,
-                 cereal              >= 0.3.3.0 && < 0.4,
+                 binary              >= 0.6.4.0 && < 0.7,
                  zlib                >= 0.5.3.1 && < 0.6,
                  transformers        >= 0.2.2   && < 0.4,
                  vector              >= 0.10    && < 0.11,
@@ -84,5 +56,8 @@ Library
                  Codec.Picture.Gif.LZW,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
-                 Codec.Picture.BitWriter
+                 Codec.Picture.BitWriter,
+                 Codec.Picture.InternalHelper
 
+  Install-Includes: Codec/Picture/ConvGraph.hs
+  Include-Dirs: Codec/Picture

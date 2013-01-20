@@ -6,13 +6,15 @@ import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
 import System.Environment
 
-import Data.Serialize
+import Data.Binary
 import Data.Word( Word8 )
 import Control.Monad( forM_ )
 import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
+import Codec.Picture.Saving
 import qualified Data.Vector.Storable as V
 
 validTests :: [FilePath]
@@ -81,7 +83,7 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
-validationJpegEncode :: Image PixelYCbCr8 -> B.ByteString
+validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
 
 gifToImg :: FilePath -> IO ()
@@ -97,11 +99,11 @@ gifToImg path = do
             putStrLn $ "PixelRGB8 : " ++ path
 
             putStrLn "-> BMP"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.bmp") bmp
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.bmp") bmp
             putStrLn "-> PNG"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.png") png
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.png") png
             putStrLn "-> JPG"
-            B.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -114,11 +116,14 @@ imgToImg path = do
                 bmp = encodeBitmap rgb
             putStrLn $ "YCbCr : " ++ path
             putStrLn "-> JPG"
-            B.writeFile (path ++ "._fromYCbCr8.jpg") jpg
+            L.writeFile (path ++ "._fromYCbCr8.jpg") jpg
             putStrLn "-> BMP"
-            B.writeFile (path ++ "._fromYCbCr8.bmp") bmp
+            L.writeFile (path ++ "._fromYCbCr8.bmp") bmp
             putStrLn "-> PNG"
-            B.writeFile (path ++ "._fromYCbCr8.png") png
+            L.writeFile (path ++ "._fromYCbCr8.png") png
+
+        Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
 
         Right (ImageRGB8 img) -> do
             let jpg = validationJpegEncode (convertImage img)
@@ -126,11 +131,11 @@ imgToImg path = do
                 bmp = encodeBitmap img
             putStrLn $ "RGB8 : " ++ path
             putStrLn "-> BMP"
-            B.writeFile (path ++ "._fromRGB8.bmp") bmp
+            L.writeFile (path ++ "._fromRGB8.bmp") bmp
             putStrLn "-> JPG"
-            B.writeFile (path ++ "._fromRGB8.jpg") jpg
+            L.writeFile (path ++ "._fromRGB8.jpg") jpg
             putStrLn "-> PNG"
-            B.writeFile (path ++ "._fromRGB8.png") png
+            L.writeFile (path ++ "._fromRGB8.png") png
 
         Right (ImageRGBA8 img) -> do
             let bmp = encodeBitmap img
@@ -138,11 +143,11 @@ imgToImg path = do
                 png = encodePng img
             putStrLn $ "RGBA8 : " ++ path
             putStrLn "-> BMP"
-            B.writeFile (path ++ ".fromRGBA8.bmp") bmp
+            L.writeFile (path ++ ".fromRGBA8.bmp") bmp
             putStrLn "-> JPG"
-            B.writeFile (path ++ ".fromRGBA8.jpg") jpg
+            L.writeFile (path ++ ".fromRGBA8.jpg") jpg
             putStrLn "-> PNG"
-            B.writeFile (path ++ ".fromRGBA8.png") png
+            L.writeFile (path ++ ".fromRGBA8.png") png
 
         Right (ImageY8 img) -> do
             let bmp = encodeBitmap img
@@ -150,11 +155,11 @@ imgToImg path = do
                 png = encodePng img
             putStrLn $ "Y8 : " ++ path
             putStrLn "-> BMP"
-            B.writeFile (path ++ "._fromY8.bmp") bmp
+            L.writeFile (path ++ "._fromY8.bmp") bmp
             putStrLn "-> JPG"
-            B.writeFile (path ++ "._fromY8.jpg") jpg
+            L.writeFile (path ++ "._fromY8.jpg") jpg
             putStrLn "-> PNG"
-            B.writeFile (path ++ "._fromY8.png") png
+            L.writeFile (path ++ "._fromY8.png") png
 
         Right (ImageYA8 img) -> do
             let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
@@ -163,20 +168,40 @@ imgToImg path = do
                                 (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
             putStrLn $ "YA8 : " ++ path
             putStrLn "-> BMP"
-            B.writeFile (path ++ "._fromYA8.bmp") bmp
+            L.writeFile (path ++ "._fromYA8.bmp") bmp
             putStrLn "-> JPG"
-            B.writeFile (path ++ "._fromYA8.jpg") jpg
+            L.writeFile (path ++ "._fromYA8.jpg") jpg
             putStrLn "-> PNG"
-            B.writeFile (path ++ "._fromYA8.png") png
+            L.writeFile (path ++ "._fromYA8.png") png
 
         Left err ->
-            error $ "Error loading " ++ path ++ " " ++ show err
+            putStrLn $ "Error loading " ++ path ++ " " ++ show err
+
+toStandardDef :: Image PixelRGBF -> Image PixelRGB8
+toStandardDef img = pixelMap pixelConverter img
+  where fix = truncate . (254 *) . max 0.0 . min 1.0
+        pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
+          where r = fix rf
+                g = fix gf
+                b = fix bf
+
+radianceToBitmap :: FilePath -> IO ()
+radianceToBitmap path = do
+    rez <- readImage path
+    case rez of
+      Left err -> putStrLn $ "Error loading " ++ path ++ " " ++ err
+      Right (ImageRGBF img) -> do
+          L.writeFile (path ++ ".bmp") . imageToBitmap $ ImageRGBF img
+          writeHDR (path ++ ".hdr") img
+
+      Right img -> do
+          L.writeFile (path ++ ".bmp") $ imageToBitmap img
 
 toJpg :: String -> Image PixelRGB8 -> IO ()
 toJpg name img = do
     let jpg = validationJpegEncode (convertImage img)
     putStrLn "-> JPG"
-    B.writeFile (name ++ "._fromRGB8.jpg") jpg
+    L.writeFile (name ++ "._fromRGB8.jpg") jpg
 
 planeSeparationRGB8Test :: IO ()
 planeSeparationRGB8Test = do
@@ -184,9 +209,9 @@ planeSeparationRGB8Test = do
     case rez of
        Left _ -> putStrLn "can't load separation file"
        Right (ImageRGB8 img) -> do
-           B.writeFile ("tests" </> "rgb8_red.png") . encodePng $ extractComponent PlaneRed img
-           B.writeFile ("tests" </> "rgb8_green.png") . encodePng $ extractComponent PlaneGreen img
-           B.writeFile ("tests" </> "rgb8_blue.png") . encodePng $ extractComponent PlaneBlue img
+           L.writeFile ("tests" </> "rgb8_red.png") . encodePng $ extractComponent PlaneRed img
+           L.writeFile ("tests" </> "rgb8_green.png") . encodePng $ extractComponent PlaneGreen img
+           L.writeFile ("tests" </> "rgb8_blue.png") . encodePng $ extractComponent PlaneBlue img
 
        Right _ -> putStrLn "Wrong image file format"
 
@@ -196,10 +221,10 @@ planeSeparationRGBA8Test = do
     case rez of
        Left _ -> putStrLn "can't load separation file"
        Right (ImageRGBA8 img) -> do
-           B.writeFile ("tests" </> "rgba8_red.png") . encodePng $ extractComponent PlaneRed img
-           B.writeFile ("tests" </> "rgba8_green.png") . encodePng $ extractComponent PlaneGreen img
-           B.writeFile ("tests" </> "rgba8_blue.png") . encodePng $ extractComponent PlaneBlue img
-           B.writeFile ("tests" </> "rgba8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
+           L.writeFile ("tests" </> "rgba8_red.png") . encodePng $ extractComponent PlaneRed img
+           L.writeFile ("tests" </> "rgba8_green.png") . encodePng $ extractComponent PlaneGreen img
+           L.writeFile ("tests" </> "rgba8_blue.png") . encodePng $ extractComponent PlaneBlue img
+           L.writeFile ("tests" </> "rgba8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
 
        Right _ -> putStrLn "Wrong image file format"
 
@@ -207,9 +232,9 @@ planeSeparationYA8Test :: IO ()
 planeSeparationYA8Test = do
     let img = generateImage generator 256 256
         generator x y = PixelYA8 (fromIntegral $ x `mod` 256) (fromIntegral $ ((y `div` 4) `mod` 2) * 255)
-    B.writeFile ("tests" </> "ya8_gray.png") . encodePng $ extractComponent PlaneLuma img
-    B.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
-    B.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
+    L.writeFile ("tests" </> "ya8_gray.png") . encodePng $ extractComponent PlaneLuma img
+    L.writeFile ("tests" </> "ya8_alpha.png") . encodePng $ extractComponent PlaneAlpha img
+    L.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 gifTest :: [FilePath]
 gifTest = ["delta.gif"
@@ -222,6 +247,9 @@ gifTest = ["delta.gif"
           ,"interleaved.gif"
           ]
 
+radianceTest :: [FilePath]
+radianceTest = [ "sunrise.hdr", "free_009.hdr"]
+
 main :: IO ()
 main = do 
     putStrLn ">>>> Valid instances"
@@ -232,8 +260,9 @@ main = do
 
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) (jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
 
     planeSeparationRGB8Test 
     planeSeparationRGBA8Test 

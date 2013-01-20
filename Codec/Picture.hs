@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
--- | Main module exporting import/export functions into various
--- image formats.
+{-# LANGUAGE CPP #-}
+-- | Main module for image import/export into various image formats.
 --
 -- To use the library without thinking about it, look after 'decodeImage' and
 -- 'readImage'.
@@ -53,12 +53,19 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** HDR (Radiance/RGBE) handling
+                     , readHDR
+                     , decodeHDR
+                     , encodeHDR
+                     , writeHDR
+
                      -- * Image types and pixel types
                      -- ** Image
                      , Image( .. )
                      , DynamicImage( .. )
                      -- ** Pixels
                      , Pixel( .. )
+                     -- $graph
                      , Pixel8
                      , PixelYA8( .. )
                      , PixelRGB8( .. )
@@ -76,12 +83,19 @@ import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
 import Codec.Picture.Gif( decodeGif, decodeGifImages )
+import Codec.Picture.HDR( decodeHDR
+                        , encodeHDR
+                        , writeHDR
+                        )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import System.IO ( withFile, IOMode(ReadMode) )
 
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
+
+#include "ConvGraph.hs"
 
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b
@@ -105,7 +119,7 @@ withImageDecoder decoder path = Exc.catch doit
 -- | Load an image file without even thinking about it, it does everything
 -- as 'decodeImage'
 readImage :: FilePath -> IO (Either String DynamicImage)
-readImage = withImageDecoder decodeImage 
+readImage = withImageDecoder decodeImage
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
@@ -114,8 +128,9 @@ readImage = withImageDecoder decodeImage
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
-                                 ,("GIF", decodeGif)
                                  ,("Bitmap", decodeBitmap)
+                                 ,("GIF", decodeGif)
+                                 ,("HDR", decodeHDR)
                                  ]
     
 -- | Helper function trying to load a png file from a file on disk.
@@ -141,9 +156,14 @@ readJpeg = withImageDecoder decodeJpeg
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
 
+-- | Try to load a .pic file. The colorspace can only be
+-- RGB with floating point precision.
+readHDR :: FilePath -> IO (Either String DynamicImage)
+readHDR = withImageDecoder decodeHDR
+
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> String -> DynamicImage -> IO ()
-saveJpgImage quality path img = B.writeFile path $ imageToJpg quality img
+saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
 
 -- | Save an image to a '.png' file, will do everything it can to save an image.
 -- For example, a simple transcoder to png
@@ -156,9 +176,9 @@ saveJpgImage quality path img = B.writeFile path $ imageToJpg quality img
 -- >        Right img -> savePngImage img
 --
 savePngImage :: String -> DynamicImage -> IO ()
-savePngImage path img = B.writeFile path $ imageToPng img
+savePngImage path img = L.writeFile path $ imageToPng img
 
 -- | Save an image to a '.bmp' file, will do everything it can to save an image.
 saveBmpImage :: String -> DynamicImage -> IO ()
-saveBmpImage path img = B.writeFile path $ imageToBitmap img
+saveBmpImage path img = L.writeFile path $ imageToBitmap img
 

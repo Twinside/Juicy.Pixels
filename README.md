@@ -50,6 +50,10 @@ Status
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.
 
+ - Radiance (.pic, .hdr)
+    * Reading
+    * Writing
+
 _I love juicy pixels_
 
 You can make [donations on this page](http://twinside.github.com/Juicy.Pixels/).

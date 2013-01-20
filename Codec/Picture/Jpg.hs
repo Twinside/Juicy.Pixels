@@ -17,13 +17,22 @@ import Data.List( find, foldl' )
 import Data.Bits( (.|.), (.&.), shiftL, shiftR )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word16, Word32)
-import Data.Serialize( Serialize(..), Get, Put
-                     , getWord8, putWord8
-                     , getWord16be, putWord16be
-                     , remaining, lookAhead, skip
-                     , getBytes, decode
-                     , encode, putByteString 
-                     )
+import Data.Binary( Binary(..), encode )
+
+import Data.Binary.Get( Get
+                      , getWord8
+                      , getWord16be
+                      , getByteString
+                      , skip
+                      , bytesRead
+                      )
+
+import Data.Binary.Put( Put
+                      , putWord8
+                      , putWord16be
+                      , putByteString
+                      )
+
 import Data.Maybe( fromJust )
 import qualified Data.Vector as V
 import Data.Vector.Unboxed( (!) )
@@ -32,8 +41,10 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 -- import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
 import Foreign.Storable ( Storable )
 
+import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
@@ -161,7 +172,7 @@ newtype TableList a = TableList [a]
 class SizeCalculable a where
     calculateSize :: a -> Int
 
-instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
+instance (SizeCalculable a, Binary a) => Binary (TableList a) where
     put (TableList lst) = do
         putWord16be . fromIntegral $ sum [calculateSize table | table <- lst] + 2
         mapM_ put lst
@@ -170,16 +181,16 @@ instance (SizeCalculable a, Serialize a) => Serialize (TableList a) where
       where innerParse :: Int -> Get [a]
             innerParse 0    = return []
             innerParse size = do
-                onStart <- fromIntegral <$> remaining
+                onStart <- fromIntegral <$> bytesRead
                 table <- get
-                onEnd <- fromIntegral <$> remaining
-                (table :) <$> innerParse (size - (onStart - onEnd))
+                onEnd <- fromIntegral <$> bytesRead
+                (table :) <$> innerParse (size - (onEnd - onStart))
 
 instance SizeCalculable JpgQuantTableSpec where
     calculateSize table =
         1 + (fromIntegral (quantPrecision table) + 1) * 64
 
-instance Serialize JpgQuantTableSpec where
+instance Binary JpgQuantTableSpec where
     put table = do
         let precision = quantPrecision table
         put4BitsOfEach precision (quantDestination table)
@@ -238,14 +249,13 @@ checkMarker b1 b2 = do
 
 eatUntilCode :: Get ()
 eatUntilCode = do
-    code <- lookAhead getWord8
-    unless (code == 0xFF)
-           (skip 1 >> eatUntilCode)
+    code <- getWord8
+    unless (code == 0xFF) eatUntilCode
 
 instance SizeCalculable JpgHuffmanTableSpec where
     calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]
 
-instance Serialize JpgHuffmanTableSpec where
+instance Binary JpgHuffmanTableSpec where
     put table = do
         let classVal = if huffmanTableClass table == DcComponent
                           then 0 else 1
@@ -269,7 +279,7 @@ instance Serialize JpgHuffmanTableSpec where
             , huffCodes = V.fromListN 16 codes
             }
 
-instance Serialize JpgImage where
+instance Binary JpgImage where
     put (JpgImage { jpgFrame = frames }) =
         putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
             >> putWord8 0xFF >> putWord8 0xD9
@@ -286,7 +296,7 @@ instance Serialize JpgImage where
 takeCurrentFrame :: Get B.ByteString
 takeCurrentFrame = do
     size <- getWord16be
-    getBytes (fromIntegral size - 2)
+    getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
 putFrame (JpgAppFrame appCode str) =
@@ -307,24 +317,32 @@ putFrame (JpgScans kind hdr) =
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
+    let parseNextFrame = do
+            word <- getWord8
+            when (word /= 0xFF) $ do
+                readedData <- bytesRead
+                fail $ "Invalid Frame marker (" ++ show word
+                     ++ ", bytes read : " ++ show readedData ++ ")"
+            parseFrames
+
     case kind of
         JpgAppSegment c ->
-            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgExtensionSegment c ->
-            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFrames
+            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgQuantizationTable ->
-            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseFrames
+            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
         JpgRestartInterval ->
-            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseFrames
+            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
         JpgHuffmanTableMarker ->
             (\(TableList huffTables) lst ->
                     JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
-                    <$> get <*> parseFrames
+                    <$> get <*> parseNextFrame
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
-                            <$> get <*> (remaining >>= getBytes)
+                            <$> get <*> getRemainingBytes
 
-        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFrames
+        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
 secondStartOfFrameByteOfKind JpgBaselineDCTHuffman = 0xC0
@@ -347,14 +365,12 @@ secondStartOfFrameByteOfKind JpgRestartInterval = 0xDD
 secondStartOfFrameByteOfKind (JpgAppSegment a) = a
 secondStartOfFrameByteOfKind (JpgExtensionSegment a) = a
 
-instance Serialize JpgFrameKind where
+instance Binary JpgFrameKind where
     put v = putWord8 0xFF >> put (secondStartOfFrameByteOfKind v)
     get = do
-        word <- getWord8
+        -- no lookahead :(
+        {-word <- getWord8-}
         word2 <- getWord8
-        when (word /= 0xFF) (do leftData <- remaining
-                                fail $ "Invalid Frame marker (" ++ show word
-                                    ++ ", remaining : " ++ show leftData ++ ")")
         return $ case word2 of
             0xC0 -> JpgBaselineDCTHuffman
             0xC1 -> JpgExtendedSequentialDCTHuffman
@@ -387,14 +403,14 @@ get4BitOfEach = do
 
 newtype RestartInterval = RestartInterval Word16
 
-instance Serialize RestartInterval where
+instance Binary RestartInterval where
     put (RestartInterval i) = putWord16be 4 >> putWord16be i
     get = do
         size <- getWord16be
         when (size /= 4) (fail "Invalid jpeg restart interval size")
         RestartInterval <$> getWord16be
 
-instance Serialize JpgComponent where
+instance Binary JpgComponent where
     get = do
         ident <- getWord8
         (horiz, vert) <- get4BitOfEach
@@ -410,18 +426,18 @@ instance Serialize JpgComponent where
         put4BitsOfEach (horizontalSamplingFactor v) $ verticalSamplingFactor v
         put $ quantizationTableDest v
 
-instance Serialize JpgFrameHeader where
+instance Binary JpgFrameHeader where
     get = do
-        beginOffset <- remaining
+        beginOffset <- fromIntegral <$> bytesRead
         frmHLength <- getWord16be
         samplePrec <- getWord8
         h <- getWord16be
         w <- getWord16be
         compCount <- getWord8
         components <- replicateM (fromIntegral compCount) get
-        endOffset <- remaining
+        endOffset <- fromIntegral <$> bytesRead
         when (beginOffset - endOffset < fromIntegral frmHLength)
-             (skip $ fromIntegral frmHLength - (beginOffset - endOffset))
+             (skip $ fromIntegral frmHLength - (endOffset - beginOffset))
         return JpgFrameHeader
             { jpgFrameHeaderLength = frmHLength
             , jpgSamplePrecision = samplePrec
@@ -439,7 +455,7 @@ instance Serialize JpgFrameHeader where
         putWord8    $ jpgImageComponentCount v
         mapM_ put   $ jpgComponents v
 
-instance Serialize JpgScanSpecification where
+instance Binary JpgScanSpecification where
     put v = do
         put $ componentSelector v
         put4BitsOfEach (dcEntropyCodingTable v) $ acEntropyCodingTable v
@@ -453,7 +469,7 @@ instance Serialize JpgScanSpecification where
           , acEntropyCodingTable = ac
           }
 
-instance Serialize JpgScanHeader where
+instance Binary JpgScanHeader where
     get = do
         thisScanLength <- getWord16be
         compCount <- getWord8
@@ -833,7 +849,7 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
-decodeJpeg file = case decode file of
+decodeJpeg file = case runGetStrict get file of
   Left err -> Left err
   Right img -> case compCount of
                  1 -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
@@ -962,7 +978,7 @@ prepareHuffmanTable classVal dest tableDef =
 -- | Encode an image in jpeg at a reasonnable quality level.
 -- If you want better quality or reduced file size, you should
 -- use `encodeJpegAtQuality`
-encodeJpeg :: Image PixelYCbCr8 -> B.ByteString
+encodeJpeg :: Image PixelYCbCr8 -> L.ByteString
 encodeJpeg = encodeJpegAtQuality 50
 
 -- | Function to call to encode an image to jpeg.
@@ -970,7 +986,7 @@ encodeJpeg = encodeJpegAtQuality 50
 -- the best quality).
 encodeJpegAtQuality :: Word8                -- ^ Quality factor
                     -> Image PixelYCbCr8    -- ^ Image to encode
-                    -> B.ByteString         -- ^ Encoded JPEG
+                    -> L.ByteString         -- ^ Encoded JPEG
 encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
     encode finalImage
   where finalImage = JpgImage [ JpgQuantTable quantTables

@@ -23,7 +23,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Control.Monad.Trans.State.Strict as S
-import Data.Serialize( Serialize, runGet, get)
+import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -38,6 +38,7 @@ import Foreign.Storable ( Storable )
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
+import Codec.Picture.InternalHelper
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
 -- A structure is used to avoid pollution of the module namespace.
@@ -77,10 +78,6 @@ getNextByte = do str <- S.get
                  case B.uncons str of
                     Just (v, rest) -> S.put rest >> return v
                     Nothing -> return 0
-
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = V.unsafeIndex
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> m a
@@ -371,10 +368,11 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = V.fromListN (fromIntegral possibilities + 1) pixels
+generateGreyscalePalette times = Image possibilities 0 vec
     where possibilities = 2 ^ times - 1
-          pixels = [PixelRGB8 i i i | n <- [0..possibilities]
-                                    , let i = n * (255 `div` possibilities)]
+          vec = V.fromListN ((fromIntegral possibilities + 1) * 3) $ concat pixels
+          pixels = [[i, i, i] | n <- [0 .. possibilities]
+                              , let i = fromIntegral $ n * (255 `div` possibilities)]
 
 sampleCountOfImageType :: PngImageType -> Word32
 sampleCountOfImageType PngGreyscale = 1
@@ -396,7 +394,7 @@ applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
 applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- V.toList img
-                                     , let PixelRGB8 r g b = pal !!! fromIntegral ipx]
+                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
@@ -416,7 +414,7 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
 --
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do
-    rawImg <- runGet get byte
+    rawImg <- runGetStrict get byte
     let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
         compressedImageData =
               B.concat [chunkData chunk | chunk <- chunks rawImg

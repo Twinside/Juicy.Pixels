@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
@@ -8,7 +9,7 @@ module Codec.Picture.Png.Export( PngSavable( .. )
                                , writeDynamicPng
                                ) where
 
-import Data.Serialize(encode)
+import Data.Binary( encode )
 import Data.Vector.Storable ( (!) )
 import Data.Word(Word8)
 import qualified Codec.Compression.Zlib as Z
@@ -22,7 +23,7 @@ import Codec.Picture.Png.Type
 class PngSavable a where
     -- | Transform an image into a png encoded bytestring, ready
     -- to be writte as a file.
-    encodePng :: Image a -> B.ByteString
+    encodePng :: Image a -> Lb.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr
 preparePngHeader (Image { imageWidth = w, imageHeight = h }) imgType depth = PngIHdr
@@ -37,7 +38,7 @@ preparePngHeader (Image { imageWidth = w, imageHeight = h }) imgType depth = Png
 
 -- | Helper function to directly write an image as a png on disk.
 writePng :: (PngSavable pixel) => FilePath -> Image pixel -> IO ()
-writePng path img = B.writeFile path $ encodePng img
+writePng path img = Lb.writeFile path $ encodePng img
 
 endChunk :: PngRawChunk
 endChunk = PngRawChunk { chunkLength = 0
@@ -55,7 +56,8 @@ prepareIDatChunk imgData = PngRawChunk
     , chunkData   = imgData
     }
 
-genericEncodePng :: PngImageType -> Int -> Image a -> B.ByteString
+genericEncodePng :: (PixelBaseComponent a ~ Word8)
+                 => PngImageType -> Int -> Image a -> Lb.ByteString
 genericEncodePng imgKind compCount 
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr, chunks = [prepareIDatChunk strictEncoded, endChunk]}
@@ -85,7 +87,7 @@ instance PngSavable PixelYA8 where
 writeDynamicPng :: FilePath -> DynamicImage -> IO (Either String Bool)
 writeDynamicPng path img = case encodeDynamicPng img of
         Left err -> return $ Left err
-        Right b  -> B.writeFile path b >> return (Right True)
+        Right b  -> Lb.writeFile path b >> return (Right True)
 
 -- | Encode a dynamic image in bmp if possible, supported pixel type are :
 --
@@ -97,7 +99,7 @@ writeDynamicPng path img = case encodeDynamicPng img of
 --
 --   - RGBA8
 --
-encodeDynamicPng :: DynamicImage -> Either String B.ByteString
+encodeDynamicPng :: DynamicImage -> Either String Lb.ByteString
 encodeDynamicPng (ImageRGB8 img) = Right $ encodePng img
 encodeDynamicPng (ImageRGBA8 img) = Right $ encodePng img
 encodeDynamicPng (ImageY8 img) = Right $ encodePng img
