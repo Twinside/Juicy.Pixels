@@ -60,11 +60,12 @@ module Codec.Picture.Types( -- * Types
                           ) where
 
 import Control.Monad( forM_, foldM )
-import Control.Applicative( (<$>) )
+import Control.Applicative( (<$>), (<*>) )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
+import Data.Bits( shiftL, shiftR )
 import Data.Word( Word8 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
@@ -409,6 +410,11 @@ class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a
     -- | Write a pixel in a mutable image at position x y
     writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
 
+    unsafePixelAt :: V.Vector (PixelBaseComponent a) -> Int -> a
+    unsafeReadPixel :: M.STVector s (PixelBaseComponent a) -> Int -> ST s a
+    unsafeWritePixel :: M.STVector s (PixelBaseComponent a) -> Int -> a -> ST s ()
+
+
 -- | Implement upcasting for pixel types
 -- Minimal declaration declaration `promotePixel`
 -- It is strongly recommanded to overload promoteImage to keep
@@ -506,8 +512,6 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
           columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
           lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
           
-{-# INLINE pixelMap #-}
-{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
 --
@@ -519,15 +523,32 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
 --
 pixelMap :: forall a b. (Pixel a, Pixel b)
          => (a -> b) -> Image a -> Image b
-pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
+{-# INLINE pixelMap #-}
+{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
+{-# SPECIALIZE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
+{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
   Image w h pixels
-    where pixels = runST $ do
-            newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
-            let wrapped = MutableImage w h newArr
-                promotedPixel :: Int -> Int -> b
-                promotedPixel x y = f $ pixelAt image x y
-            sequence_ [writePixel wrapped x y $ promotedPixel x y
-                                | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+    where sourceComponentCount = componentCount (undefined :: a)
+          destComponentCount = componentCount (undefined :: b)
+
+          pixels = runST $ do
+            newArr <- M.replicate (w * h * destComponentCount) 0
+            let lineMapper _ _ y | y >= h = return ()
+                lineMapper readIdxLine writeIdxLine y = colMapper readIdxLine writeIdxLine 0
+                  where colMapper readIdx writeIdx x
+                            | x >= w = lineMapper readIdx writeIdx $ y + 1
+                            | otherwise = do
+                                unsafeWritePixel newArr writeIdx . f $ unsafePixelAt vec readIdx
+                                colMapper (readIdx + sourceComponentCount)
+                                          (writeIdx + destComponentCount)
+                                          (x + 1)
+            lineMapper 0 0 0
+
             -- unsafeFreeze avoids making a second copy and it will be
             -- safe because newArray can't be referenced as a mutable array
             -- outside of this where block
@@ -611,10 +632,15 @@ instance Pixel Pixel8 where
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. mutablePixelBaseIndex image x y
+        arr `M.read` mutablePixelBaseIndex image x y
 
     writePixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .<-. mutablePixelBaseIndex image x y
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
+
 
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
@@ -625,10 +651,14 @@ instance Pixel PixelF where
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. mutablePixelBaseIndex image x y
+        arr `M.read` mutablePixelBaseIndex image x y
 
     writePixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .<-. mutablePixelBaseIndex image x y
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
 
 instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
@@ -674,6 +704,12 @@ instance Pixel PixelYA8 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
+    unsafePixelAt v idx = 
+        PixelYA8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
+    unsafeReadPixel vec idx =
+        PixelYA8 <$> M.unsafeRead vec idx <*> M.unsafeRead vec (idx + 1)
+    unsafeWritePixel v idx (PixelYA8 y a) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
 
 instance ColorConvertible PixelYA8 PixelRGB8 where
     {-# INLINE promotePixel #-}
@@ -712,6 +748,16 @@ instance Pixel PixelRGBF where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
+    unsafePixelAt v idx = 
+        PixelRGBF (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGBF <$> M.unsafeRead vec idx
+                  <*> M.unsafeRead vec (idx + 1)
+                  <*> M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGBF r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
 --------------------------------------------------
 ----            PixelRGB8 instances
 --------------------------------------------------
@@ -740,6 +786,16 @@ instance Pixel PixelRGB8 where
         (arr .<-. (baseIdx + 0)) rv
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
+
+    unsafePixelAt v idx = 
+        PixelRGB8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGB8 <$> M.unsafeRead vec idx
+                  <*> M.unsafeRead vec (idx + 1)
+                  <*> M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGB8 r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
 
 instance ColorConvertible PixelRGB8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
@@ -782,6 +838,21 @@ instance Pixel PixelRGBA8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
+    unsafePixelAt v idx = 
+        PixelRGBA8 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelRGBA8 <$> M.unsafeRead vec idx
+                   <*> M.unsafeRead vec (idx + 1)
+                   <*> M.unsafeRead vec (idx + 2)
+                   <*> M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelRGBA8 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
 --------------------------------------------------
 ----            PixelYCbCr8 instances
 --------------------------------------------------
@@ -809,9 +880,30 @@ instance Pixel PixelYCbCr8 where
         (arr .<-. (baseIdx + 1)) cbv
         (arr .<-. (baseIdx + 2)) crv
 
+    unsafePixelAt v idx = 
+        PixelYCbCr8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelYCbCr8 <$> M.unsafeRead vec idx
+                    <*> M.unsafeRead vec (idx + 1)
+                    <*> M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelYCbCr8 y cb cr) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) cb
+                              >> M.unsafeWrite v (idx + 2) cr
+
 instance (Pixel a) => ColorSpaceConvertible a a where
     convertPixel = id
     convertImage = id
+
+#define SCALEBITS	16	/* speediest right-shift on some machines */
+#define ONE_HALF	((INT32) 1 << (SCALEBITS-1))
+#define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
+
+scaleBits, oneHalf :: Int
+scaleBits = 16
+oneHalf = 1 `shiftL` (scaleBits - 1)
+
+fix :: Float -> Int
+fix x = floor $ x * fromIntegral ((1 :: Int) `shiftL` scaleBits) + 0.5
 
 instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
     {-# INLINE convertPixel #-}
@@ -827,23 +919,23 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
             cb = -0.16874 * rf - 0.33126 * gf + 0.50000 * bf + 128
             cr =  0.50000 * rf - 0.41869 * gf - 0.08131 * bf + 128
 
+crRTab, cbBTab, cbGTab :: V.Vector Int
+crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
+cbBTab = V.fromListN 256 [(fix 1.77200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
+crGTab = V.fromListN 256 [negate (fix 0.71414) * x | x <- [-128 .. 127]]
+cbGTab = V.fromListN 256 [negate (fix 0.34414) * x + oneHalf | x <- [-128 .. 127]]
+
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE convertPixel #-}
-    convertPixel (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
-        where y :: Float
-              y  = fromIntegral y_w8 - 128.0
-              cb = fromIntegral cb_w8 - 128.0
-              cr = fromIntegral cr_w8 - 128.0
+    convertPixel (PixelYCbCr8 y cb cr) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
+        where clampWord8 = fromIntegral . max 0 . min 255
+              yi = fromIntegral y
+              cri = fromIntegral cr
+              cbi = fromIntegral cb
 
-              clampWord8 = truncate . max 0.0 . min 255.0 . (128 +)
-
-              cred = 0.299
-              cgreen = 0.587
-              cblue = 0.114
-
-              r = cr * (2 - 2 * cred) + y
-              b = cb * (2 - 2 * cblue) + y
-              g = (y - cblue * b - cred * r) / cgreen
+              r = yi +  crRTab `V.unsafeIndex` cri
+              g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `shiftR` scaleBits
+              b = yi +  cbBTab `V.unsafeIndex` cbi
 
 -- | Perform a gamma correction for an image with HDR pixels.
 gammaCorrection :: PixelF          -- ^ Gamma value, should be between 0.5 and 3.0

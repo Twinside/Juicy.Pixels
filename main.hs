@@ -9,13 +9,16 @@ import System.Environment
 import Data.Binary
 import Data.Word( Word8 )
 import Control.Monad( forM_ )
-import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
 import qualified Data.Vector.Storable as V
+
+import Control.Applicative( (<$>) )
+import Criterion.Main
+import Control.DeepSeq
 
 validTests :: [FilePath]
 validTests = 
@@ -251,8 +254,8 @@ gifTest = ["delta.gif"
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
-main :: IO ()
-main = do 
+testSuite :: IO ()
+testSuite = do
     putStrLn ">>>> Valid instances"
     {-toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16-}
     {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
@@ -269,7 +272,63 @@ main = do
     {-planeSeparationRGBA8Test -}
     {-planeSeparationYA8Test -}
 
-    {-putStrLn "\n>>>> invalid instances"-}
-    {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
-    return ()
+jpegToPng :: IO ()
+jpegToPng = do
+ img <- readImage "tests/jpeg/huge.jpg"
+ case img of
+   Left err -> do
+       putStrLn err
+       {-error "Can't decompress img"-}
+   Right i -> savePngImage "huge.png" i
+
+pngToJpeg :: IO ()
+pngToJpeg = do
+  img <- readImage "tests/pngsuite/huge.png"
+  case img of
+    Left err -> do
+        putStrLn err
+        {-error "Can't decompress img"-}
+    Right i -> saveJpgImage 50 "huge.jpg" i
+
+
+benchMark :: IO ()
+benchMark = do
+    putStrLn "Benchmarking"
+
+    {-hugeJpeg <- B.readFile "tests/jpeg/huge.jpg"-}
+    {-hugePng <- B.readFile "tests/pngsuite/huge.png"-}
+    {-hugeGif <- B.readFile "tests/gif/huge.gif"-}
+
+    {-let Right decodedImage = decodeImage hugePng-}
+
+    {-jpegToPng >> pngToJpeg-}
+
+    defaultMain [
+        bgroup "trad"
+            [ bench "JPG -> PNG" $ whnfIO jpegToPng 
+            , bench "PNG -> JPG" $ whnfIO pngToJpeg
+            ]
+            {-,-}
+
+        {-bgroup "reading"-}
+            {-[ bench "Huge jpeg" $ nf decodeImage hugeJpeg-}
+            {-, bench "Huge png" $ nf decodeImage hugePng-}
+            {-, bench "Huge gif" $ nf decodeImage hugeGif-}
+            {-],-}
+
+        {-bgroup "writing"-}
+            {-[ bench "Huge jpeg" $ whnfIO $ saveJpgImage 50 "s.jpg" decodedImage-}
+            {-, bench "Huge png" $ whnfIO $ savePngImage "p.png" decodedImage-}
+            {-]-}
+        ]
+    putStrLn "END"
+
+main :: IO ()
+main = do 
+    args <- getArgs
+    case args of
+        ("test":_) -> testSuite
+        _ -> do
+            putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
+            benchMark
 

@@ -25,13 +25,6 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString as B
 
-{-# INLINE (.>>.) #-}
-{-# INLINE (.<<.) #-}
-(.<<.), (.>>.) :: (Bits a) => a -> Int -> a
-(.<<.) = shiftL
-(.>>.) = shiftR
-
-
 --------------------------------------------------
 ----            Reader
 --------------------------------------------------
@@ -73,7 +66,7 @@ getNextBits count = aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBit
-            let nextVal | bit = acc .|. (1 .<<. (count - n))
+            let nextVal | bit = acc .|. (1 `shiftL` (count - n))
                         | otherwise = acc
             aux nextVal (n - 1)
 
@@ -192,19 +185,19 @@ writeBits d c = do
         serialize bitData bitCount currentWord count
             | bitCount + count == 8 = do
                      resetBitCount
-                     dumpByte (fromIntegral $ (currentWord .<<. bitCount) .|.
+                     dumpByte (fromIntegral $ (currentWord `shiftL` bitCount) .|.
                                                 fromIntegral cleanData)
 
             | bitCount + count < 8 =
-                let newVal = currentWord .<<. bitCount
+                let newVal = currentWord `shiftL` bitCount
                 in setBitCount (newVal .|. fromIntegral cleanData) $ count + bitCount
 
             | otherwise =
                 let leftBitCount = 8 - count :: Int
-                    highPart = cleanData .>>. (bitCount - leftBitCount) :: Word32
-                    prevPart = fromIntegral currentWord .<<. leftBitCount :: Word32
+                    highPart = cleanData `shiftR` (bitCount - leftBitCount) :: Word32
+                    prevPart = fromIntegral currentWord `shiftL` leftBitCount :: Word32
 
-                    nextMask = (1 .<<. (bitCount - leftBitCount)) - 1 :: Word32
+                    nextMask = (1 `shiftL` (bitCount - leftBitCount)) - 1 :: Word32
                     newData = cleanData .&. nextMask :: Word32
                     newCount = bitCount - leftBitCount :: Int
 
