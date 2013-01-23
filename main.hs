@@ -114,11 +114,12 @@ imgToImg path = do
                 jpg = validationJpegEncode img
                 png = encodePng rgb
                 bmp = encodeBitmap rgb
-            putStrLn $ "YCbCr : " ++ path
+            {-return ()-}
+            {-putStrLn $ "YCbCr : " ++ path-}
             putStrLn "-> JPG"
             L.writeFile (path ++ "._fromYCbCr8.jpg") jpg
-            putStrLn "-> BMP"
-            L.writeFile (path ++ "._fromYCbCr8.bmp") bmp
+            {-putStrLn "-> BMP"-}
+            {-L.writeFile (path ++ "._fromYCbCr8.bmp") bmp-}
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYCbCr8.png") png
 
@@ -258,15 +259,15 @@ main = do
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
 
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : []) -- jpegValidTests)
+    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
 
-    planeSeparationRGB8Test 
-    planeSeparationRGBA8Test 
-    planeSeparationYA8Test 
+    {-planeSeparationRGB8Test -}
+    {-planeSeparationRGBA8Test -}
+    {-planeSeparationYA8Test -}
 
     {-putStrLn "\n>>>> invalid instances"-}
     {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}

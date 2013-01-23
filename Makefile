@@ -20,7 +20,7 @@ clean:
 	rm -f tests/gif/*.bmp
 
 prof:
-	dist\build\imageTest\imageTest.exe +RTS -hy -p -sstderr -RTS tests/pngsuite/huge.png
+	dist\build\imageTest\imageTest.exe +RTS -p -sstderr -RTS test
 	hp2ps -c imageTest.hp
 
 test:

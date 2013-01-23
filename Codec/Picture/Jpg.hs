@@ -223,6 +223,15 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
 buildPackedHuffmanTree :: V.Vector (VU.Vector Word8) -> HuffmanTree
 buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
 
+huffmanPackedDecode :: HuffmanPackedTree -> BoolReader s Word8
+huffmanPackedDecode table = getNextBitJpg >>= aux 0
+  where aux idx b | v == 0x0800 = return 0
+                  | v <= 0 = return . fromIntegral $ negate v
+                  | otherwise = getNextBitJpg >>= aux v
+          where tableIndex | b = idx + 1
+                           | otherwise = idx
+                v = table `VS.unsafeIndex` fromIntegral tableIndex
+
 -- | Decode a list of huffman values, not optimized for speed, but it
 -- should work.
 huffmanDecode :: HuffmanTree -> BoolReader s Word8
@@ -500,14 +509,14 @@ instance Binary JpgScanHeader where
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
-quantize table = mutate (\idx val -> val `quotient` fromIntegral (table !!! idx))
+quantize table = mutate (\idx val -> val `quotient` fromIntegral (table `VS.unsafeIndex` idx))
     where quotient val q = (val + (q `div` 2)) `quot` q -- rounded integer division
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
 deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
            -> ST s (MutableMacroBlock s Int16)
-deQuantize table = mutate (\ix val -> val * (table !!! ix))
+deQuantize table = mutate (\ix val -> val * (table `VS.unsafeIndex` ix))
 
 inverseDirectCosineTransform :: MutableMacroBlock s Int16
                              -> ST s (MutableMacroBlock s Int16)
@@ -538,9 +547,9 @@ zigZagReorderForward :: (Storable a, Num a)
                      -> ST s (MutableMacroBlock s a)
 zigZagReorderForward zigzaged block = do
     let update i =  do
-            let idx = zigZagOrder !!! i
-            v <- block .!!!. fromIntegral i
-            (zigzaged .<-. fromIntegral idx) v
+            let idx = zigZagOrder `VS.unsafeIndex` i
+            v <- block `M.unsafeRead` fromIntegral i
+            (zigzaged `M.unsafeWrite` fromIntegral idx) v
 
         reorder 64 = return ()
         reorder i  = update i >> reorder (i + 1)
@@ -548,14 +557,13 @@ zigZagReorderForward zigzaged block = do
     reorder (0 :: Int)
     return zigzaged
 
-zigZagReorder :: (Storable a, Num a)
-              => MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
-zigZagReorder block = do
-    zigzaged <- M.replicate 64 0
+zigZagReorder :: MutableMacroBlock s Int16 -> MutableMacroBlock s Int16
+              -> ST s (MutableMacroBlock s Int16)
+zigZagReorder zigzaged block = do
     let update i =  do
-            let idx = zigZagOrder !!! i
-            v <- block .!!!. fromIntegral idx
-            (zigzaged .<-. i) v
+            let idx = zigZagOrder `VS.unsafeIndex` i
+            v <- block `M.unsafeRead` fromIntegral idx
+            (zigzaged `M.unsafeWrite` i) v
 
         reorder 63 = update 63
         reorder i  = update i >> reorder (i + 1)
@@ -569,9 +577,10 @@ zigZagReorder block = do
 -- there is to know for macro block transformation
 decodeMacroBlock :: MacroBlock DctCoefficients
                  -> MutableMacroBlock s Int16
+                 -> MutableMacroBlock s Int16
                  -> ST s (MutableMacroBlock s Int16)
-decodeMacroBlock quantizationTable block =
-    deQuantize quantizationTable block >>= zigZagReorder
+decodeMacroBlock quantizationTable zigZagBlock block =
+    deQuantize quantizationTable block >>= zigZagReorder zigZagBlock
                                        >>= inverseDirectCosineTransform
 
 packInt :: [Bool] -> Int32
@@ -605,9 +614,10 @@ decodeInt ssss = do
        then (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
        else (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
-dcCoefficientDecode :: HuffmanTree -> BoolReader s DcCoefficient
+dcCoefficientDecode :: HuffmanTree -- HuffmanPackedTree    
+                    -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
-    ssss <- huffmanDecode dcTree
+    ssss <- huffmanDecode dcTree -- huffmanPackedDecode dcTree
     if ssss == 0
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
@@ -626,7 +636,7 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
                 (0xF, 0) -> parseAcCoefficient (n + 16)
                 _        -> do
                     decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
-                    lift $ (mutableBlock .<-. (n + rrrr)) decoded
+                    lift $ (mutableBlock `M.unsafeWrite` (n + rrrr)) decoded
                     parseAcCoefficient (n + rrrr + 1)
 
 -- | Decompress a macroblock from a bitstream given the current configuration
@@ -634,15 +644,16 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
 decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
                      -> HuffmanTree         -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
+                     -> MutableMacroBlock s Int16    -- ^ A zigzag table, to avoid allocation
                      -> DcCoefficient       -- ^ Previous dc value
                      -> BoolReader s (DcCoefficient, MutableMacroBlock s Int16)
-decompressMacroBlock dcTree acTree quantizationTable previousDc = do
+decompressMacroBlock dcTree acTree quantizationTable zigzagBlock previousDc = do
     dcDeltaCoefficient <- dcCoefficientDecode dcTree
     block <- lift createEmptyMutableMacroBlock
     let neoDcCoefficient = previousDc + dcDeltaCoefficient
-    lift $ (block .<-. 0) neoDcCoefficient
+    lift $ (block `M.unsafeWrite` 0) neoDcCoefficient
     fullBlock <- acCoefficientsDecode acTree block
-    decodedBlock <- lift $ decodeMacroBlock quantizationTable fullBlock
+    decodedBlock <- lift $ decodeMacroBlock quantizationTable zigzagBlock fullBlock
     return (neoDcCoefficient, decodedBlock)
 
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
@@ -684,9 +695,9 @@ unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
       let xPos = (i + x * 8) * wCoeff + wDup
           yPos = (j + y * 8) * hCoeff + hDup
       when (0 <= xPos && xPos < imgWidth && 0 <= yPos && yPos < imgHeight)
-           (do compVal <- pixelClamp <$> (block .!!!. (i + j * 8))
+           (do compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * 8))
                let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
-               (img .<-. mutableIdx) compVal)
+               (img `M.unsafeWrite` mutableIdx) compVal)
 
     where pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
                                 -- Repetition to spread macro block
@@ -724,20 +735,21 @@ decodeImage compCount decoder img = do
 
         folder f = foldM_ f blockBeforeRestart blockIndices
 
+    zigZagArray <- lift $ createEmptyMutableMacroBlock
     dcArray <- lift (M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient))
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $
-                     \c -> lift $ (dcArray .<-. c) 0
+                     \c -> lift $ (dcArray `M.unsafeWrite` c) 0
                  byteAlignJpg
                  _restartCode <- decodeRestartInterval
                  -- if 0xD0 <= restartCode && restartCode <= 0xD7
                  return ())
 
         forM_ mcuDecode $ \(comp, dataUnitDecoder) -> do
-            dc <- lift $ dcArray .!!!. comp
-            dcCoeff <- dataUnitDecoder x y img $ fromIntegral dc
-            lift $ (dcArray .<-. comp) dcCoeff
+            dc <- lift $ dcArray `M.unsafeRead` comp
+            dcCoeff <- dataUnitDecoder x y img zigZagArray $ fromIntegral dc
+            lift $ (dcArray `M.unsafeWrite` comp) dcCoeff
             return ()
 
         if resetCounter /= 0 then return $ resetCounter - 1
@@ -747,7 +759,8 @@ decodeImage compCount decoder img = do
 
 -- | Type of a data unit (as in the ITU 81) standard
 type DataUnitDecoder s  =
-    (Int, Int -> Int -> MutableImage s PixelYCbCr8 -> DcCoefficient -> BoolReader s DcCoefficient)
+    (Int, Int -> Int -> MutableImage s PixelYCbCr8 -> MutableMacroBlock s Int16 -> DcCoefficient
+              -> BoolReader s DcCoefficient)
 
 data JpegDecoder s = JpegDecoder
     { restartInterval    :: Int
@@ -811,8 +824,10 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
         fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
             where idx = componentIdentifier component
                   descr = head [c | c <- scans hdr, componentSelector c  == idx]
-                  dcTree = huffmanForComponent DcComponent $ dcEntropyCodingTable descr
-                  acTree = huffmanForComponent AcComponent $ acEntropyCodingTable descr
+                  dcTree = -- packHuffmanTree .
+                           huffmanForComponent DcComponent $ dcEntropyCodingTable descr
+                  acTree = -- packHuffmanTree . 
+                           huffmanForComponent AcComponent $ acEntropyCodingTable descr
                   qTable = quantForComponent $ if idx == 1 then 0 else 1
                   horizCount = if not isImageLumanOnly
                         then fromIntegral $ horizontalSamplingFactor component
@@ -823,8 +838,8 @@ buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
 
         componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
 
-        mcus = [(compIdx, \x y writeImg dc -> do
-                           (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable dc
+        mcus = [(compIdx, \x y writeImg zigzag dc -> do
+                           (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable zigzag dc
                            lift $ unpacker (x * horizCount + xd) (y * vertCount + yd) writeImg block
                            return dcCoeff)
                      | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable))
@@ -884,16 +899,16 @@ extractBlock :: Image PixelYCbCr8       -- ^ Source image
 extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
              block 1 1 sampCount plane bx by | (bx * 8) + 7 < w && (by * 8) + 7 < h = do
     let baseReadIdx = (by * 8 * w) + bx * 8
-    sequence_ [(block .<-. (y * 8 + x)) val
+    sequence_ [(block `M.unsafeWrite` (y * 8 + x)) val
                         | y <- [0 .. 7]
                         , let blockReadIdx = baseReadIdx + y * w
                         , x <- [0 .. 7]
-                        , let val = fromIntegral $ src !!! ((blockReadIdx + x) * sampCount + plane)
+                        , let val = fromIntegral $ src `VS.unsafeIndex` ((blockReadIdx + x) * sampCount + plane)
                         ]
     return block
 extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
              block sampWidth sampHeight sampCount plane bx by = do
-    let accessPixel x y | x < w && y < h = let idx = (y * w + x) * sampCount + plane in src !!! idx
+    let accessPixel x y | x < w && y < h = let idx = (y * w + x) * sampCount + plane in src `VS.unsafeIndex` idx
                         | x >= w = accessPixel (w - 1) y
                         | otherwise = accessPixel x (h - 1)
 
@@ -908,18 +923,18 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
         blockXBegin = bx * 8 * sampWidth
         blockYBegin = by * 8 * sampHeight
 
-    sequence_ [(block .<-. (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
+    sequence_ [(block `M.unsafeWrite` (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
     return block
 
 serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
                     -> MutableMacroBlock s Int32
                     -> BoolWriter s ()
 serializeMacroBlock dcCode acCode blk =
- lift (blk .!!!. 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
+ lift (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
   where writeAcs acc@(_, 63) =
-            lift (blk .!!!. 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
+            lift (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
         writeAcs acc@(_, i ) =
-            lift (blk .!!!.  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
+            lift (blk `M.unsafeRead`  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
         encodeDc n = writeBits (fromIntegral code) (fromIntegral bitCount)
                         >> when (ssss /= 0) (encodeInt ssss n)
@@ -955,8 +970,8 @@ encodeMacroBlock quantTableOfComponent workData finalData prev_dc block = do
  blk <- fastDctLibJpeg workData block
         >>= zigZagReorderForward finalData
         >>= quantize quantTableOfComponent
- dc <- blk .!!!. 0
- (blk .<-. 0) $ dc - fromIntegral prev_dc
+ dc <- blk `M.unsafeRead` 0
+ (blk `M.unsafeWrite` 0) $ dc - fromIntegral prev_dc
  return (dc, blk)
 
 divUpward :: (Integral a) => a -> a -> a
@@ -1096,9 +1111,9 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
             workData <- lift createEmptyMutableMacroBlock
             zigzaged <- lift createEmptyMutableMacroBlock
             forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
-                prev_dc <- lift $ dc_table .!!!. comp
+                prev_dc <- lift $ dc_table `M.unsafeRead` comp
                 (dc_coeff, neo_block) <- lift (extractor >>= 
                                         encodeMacroBlock table workData zigzaged prev_dc)
-                lift . (dc_table .<-. comp) $ fromIntegral dc_coeff
+                lift . (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
                 serializeMacroBlock dc ac neo_block
 

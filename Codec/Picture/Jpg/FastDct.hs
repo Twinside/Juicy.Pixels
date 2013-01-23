@@ -10,12 +10,6 @@ import qualified Data.Vector.Storable.Mutable as M
 import Codec.Picture.Jpg.Types
 import Control.Monad( forM, forM_ )
 
-{-# INLINE (.>>.) #-}
-{-# INLINE (.<<.) #-}
-(.>>.), (.<<.) :: (Bits a) => a -> Int -> a
-(.>>.) = shiftR
-(.<<.) = shiftL
-
 -- | Reference implementation of the DCT, directly implementing the formula
 -- of ITU-81. It's slow as hell, perform to many operations, but is accurate
 -- and a good reference point.
@@ -24,11 +18,11 @@ referenceDct :: MutableMacroBlock s Int32
              -> ST s (MutableMacroBlock s Int32)
 referenceDct workData block = forM_ [(u, v) | u <- [0 :: Int .. 7], v <- [0..7]] (\(u,v) -> do
     val <- at (u,v)
-    (workData .<-. (v * 8 + u)) . truncate $ (1 / 4) * c u * c v * val)
+    (workData `M.unsafeWrite` (v * 8 + u)) . truncate $ (1 / 4) * c u * c v * val)
     >> return workData
  where -- at :: (Int, Int) -> ST s Float
        at (u,v) = sum <$> (forM [(x,y) | x <- [0..7], y <- [0..7 :: Int]] $ \(x,y) -> do
-           sample <- fromIntegral <$> (block .!!!. (y * 8 + x))
+           sample <- fromIntegral <$> (block `M.unsafeRead` (y * 8 + x))
            return $ sample * cos ((2 * fromIntegral x + 1) * fromIntegral u * (pi :: Float)/ 16) 
                            * cos ((2 * fromIntegral y + 1) * fromIntegral v * pi / 16))
        c 0 = 1 / sqrt 2
@@ -74,11 +68,11 @@ fastDctLibJpeg workData sample_block = do
         firstPass         _ 8 = return ()
         firstPass dataBlock i = do
             let baseIdx = i * 8
-                readAt idx = fromIntegral <$> sample_block .!!!. (baseIdx + idx)
+                readAt idx = fromIntegral <$> sample_block `M.unsafeRead` (baseIdx + idx)
                 mult = (*)
-                writeAt idx n = (dataBlock .<-. (baseIdx + idx)) n
-                writeAtPos idx n = (dataBlock .<-. (baseIdx + idx))
-                                    (n .>>. (cONST_BITS - pASS1_BITS))
+                writeAt idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx)) n
+                writeAtPos idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx))
+                                    (n `shiftR` (cONST_BITS - pASS1_BITS))
 
             blk0 <- readAt 0
             blk1 <- readAt 1
@@ -105,11 +99,11 @@ fastDctLibJpeg workData sample_block = do
                 tmp3' = blk3 - blk4
 
             -- Stage 4 and output
-            writeAt 0 $ (tmp10 + tmp11 - 8 * cENTERJSAMPLE) .<<. pASS1_BITS
-            writeAt 4 $ (tmp10 - tmp11) .<<. pASS1_BITS
+            writeAt 0 $ (tmp10 + tmp11 - 8 * cENTERJSAMPLE) `shiftL` pASS1_BITS
+            writeAt 4 $ (tmp10 - tmp11) `shiftL` pASS1_BITS
 
             let z1 = mult (tmp12 + tmp13) fIX_0_541196100
-                     + (1 .<<. (cONST_BITS - pASS1_BITS - 1))
+                     + (1 `shiftL` (cONST_BITS - pASS1_BITS - 1))
 
             writeAtPos 2 $ z1 + mult tmp12 fIX_0_765366865
             writeAtPos 6 $ z1 - mult tmp13 fIX_1_847759065
@@ -120,7 +114,7 @@ fastDctLibJpeg workData sample_block = do
                 tmp13' = tmp1' + tmp3'
                 z1' = mult (tmp12' + tmp13') fIX_1_175875602 --  c3 */
                         -- Add fudge factor here for final descale. */
-                        + (1 .<<. (cONST_BITS - pASS1_BITS-1))
+                        + (1 `shiftL` (cONST_BITS - pASS1_BITS-1))
                 tmp0'' = mult tmp0' fIX_1_501321110
                 tmp1'' = mult tmp1' fIX_3_072711026
                 tmp2'' = mult tmp2' fIX_2_053119869
@@ -144,10 +138,10 @@ fastDctLibJpeg workData sample_block = do
         secondPass :: M.STVector s Int32 -> Int -> ST s ()
         secondPass _     (-1) = return ()
         secondPass block i = do
-            let readAt idx = block .!!!. ((7 - i) + idx * 8)
+            let readAt idx = block `M.unsafeRead` ((7 - i) + idx * 8)
                 mult = (*)
-                writeAt idx n = (block .<-. (8 * idx + (7 - i))) n
-                writeAtPos idx n = (block .<-. (8 * idx + (7 - i))) $ n .>>. (cONST_BITS + pASS1_BITS + 3)
+                writeAt idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) n
+                writeAtPos idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) $ n `shiftR` (cONST_BITS + pASS1_BITS + 3)
             blk0 <- readAt 0
             blk1 <- readAt 1
             blk2 <- readAt 2
@@ -163,7 +157,7 @@ fastDctLibJpeg workData sample_block = do
                 tmp3 = blk3 + blk4
 
                 -- Add fudge factor here for final descale. */
-                tmp10 = tmp0 + tmp3 + (1 .<<. (pASS1_BITS-1))
+                tmp10 = tmp0 + tmp3 + (1 `shiftL` (pASS1_BITS-1))
                 tmp12 = tmp0 - tmp3
                 tmp11 = tmp1 + tmp2
                 tmp13 = tmp1 - tmp2
@@ -173,11 +167,11 @@ fastDctLibJpeg workData sample_block = do
                 tmp2' = blk2 - blk5
                 tmp3' = blk3 - blk4
 
-            writeAt 0 $ (tmp10 + tmp11) .>>. (pASS1_BITS + 3)
-            writeAt 4 $ (tmp10 - tmp11) .>>. (pASS1_BITS + 3)
+            writeAt 0 $ (tmp10 + tmp11) `shiftR` (pASS1_BITS + 3)
+            writeAt 4 $ (tmp10 - tmp11) `shiftR` (pASS1_BITS + 3)
 
             let z1 = mult (tmp12 + tmp13) fIX_0_541196100
-                    + (1 .<<. (cONST_BITS + pASS1_BITS - 1))
+                    + (1 `shiftL` (cONST_BITS + pASS1_BITS - 1))
 
             writeAtPos 2 $ z1 + mult tmp12 fIX_0_765366865
             writeAtPos 6 $ z1 - mult tmp13 fIX_1_847759065
@@ -189,7 +183,7 @@ fastDctLibJpeg workData sample_block = do
 
                 z1' = mult (tmp12' + tmp13') fIX_1_175875602
                     -- Add fudge factor here for final descale. */
-                   + 1 .<<. (cONST_BITS+pASS1_BITS-1);
+                   + 1 `shiftL` (cONST_BITS+pASS1_BITS-1);
 
                 tmp0''  = mult tmp0'    fIX_1_501321110
                 tmp1''  = mult tmp1'    fIX_3_072711026

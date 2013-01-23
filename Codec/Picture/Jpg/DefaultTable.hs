@@ -5,6 +5,7 @@
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
 									 , HuffmanTable
+									 , HuffmanPackedTree
 									 , MacroBlock
 									 , QuantificationTable
 									 , HuffmanWriterCode 
@@ -12,6 +13,7 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , makeMacroBlock
 									 , makeInverseTable
 									 , buildHuffmanTree
+									 , packHuffmanTree
 
 									 , defaultChromaQuantizationTable
 
@@ -30,21 +32,44 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , defaultDcLumaHuffmanTable
 									 ) where
 
+import Data.Int( Int16 )
 import Foreign.Storable ( Storable )
+import Control.Monad.ST( runST )
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
 import Data.Bits( shiftL, (.|.) )
-import Data.Int( Int16 )
 import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
+import qualified Data.Vector.Storable.Mutable as M
 
+import Debug.Trace
+import Text.Printf
 -- | Tree storing the code used for huffman encoding.
 data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the first subtree, if 1, the right.
                  | Leaf Word8       -- ^ We should output the value
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
+type HuffmanPackedTree = SV.Vector Int16
+
 type HuffmanWriterCode = V.Vector (Word8, Word16)
+
+packHuffmanTree :: HuffmanTree -> HuffmanPackedTree
+packHuffmanTree tree = runST $ do
+    table <- M.replicate 2048 0x0800
+    let aux (Empty) idx = return $ idx + 1
+        aux (Leaf v) idx = do
+            (table `M.unsafeWrite` idx) . negate $ fromIntegral v
+            return $ idx + 1
+
+        aux (Branch i1 i2) idx = do
+            ix1 <- aux i1 (idx + 2)
+            ix2 <- aux i2 ix1
+            (table `M.unsafeWrite` idx) (fromIntegral $ idx + 2)
+            (table `M.unsafeWrite` (idx + 1)) (fromIntegral ix1)
+            return ix2
+    final <- aux tree 0
+    trace (printf "final ix:%d" final) $ SV.unsafeFreeze table
 
 makeInverseTable :: HuffmanTree -> HuffmanWriterCode
 makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
