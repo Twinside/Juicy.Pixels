@@ -722,15 +722,13 @@ decodeRestartInterval = return (-1) {-  do
      else return (-1)
         -}
 
-
-decodeImage :: Int                        -- ^ Component count
-            -> JpegDecoder s              -- ^ Function to call to decode an MCU
+decodeImage :: JpgImage          
+            -> Int -- ^ Component count
             -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
             -> BoolReader s ()
-decodeImage compCount decoder img = do
+decodeImage img compCount outImage = do
     let blockIndices = [(x,y) | y <- [0 ..   verticalMcuCount decoder - 1]
                               , x <- [0 .. horizontalMcuCount decoder - 1] ]
-        mcuDecode = mcuDecoder decoder
         blockBeforeRestart = restartInterval decoder
 
         folder f = foldM_ f blockBeforeRestart blockIndices
@@ -746,12 +744,105 @@ decodeImage compCount decoder img = do
                  -- if 0xD0 <= restartCode && restartCode <= 0xD7
                  return ())
 
-        forM_ mcuDecode $ \(comp, dataUnitDecoder) -> do
+        let huffmans = gatherHuffmanTables img
+            huffmanForComponent dcOrAc dest =
+                head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
+                                           , huffmanTableDest h == dest]
+ 
+            mcuBeforeRestart = case [i | JpgIntervalRestart i <- jpgFrame img] of
+                []    -> maxBound -- HUUUUUUGE value (enough to parse all MCU)
+                (x:_) -> fromIntegral x
+ 
+            quants = gatherQuantTables img
+            quantForComponent dest =
+                head [quantTable q | q <- quants, quantDestination q == dest]
+ 
+            hdr = head [h | JpgScanBlob h _ <- jpgFrame img]
+ 
+            (_, scanInfo) = gatherScanInfo img
+            imgWidth = fromIntegral $ jpgWidth scanInfo
+            imgHeight = fromIntegral $ jpgHeight scanInfo
+ 
+            blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
+                    where (block, rest) = fullDim `divMod` maxBlockSize
+ 
+            horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
+ 
+            imgComponentCount = fromIntegral $ jpgImageComponentCount scanInfo
+            isImageLumanOnly = imgComponentCount == 1
+            maxHorizFactor | not isImageLumanOnly &&
+                                not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings
+                           | otherwise = 1
+ 
+            verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
+            maxVertFactor | not isImageLumanOnly &&
+                                not (allElementsEqual verticalSamplings) = maximum verticalSamplings
+                          | otherwise = 1
+ 
+            horizontalBlockCount =
+               blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
+ 
+            verticalBlockCount =
+               blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
+ 
+            fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
+                where idx = componentIdentifier component
+                      descr = head [c | c <- scans hdr, componentSelector c  == idx]
+                      dcTree = -- packHuffmanTree .
+                               huffmanForComponent DcComponent $ dcEntropyCodingTable descr
+                      acTree = -- packHuffmanTree . 
+                               huffmanForComponent AcComponent $ acEntropyCodingTable descr
+                      qTable = quantForComponent $ if idx == 1 then 0 else 1
+                      horizCount = if not isImageLumanOnly
+                            then fromIntegral $ horizontalSamplingFactor component
+                            else 1
+                      vertCount = if not isImageLumanOnly
+                            then fromIntegral $ verticalSamplingFactor component
+                            else 1
+ 
+            componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
+
+{-
+        mcus = [(compIdx, \x y writeImg zigzag dc -> do
+                           (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable zigzag dc
+                           lift $ unpacker (x * horizCount + xd) (y * vertCount + yd) writeImg block
+                           return dcCoeff)
+                     | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable))
+                                   <- zip [0..] componentsInfo
+                     , let xScalingFactor = maxHorizFactor - horizCount + 1
+                           yScalingFactor = maxVertFactor - vertCount + 1
+                     , yd <- [0 .. vertCount - 1]
+                     , xd <- [0 .. horizCount - 1]
+                     , let unpacker = unpackMacroBlock imgComponentCount compIdx 
+                                                    xScalingFactor yScalingFactor
+                     ]
+
+-}
+        let comp _ [] = return ()
+            comp compIdx ((horizCount, vertCount, dcTree, acTree, qTable):comp_rest) = liner 0
+              where xScalingFactor = maxHorizFactor - horizCount + 1
+                    yScalingFactor = maxVertFactor - vertCount + 1
+
+                    liner yd | yd >= vertCount = comp (compIdx + 1) comp_rest
+                    liner yd = columner 0
+                      where columner xd | xd >= horizCount = liner (yd + 1)
+                            columner xd = do
+                                dc <- lift $ dcArray `M.unsafeRead` comp
+                                dcCoeff <- unpackMacroBlock imgComponentCount 
+                                                            compIdx 
+                                                            xScalingFactor 
+                                                            yScalingFactor
+                                                            x y outImage zigZagArray $ fromIntegral dc
+                                lift $ (dcArray `M.unsafeWrite` comp) dcCoeff
+                                columner $ xd + 1
+
+{-
+        forM_ (mcuDecoder decoder) $ \(comp, dataUnitDecoder) -> do
             dc <- lift $ dcArray `M.unsafeRead` comp
             dcCoeff <- dataUnitDecoder x y img zigZagArray $ fromIntegral dc
             lift $ (dcArray `M.unsafeWrite` comp) dcCoeff
             return ()
-
+-}
         if resetCounter /= 0 then return $ resetCounter - 1
                                          -- we use blockBeforeRestart - 1 to count
                                          -- the current MCU
@@ -772,85 +863,6 @@ data JpegDecoder s = JpegDecoder
 allElementsEqual :: (Eq a) => [a] -> Bool
 allElementsEqual []     = True
 allElementsEqual (x:xs) = all (== x) xs
-
--- | An MCU (Minimal coded unit) is an unit of data for all components
--- (Y, Cb & Cr), taking into account downsampling.
-buildJpegImageDecoder :: JpgImage -> JpegDecoder s
-buildJpegImageDecoder img = JpegDecoder { restartInterval = mcuBeforeRestart
-                                        , horizontalMcuCount = horizontalBlockCount
-                                        , verticalMcuCount = verticalBlockCount
-                                        , mcuDecoder = mcus }
-  where huffmans = gatherHuffmanTables img
-        huffmanForComponent dcOrAc dest =
-            head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
-                                       , huffmanTableDest h == dest]
-
-        mcuBeforeRestart = case [i | JpgIntervalRestart i <- jpgFrame img] of
-            []    -> maxBound -- HUUUUUUGE value (enough to parse all MCU)
-            (x:_) -> fromIntegral x
-
-        quants = gatherQuantTables img
-        quantForComponent dest =
-            head [quantTable q | q <- quants, quantDestination q == dest]
-
-        hdr = head [h | JpgScanBlob h _ <- jpgFrame img]
-
-        (_, scanInfo) = gatherScanInfo img
-        imgWidth = fromIntegral $ jpgWidth scanInfo
-        imgHeight = fromIntegral $ jpgHeight scanInfo
-
-        blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
-                where (block, rest) = fullDim `divMod` maxBlockSize
-
-        horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
-
-        imgComponentCount = fromIntegral $ jpgImageComponentCount scanInfo
-        isImageLumanOnly = imgComponentCount == 1
-        maxHorizFactor | not isImageLumanOnly &&
-                            not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings
-                       | otherwise = 1
-
-        verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
-        maxVertFactor | not isImageLumanOnly &&
-                            not (allElementsEqual verticalSamplings) = maximum verticalSamplings
-                      | otherwise = 1
-
-        horizontalBlockCount =
-           blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
-
-        verticalBlockCount =
-           blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
-
-        fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
-            where idx = componentIdentifier component
-                  descr = head [c | c <- scans hdr, componentSelector c  == idx]
-                  dcTree = -- packHuffmanTree .
-                           huffmanForComponent DcComponent $ dcEntropyCodingTable descr
-                  acTree = -- packHuffmanTree . 
-                           huffmanForComponent AcComponent $ acEntropyCodingTable descr
-                  qTable = quantForComponent $ if idx == 1 then 0 else 1
-                  horizCount = if not isImageLumanOnly
-                        then fromIntegral $ horizontalSamplingFactor component
-                        else 1
-                  vertCount = if not isImageLumanOnly
-                        then fromIntegral $ verticalSamplingFactor component
-                        else 1
-
-        componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
-
-        mcus = [(compIdx, \x y writeImg zigzag dc -> do
-                           (dcCoeff, block) <- decompressMacroBlock dcTree acTree qTable zigzag dc
-                           lift $ unpacker (x * horizCount + xd) (y * vertCount + yd) writeImg block
-                           return dcCoeff)
-                     | (compIdx, (horizCount, vertCount, dcTree, acTree, qTable))
-                                   <- zip [0..] componentsInfo
-                     , let xScalingFactor = maxHorizFactor - horizCount + 1
-                           yScalingFactor = maxVertFactor - vertCount + 1
-                     , yd <- [0 .. vertCount - 1]
-                     , xd <- [0 .. horizCount - 1]
-                     , let unpacker = unpackMacroBlock imgComponentCount compIdx 
-                                                    xScalingFactor yScalingFactor
-                     ]
 
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
@@ -884,7 +896,7 @@ decodeJpeg file = case runGetStrict get file of
                 resultImage <- lift $ M.replicate imageSize 0
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedStringJpg imgData
-                decodeImage compCount (buildJpegImageDecoder img) wrapped
+                decodeImage img compCount wrapped
                 return resultImage) (-1, 0, B.empty)
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
