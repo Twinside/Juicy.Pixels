@@ -1002,8 +1002,7 @@ encodeJpeg = encodeJpegAtQuality 50
 encodeJpegAtQuality :: Word8                -- ^ Quality factor
                     -> Image PixelYCbCr8    -- ^ Image to encode
                     -> L.ByteString         -- ^ Encoded JPEG
-encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
-    encode finalImage
+encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
   where finalImage = JpgImage [ JpgQuantTable quantTables
                               , JpgScans JpgBaselineDCTHuffman hdr
                               , JpgHuffmanTable huffTables
@@ -1093,27 +1092,33 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) =
                 componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
   
                 imageComponentCount = length componentDef
-            block <- lift $ M.replicate 64 0
+
             dc_table <- lift $ M.replicate 3 0
-            let blockList = [(comp, table, dc, ac, extractBlock img block xSamplingFactor ySamplingFactor
-                                                  imageComponentCount comp blockX blockY)
-                                    | my <- [0 .. verticalMetaBlockCount - 1]
-                                    , mx <- [0 .. horizontalMetaBlockCount - 1]
-                                    , (comp, (sizeX, sizeY, table, dc, ac)) <- zip [0..] componentDef
-                                    , subY <- [0 .. sizeY - 1]
-                                    , subX <- [0 .. sizeX - 1]
-                                    , let blockX = mx * sizeX + subX
-                                          blockY = my * sizeY + subY
-                                          xSamplingFactor = maxSampling - sizeX + 1
-                                          ySamplingFactor = maxSampling - sizeY + 1
-                                    ]
-  
+            block <- lift createEmptyMutableMacroBlock
             workData <- lift createEmptyMutableMacroBlock
             zigzaged <- lift createEmptyMutableMacroBlock
-            forM_ blockList $ \(comp, table, dc, ac, extractor) -> do
-                prev_dc <- lift $ dc_table `M.unsafeRead` comp
-                (dc_coeff, neo_block) <- lift (extractor >>= 
-                                        encodeMacroBlock table workData zigzaged prev_dc)
-                lift . (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
-                serializeMacroBlock dc ac neo_block
 
+            -- It's ugly, I know, be avoid allocation
+            let blockLine my | my >= verticalMetaBlockCount = return ()
+                blockLine my = blockColumn 0
+                  where blockColumn mx | mx >= horizontalMetaBlockCount = blockLine (my + 1)
+                        blockColumn mx = component $ zip [0..] componentDef
+                          where component [] = blockColumn (mx + 1)
+                                component ((comp, (sizeX, sizeY, table, dc, ac)) : comp_rest) = line 0
+                                  where xSamplingFactor = maxSampling - sizeX + 1
+                                        ySamplingFactor = maxSampling - sizeY + 1
+                                        extractor = extractBlock img block xSamplingFactor ySamplingFactor imageComponentCount 
+                                        line subY | subY >= sizeY = component comp_rest
+                                        line subY = column 0
+                                           where blockY = my * sizeY + subY
+                                                 
+                                                 column subX | subX >= sizeX = line (subY + 1)
+                                                 column subX = do
+                                                    let blockX = mx * sizeX + subX
+                                                    prev_dc <- lift $ dc_table `M.unsafeRead` comp
+                                                    (dc_coeff, neo_block) <- lift (extractor comp blockX blockY >>= 
+                                                                            encodeMacroBlock table workData zigzaged prev_dc)
+                                                    lift . (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
+                                                    serializeMacroBlock dc ac neo_block
+                                                    column $ subX + 1
+            blockLine 0

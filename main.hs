@@ -7,6 +7,7 @@ import Codec.Picture.Gif
 import System.Environment
 
 import Data.Binary
+import Data.Monoid
 import Data.Word( Word8 )
 import Control.Monad( forM_ )
 import System.FilePath
@@ -17,6 +18,7 @@ import Codec.Picture.Saving
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
+import qualified Criterion.Config as C
 import Criterion.Main
 import Control.DeepSeq
 
@@ -303,7 +305,8 @@ benchMark = do
 
     {-jpegToPng >> pngToJpeg-}
 
-    defaultMain [
+    let myConfig = C.defaultConfig { C.cfgSamples = C.ljust 12 }
+    defaultMainWith myConfig (return ()) [
         bgroup "trad"
             [ bench "JPG -> PNG" $ whnfIO jpegToPng 
             , bench "PNG -> JPG" $ whnfIO pngToJpeg
@@ -327,6 +330,9 @@ main :: IO ()
 main = do 
     args <- getArgs
     case args of
+        ("bum":_) -> 
+            -- jpegToPng
+            pngToJpeg
         ("test":_) -> testSuite
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
