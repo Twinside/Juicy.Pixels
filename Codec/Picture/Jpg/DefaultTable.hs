@@ -126,6 +126,10 @@ buildHuffmanTree table = foldl' insertHuffmanVal Empty
 
 scaleQuantisationMatrix :: Int -> QuantificationTable -> QuantificationTable 
 scaleQuantisationMatrix quality
+    | quality < 0 = scaleQuantisationMatrix 0
+        -- shouldn't show much difference than with 1,
+        -- but hey, at least we're complete
+    | quality == 0 = SV.map (scale (10000 :: Int))
     | quality < 50 = let qq = 5000 `div` quality
                      in SV.map (scale qq)
     | otherwise    = SV.map (scale q)
