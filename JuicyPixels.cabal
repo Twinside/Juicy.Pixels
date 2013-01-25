@@ -29,7 +29,7 @@ Source-Repository this
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -O3 -Wall -rtsopts -prof -fprof-auto-top
+  Ghc-options: -O3 -Wall
   -- -ddump-simpl
   -- -rtsopts -prof -fprof-auto-top
   Include-Dirs: Codec/Picture

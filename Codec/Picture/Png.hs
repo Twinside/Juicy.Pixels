@@ -408,7 +408,7 @@ decodePng byte = do
     rawImg <- runGetStrict get byte
     let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
         compressedImageData =
-              B.concat [chunkData chunk | chunk <- chunks rawImg
+              Lb.concat [chunkData chunk | chunk <- chunks rawImg
                                         , chunkType chunk == iDATSignature]
         zlibHeaderSize = 1 {- compression method/flags code -}
                        + 1 {- Additional flags/check bits -}
@@ -437,9 +437,9 @@ decodePng byte = do
                 where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
                       uarray = runST stArray
 
-    if B.length compressedImageData <= zlibHeaderSize
+    if Lb.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
-       else let imgData = Z.decompress $ Lb.fromChunks [compressedImageData]
+       else let imgData = Z.decompress compressedImageData
        	        parseableData = B.concat $ Lb.toChunks imgData
                 palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
                     Nothing -> Nothing

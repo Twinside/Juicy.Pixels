@@ -23,18 +23,17 @@ import Data.Bits( xor, (.&.), shiftR )
 import Data.Binary( Binary(..), Get, get )
 import Data.Binary.Get( getWord8
                       , getWord32be
-                      , getByteString
+                      , getLazyByteString
                       )
 import Data.Binary.Put( runPut
                       , putWord8
                       , putWord32be
-                      , putByteString 
+                      , putLazyByteString
                       )
 import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 
 import Codec.Picture.Types
@@ -45,7 +44,7 @@ import Codec.Picture.InternalHelper
 --------------------------------------------------
 
 -- | Value used to identify a png chunk, must be 4 bytes long.
-type ChunkSignature = B.ByteString
+type ChunkSignature = L.ByteString
 
 -- | Generic header used in PNG images.
 data PngIHdr = PngIHdr
@@ -85,19 +84,19 @@ parsePalette plte
  | otherwise = Image pixelCount 1 . V.fromListN (3 * pixelCount) <$> pixels
     where pixelUnpacker = replicateM (fromIntegral pixelCount * 3) get
           pixelCount = fromIntegral $ chunkLength plte `div` 3
-          pixels = runGetStrict pixelUnpacker (chunkData plte)
+          pixels = runGet pixelUnpacker (chunkData plte)
 
 -- | Data structure during real png loading/parsing
 data PngRawChunk = PngRawChunk
     { chunkLength :: Word32
     , chunkType   :: ChunkSignature
     , chunkCRC    :: Word32
-    , chunkData   :: B.ByteString
+    , chunkData   :: L.ByteString
     }
 
 -- | PNG chunk representing some extra information found in the parsed file.
 data PngChunk = PngChunk
-    { pngChunkData        :: B.ByteString  -- ^ The raw data inside the chunk
+    { pngChunkData        :: L.ByteString  -- ^ The raw data inside the chunk
     , pngChunkSignature   :: ChunkSignature -- ^ The name of the chunk.
     }
 
@@ -154,7 +153,7 @@ instance Binary PngFilter where
 
 instance Binary PngRawImage where
     put img = do
-        putByteString pngSignature
+        putLazyByteString pngSignature
         put $ header img
         mapM_ put $ chunks img
 
@@ -163,17 +162,17 @@ instance Binary PngRawImage where
 instance Binary PngRawChunk where
     put chunk = do
         putWord32be $ chunkLength chunk
-        putByteString $ chunkType chunk
+        putLazyByteString $ chunkType chunk
         when (chunkLength chunk /= 0)
-             (putByteString $ chunkData chunk)
+             (putLazyByteString $ chunkData chunk)
         putWord32be $ chunkCRC chunk
 
     get = do
         size <- getWord32be
-        chunkSig <- getByteString (B.length iHDRSignature)
+        chunkSig <- getLazyByteString (fromIntegral $ L.length iHDRSignature)
         imgData <- if size == 0
-            then return B.empty
-            else getByteString (fromIntegral size)
+            then return L.empty
+            else getLazyByteString (fromIntegral size)
         crc <- getWord32be
 
         let computedCrc = pngComputeCrc [chunkSig, imgData]
@@ -191,7 +190,7 @@ instance Binary PngIHdr where
     put hdr = do
         putWord32be 13
         let inner = runPut $ do
-                putByteString iHDRSignature
+                putLazyByteString iHDRSignature
                 putWord32be $ width hdr
                 putWord32be $ height hdr
                 putWord8    $ bitDepth hdr
@@ -199,14 +198,13 @@ instance Binary PngIHdr where
                 put $ compressionMethod hdr
                 put $ filterMethod hdr
                 put $ interlaceMethod hdr
-            strictList = L.toChunks inner
-            crc = pngComputeCrc strictList
-        mapM_ putByteString strictList
+            crc = pngComputeCrc [inner]
+        putLazyByteString inner
         putWord32be crc
 
     get = do
         _size <- getWord32be
-        ihdrSig <- getByteString (B.length iHDRSignature)
+        ihdrSig <- getLazyByteString (L.length iHDRSignature)
         when (ihdrSig /= iHDRSignature)
              (fail "Invalid PNG file, wrong ihdr")
         w <- getWord32be
@@ -250,7 +248,7 @@ instance Binary PngInterlaceMethod where
 -- unpack raw data, without decompressing it.
 parseRawPngImage :: Get PngRawImage
 parseRawPngImage = do
-    sig <- getByteString (B.length pngSignature)
+    sig <- getLazyByteString (L.length pngSignature)
     when (sig /= pngSignature)
          (fail "Invalid PNG file, signature broken")
 
@@ -270,7 +268,7 @@ pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
 
 -- | Helper function to help pack signatures.
 signature :: [Word8] -> ChunkSignature
-signature = B.pack . map (toEnum . fromEnum)
+signature = L.pack . map (toEnum . fromEnum)
 
 -- | Signature for the header chunk of png (must be the first)
 iHDRSignature :: ChunkSignature 
@@ -317,8 +315,8 @@ pngCrcTable = fromListN 256 [ foldl' updateCrcConstant c [zero .. 7] | c <- [0 .
 
 -- | Compute the CRC of a raw buffer, as described in annex D of the PNG
 -- specification.
-pngComputeCrc :: [B.ByteString] -> Word32
-pngComputeCrc = (0xFFFFFFFF `xor`) . B.foldl' updateCrc 0xFFFFFFFF . B.concat
+pngComputeCrc :: [L.ByteString] -> Word32
+pngComputeCrc = (0xFFFFFFFF `xor`) . L.foldl' updateCrc 0xFFFFFFFF . L.concat
     where updateCrc crc val =
               let u32Val = fromIntegral val
                   lutVal = pngCrcTable ! (fromIntegral ((crc `xor` u32Val) .&. 0xFF))

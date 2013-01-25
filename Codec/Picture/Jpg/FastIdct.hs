@@ -219,5 +219,10 @@ fastIdct block = rows 0
 -- | Perform a Jpeg level shift in a mutable fashion.
 mutableLevelShift :: MutableMacroBlock s Int16
                   -> ST s (MutableMacroBlock s Int16)
-mutableLevelShift = mutate (\_ v -> v + 128)
+mutableLevelShift block = update 0
+  where update 64 = return block
+        update idx = do
+            val <- block `M.unsafeRead` idx
+            (block `M.unsafeWrite` idx) $ val + 128
+            update $ idx + 1
 

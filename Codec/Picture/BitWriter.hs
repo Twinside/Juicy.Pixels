@@ -3,6 +3,7 @@
 -- at bits level.
 module Codec.Picture.BitWriter( BoolWriter
                               , BoolReader
+                              , BoolState( .. )
                               , writeBits
                               , byteAlignJpg
                               , getNextBits
@@ -29,35 +30,37 @@ import qualified Data.ByteString as B
 ----            Reader
 --------------------------------------------------
 -- | Current bit index, current value, string
-type BoolState = (Int, Word8, B.ByteString)
+data BoolState = BoolState {-# UNPACK #-} !Int
+                           {-# UNPACK #-} !Word8
+                           !B.ByteString
 
 -- | Type used to read bits
 type BoolReader s a = S.StateT BoolState (ST s) a
 
 runBoolReader :: BoolReader s a -> ST s a
-runBoolReader action = S.evalStateT action (0, 0, B.empty)
+runBoolReader action = S.evalStateT action $ BoolState 0 0 B.empty
 
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()
 setDecodedString str = case B.uncons str of
-     Nothing        -> S.put (      0, 0, B.empty)
-     Just (v, rest) -> S.put (       0, v,    rest)
+     Nothing        -> S.put $ BoolState      0 0 B.empty
+     Just (v, rest) -> S.put $ BoolState      0 v    rest
 
 -- | Drop all bit until the bit of indice 0, usefull to parse restart
 -- marker, as they are byte aligned, but Huffman might not.
 byteAlignJpg :: BoolReader s ()
 byteAlignJpg = do
-  (idx, _, chain) <- S.get
+  BoolState idx _ chain <- S.get
   when (idx /= 7) (setDecodedStringJpg chain)
 
 {-# INLINE getNextBitJpg #-}
 getNextBitJpg :: BoolReader s Bool
 getNextBitJpg = do
-    (idx, v, chain) <- S.get
+    BoolState idx v chain <- S.get
     let val = (v .&. (1 `shiftL` idx)) /= 0
     if idx == 0
       then setDecodedStringJpg chain
-      else S.put (idx - 1, v, chain)
+      else S.put $ BoolState (idx - 1) v chain
     return val
 
 {-# INLINE getNextBits #-}
@@ -73,29 +76,29 @@ getNextBits count = aux 0 count
 {-# INLINE getNextBit #-}
 getNextBit :: BoolReader s Bool
 getNextBit = do
-    (idx, v, chain) <- S.get
+    BoolState idx v chain <- S.get
     let val = (v .&. (1 `shiftL` idx)) /= 0
     if idx == 7
       then setDecodedString chain
-      else S.put (idx + 1, v, chain)
+      else S.put $ BoolState (idx + 1) v chain
     return val
 
 -- | Bitify a list of things to decode. Handle Jpeg escape
 -- code (0xFF 0x00), thus should be only used in JPEG decoding.
 setDecodedStringJpg :: B.ByteString -> BoolReader s ()
 setDecodedStringJpg str = case B.uncons str of
-     Nothing        -> S.put (maxBound, 0, B.empty)
+     Nothing        -> S.put $ BoolState maxBound 0 B.empty
      Just (0xFF, rest) -> case B.uncons rest of
-            Nothing                  -> S.put (maxBound, 0, B.empty)
-            Just (0x00, afterMarker) -> S.put (7, 0xFF, afterMarker)
+            Nothing                  -> S.put $ BoolState maxBound 0 B.empty
+            Just (0x00, afterMarker) -> S.put $ BoolState 7 0xFF afterMarker
             Just (_   , afterMarker) -> setDecodedStringJpg afterMarker
-     Just (v, rest) -> S.put (       7, v,    rest)
+     Just (v, rest) -> S.put $ BoolState 7 v rest
 
 --------------------------------------------------
 ----            Writer
 --------------------------------------------------
 defaultBufferSize :: Int
-defaultBufferSize = 100 * 1024
+defaultBufferSize = 256 * 1024
 
 -- | Run the writer and get the serialized data.
 runBoolWriter :: BoolWriter s b -> ST s B.ByteString

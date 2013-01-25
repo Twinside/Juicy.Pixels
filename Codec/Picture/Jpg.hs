@@ -78,12 +78,13 @@ data JpgFrameKind =
     | JpgRestartInterval
     deriving (Eq, Show)
 
+type HuffmanTreeInfo = HuffmanPackedTree
 
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
-    | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanTree)]
+    | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanTreeInfo)]
     | JpgScanBlob        !JpgScanHeader !B.ByteString
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
@@ -225,23 +226,12 @@ buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
 
 huffmanPackedDecode :: HuffmanPackedTree -> BoolReader s Word8
 huffmanPackedDecode table = getNextBitJpg >>= aux 0
-  where aux idx b | v == 0x0800 = return 0
-                  | v <= 0 = return . fromIntegral $ negate v
+  where aux idx b | (v .&. 0x8000) /= 0 = return 0
+                  | (v .&. 0x4000) /= 0 = return . fromIntegral $ v .&. 0xFF
                   | otherwise = getNextBitJpg >>= aux v
           where tableIndex | b = idx + 1
                            | otherwise = idx
                 v = table `VS.unsafeIndex` fromIntegral tableIndex
-
--- | Decode a list of huffman values, not optimized for speed, but it
--- should work.
-huffmanDecode :: HuffmanTree -> BoolReader s Word8
-huffmanDecode originalTree = getNextBitJpg >>= huffDecode originalTree
-  where huffDecode Empty                   _ = return 0
-        huffDecode (Branch (Leaf v) _) False = return v
-        huffDecode (Branch l       _ ) False = getNextBitJpg >>= huffDecode l
-        huffDecode (Branch _ (Leaf v)) True  = return v
-        huffDecode (Branch _       r ) True  = getNextBitJpg >>= huffDecode r
-        huffDecode (Leaf v) _ = return v
 
 --------------------------------------------------
 ----            Serialization instances
@@ -345,7 +335,7 @@ parseFrames = do
             (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
         JpgHuffmanTableMarker ->
             (\(TableList huffTables) lst ->
-                    JpgHuffmanTable [(t, buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
+                    JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
@@ -503,20 +493,28 @@ instance Binary JpgScanHeader where
         putWord8 . snd $ spectralSelection v
         put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
-{-quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32-}
-         {--> ST s (MutableMacroBlock s Int32)-}
-{-quantize table = mutate (\idx val -> val `quot` fromIntegral (table !!! idx))-}
-
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
-quantize table = mutate (\idx val -> val `quotient` fromIntegral (table `VS.unsafeIndex` idx))
-    where quotient val q = (val + (q `div` 2)) `quot` q -- rounded integer division
+quantize table block = update 0
+  where update 64 = return block
+        update idx = do
+            val <- block `M.unsafeRead` idx
+            let q = fromIntegral (table `VS.unsafeIndex` idx)
+                finalValue = (val + (q `div` 2)) `quot` q -- rounded integer division
+            (block `M.unsafeWrite` idx) finalValue
+            update $ idx + 1
 
 -- | Apply a quantization matrix to a macroblock
 {-# INLINE deQuantize #-}
 deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
            -> ST s (MutableMacroBlock s Int16)
-deQuantize table = mutate (\ix val -> val * (table `VS.unsafeIndex` ix))
+deQuantize table block = update 0
+    where update 64 = return block
+          update i = do
+              val <- block `M.unsafeRead` i
+              let finalValue = val * (table `VS.unsafeIndex` i)
+              (block `M.unsafeWrite` i) finalValue
+              update $ i + 1
 
 inverseDirectCosineTransform :: MutableMacroBlock s Int16
                              -> ST s (MutableMacroBlock s Int16)
@@ -603,6 +601,7 @@ encodeInt :: Word32 -> Int32 -> BoolWriter s ()
 encodeInt ssss n | n > 0 = writeBits (fromIntegral n) (fromIntegral ssss)
 encodeInt ssss n         = writeBits (fromIntegral $ n - 1) (fromIntegral ssss)
 
+{-# INLINE decodeInt #-}
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
     signBit <- getNextBitJpg
@@ -614,21 +613,21 @@ decodeInt ssss = do
        then (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
        else (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
-dcCoefficientDecode :: HuffmanTree -- HuffmanPackedTree    
+dcCoefficientDecode :: HuffmanTreeInfo
                     -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
-    ssss <- huffmanDecode dcTree -- huffmanPackedDecode dcTree
+    ssss <- huffmanPackedDecode dcTree
     if ssss == 0
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
 
 -- | Assume the macro block is initialized with zeroes
-acCoefficientsDecode :: HuffmanTree -> MutableMacroBlock s Int16
+acCoefficientsDecode :: HuffmanTreeInfo -> MutableMacroBlock s Int16
                      -> BoolReader s (MutableMacroBlock s Int16)
 acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutableBlock
   where parseAcCoefficient n | n >= 64 = return ()
                              | otherwise = do
-            rrrrssss <- huffmanDecode acTree
+            rrrrssss <- huffmanPackedDecode acTree
             let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
@@ -641,8 +640,8 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
 
 -- | Decompress a macroblock from a bitstream given the current configuration
 -- from the frame.
-decompressMacroBlock :: HuffmanTree         -- ^ Tree used for DC coefficient
-                     -> HuffmanTree         -- ^ Tree used for Ac coefficient
+decompressMacroBlock :: HuffmanTreeInfo     -- ^ Tree used for DC coefficient
+                     -> HuffmanTreeInfo     -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
                      -> MutableMacroBlock s Int16    -- ^ A zigzag table, to avoid allocation
                      -> DcCoefficient       -- ^ Previous dc value
@@ -659,7 +658,7 @@ decompressMacroBlock dcTree acTree quantizationTable zigzagBlock previousDc = do
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
 gatherQuantTables img = concat [t | JpgQuantTable t <- jpgFrame img]
 
-gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTree)]
+gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTreeInfo)]
 gatherHuffmanTables img = concat [lst | JpgHuffmanTable lst <- jpgFrame img]
 
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
@@ -727,14 +726,73 @@ decodeImage :: JpgImage
             -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
             -> BoolReader s ()
 decodeImage img compCount outImage = do
-    let blockIndices = [(x,y) | y <- [0 ..   verticalMcuCount decoder - 1]
-                              , x <- [0 .. horizontalMcuCount decoder - 1] ]
-        blockBeforeRestart = restartInterval decoder
+    zigZagArray <- lift $ createEmptyMutableMacroBlock
+    dcArray <- lift (M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient))
+
+    let huffmans = gatherHuffmanTables img
+        huffmanForComponent dcOrAc dest =
+            head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
+                                       , huffmanTableDest h == dest]
+ 
+        mcuBeforeRestart = case [i | JpgIntervalRestart i <- jpgFrame img] of
+            []    -> maxBound :: Int -- HUUUUUUGE value (enough to parse all MCU)
+            (x:_) -> fromIntegral x
+ 
+        quants = gatherQuantTables img
+        quantForComponent dest =
+            head [quantTable q | q <- quants, quantDestination q == dest]
+ 
+        hdr = head [h | JpgScanBlob h _ <- jpgFrame img]
+ 
+        (_, scanInfo) = gatherScanInfo img
+        imgWidth = fromIntegral $ jpgWidth scanInfo
+        imgHeight = fromIntegral $ jpgHeight scanInfo
+ 
+        blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
+                where (block, rest) = fullDim `divMod` maxBlockSize
+ 
+        horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
+ 
+        imgComponentCount = fromIntegral $ jpgImageComponentCount scanInfo
+        isImageLumanOnly = imgComponentCount == 1
+        maxHorizFactor | not isImageLumanOnly &&
+                            not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings
+                       | otherwise = 1
+ 
+        verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
+        maxVertFactor | not isImageLumanOnly &&
+                            not (allElementsEqual verticalSamplings) = maximum verticalSamplings
+                      | otherwise = 1
+ 
+        horizontalBlockCount =
+           blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
+ 
+        verticalBlockCount =
+           blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
+
+        fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
+            where idx = componentIdentifier component
+                  descr = head [c | c <- scans hdr, componentSelector c  == idx]
+                  dcTree = -- packHuffmanTree .
+                           huffmanForComponent DcComponent $ dcEntropyCodingTable descr
+                  acTree = -- packHuffmanTree . 
+                           huffmanForComponent AcComponent $ acEntropyCodingTable descr
+                  qTable = quantForComponent $ if idx == 1 then 0 else 1
+                  horizCount = if not isImageLumanOnly
+                        then fromIntegral $ horizontalSamplingFactor component
+                        else 1
+                  vertCount = if not isImageLumanOnly
+                        then fromIntegral $ verticalSamplingFactor component
+                        else 1
+ 
+        componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
+
+    let blockIndices = [(x,y) | y <- [0 ..   verticalBlockCount - 1]
+                              , x <- [0 .. horizontalBlockCount - 1] ]
+        blockBeforeRestart = mcuBeforeRestart
 
         folder f = foldM_ f blockBeforeRestart blockIndices
 
-    zigZagArray <- lift $ createEmptyMutableMacroBlock
-    dcArray <- lift (M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient))
     folder (\resetCounter (x,y) -> do
         when (resetCounter == 0)
              (do forM_ [0.. compCount - 1] $
@@ -743,64 +801,6 @@ decodeImage img compCount outImage = do
                  _restartCode <- decodeRestartInterval
                  -- if 0xD0 <= restartCode && restartCode <= 0xD7
                  return ())
-
-        let huffmans = gatherHuffmanTables img
-            huffmanForComponent dcOrAc dest =
-                head [t | (h,t) <- huffmans, huffmanTableClass h == dcOrAc
-                                           , huffmanTableDest h == dest]
- 
-            mcuBeforeRestart = case [i | JpgIntervalRestart i <- jpgFrame img] of
-                []    -> maxBound -- HUUUUUUGE value (enough to parse all MCU)
-                (x:_) -> fromIntegral x
- 
-            quants = gatherQuantTables img
-            quantForComponent dest =
-                head [quantTable q | q <- quants, quantDestination q == dest]
- 
-            hdr = head [h | JpgScanBlob h _ <- jpgFrame img]
- 
-            (_, scanInfo) = gatherScanInfo img
-            imgWidth = fromIntegral $ jpgWidth scanInfo
-            imgHeight = fromIntegral $ jpgHeight scanInfo
- 
-            blockSizeOfDim fullDim maxBlockSize = block + (if rest /= 0 then 1 else 0)
-                    where (block, rest) = fullDim `divMod` maxBlockSize
- 
-            horizontalSamplings = [horiz | (horiz, _, _, _, _) <- componentsInfo]
- 
-            imgComponentCount = fromIntegral $ jpgImageComponentCount scanInfo
-            isImageLumanOnly = imgComponentCount == 1
-            maxHorizFactor | not isImageLumanOnly &&
-                                not (allElementsEqual horizontalSamplings) = maximum horizontalSamplings
-                           | otherwise = 1
- 
-            verticalSamplings = [vert | (_, vert, _, _, _) <- componentsInfo]
-            maxVertFactor | not isImageLumanOnly &&
-                                not (allElementsEqual verticalSamplings) = maximum verticalSamplings
-                          | otherwise = 1
- 
-            horizontalBlockCount =
-               blockSizeOfDim imgWidth $ fromIntegral (maxHorizFactor * 8)
- 
-            verticalBlockCount =
-               blockSizeOfDim imgHeight $ fromIntegral (maxVertFactor * 8)
- 
-            fetchTablesForComponent component = (horizCount, vertCount, dcTree, acTree, qTable)
-                where idx = componentIdentifier component
-                      descr = head [c | c <- scans hdr, componentSelector c  == idx]
-                      dcTree = -- packHuffmanTree .
-                               huffmanForComponent DcComponent $ dcEntropyCodingTable descr
-                      acTree = -- packHuffmanTree . 
-                               huffmanForComponent AcComponent $ acEntropyCodingTable descr
-                      qTable = quantForComponent $ if idx == 1 then 0 else 1
-                      horizCount = if not isImageLumanOnly
-                            then fromIntegral $ horizontalSamplingFactor component
-                            else 1
-                      vertCount = if not isImageLumanOnly
-                            then fromIntegral $ verticalSamplingFactor component
-                            else 1
- 
-            componentsInfo = map fetchTablesForComponent $ jpgComponents scanInfo
 
 {-
         mcus = [(compIdx, \x y writeImg zigzag dc -> do
@@ -827,14 +827,14 @@ decodeImage img compCount outImage = do
                     liner yd = columner 0
                       where columner xd | xd >= horizCount = liner (yd + 1)
                             columner xd = do
-                                dc <- lift $ dcArray `M.unsafeRead` comp
-                                dcCoeff <- unpackMacroBlock imgComponentCount 
-                                                            compIdx 
-                                                            xScalingFactor 
-                                                            yScalingFactor
-                                                            x y outImage zigZagArray $ fromIntegral dc
-                                lift $ (dcArray `M.unsafeWrite` comp) dcCoeff
+                                dc <- lift $ dcArray `M.unsafeRead` compIdx
+                                (dcCoeff, block) <-
+                                    decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
+                                lift $ unpackMacroBlock imgComponentCount compIdx xScalingFactor yScalingFactor
+                                    (x * horizCount + xd) (y * vertCount + yd) outImage block
+                                lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
                                 columner $ xd + 1
+        comp 0 componentsInfo
 
 {-
         forM_ (mcuDecoder decoder) $ \(comp, dataUnitDecoder) -> do
@@ -847,18 +847,6 @@ decodeImage img compCount outImage = do
                                          -- we use blockBeforeRestart - 1 to count
                                          -- the current MCU
                             else return $ blockBeforeRestart - 1)
-
--- | Type of a data unit (as in the ITU 81) standard
-type DataUnitDecoder s  =
-    (Int, Int -> Int -> MutableImage s PixelYCbCr8 -> MutableMacroBlock s Int16 -> DcCoefficient
-              -> BoolReader s DcCoefficient)
-
-data JpegDecoder s = JpegDecoder
-    { restartInterval    :: Int
-    , horizontalMcuCount :: Int
-    , verticalMcuCount   :: Int
-    , mcuDecoder         :: [DataUnitDecoder s]
-    }
 
 allElementsEqual :: (Eq a) => [a] -> Bool
 allElementsEqual []     = True
@@ -897,7 +885,7 @@ decodeJpeg file = case runGetStrict get file of
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedStringJpg imgData
                 decodeImage img compCount wrapped
-                return resultImage) (-1, 0, B.empty)
+                return resultImage) (BoolState (-1) 0 B.empty)
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
@@ -991,7 +979,7 @@ divUpward n dividor = val + (if rest /= 0 then 1 else 0)
     where (val, rest) = n `divMod` dividor
 
 prepareHuffmanTable :: DctComponent -> Word8 -> HuffmanTable
-                    -> (JpgHuffmanTableSpec, HuffmanTree)
+                    -> (JpgHuffmanTableSpec, HuffmanTreeInfo)
 prepareHuffmanTable classVal dest tableDef = 
    (JpgHuffmanTableSpec { huffmanTableClass = classVal
                         , huffmanTableDest  = dest
@@ -999,7 +987,7 @@ prepareHuffmanTable classVal dest tableDef =
                         , huffCodes = V.fromListN 16
                             [VU.fromListN (fromIntegral $ sizes ! i) lst
                                                 | (i, lst) <- zip [0..] tableDef ]
-                        }, Empty)
+                        }, VS.singleton 0)
       where sizes = VU.fromListN 16 $ map (fromIntegral . length) tableDef   
 
 -- | Encode an image in jpeg at a reasonnable quality level.

@@ -919,7 +919,7 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
             cb = -0.16874 * rf - 0.33126 * gf + 0.50000 * bf + 128
             cr =  0.50000 * rf - 0.41869 * gf - 0.08131 * bf + 128
 
-crRTab, cbBTab, cbGTab :: V.Vector Int
+crRTab, cbBTab, crGTab, cbGTab :: V.Vector Int
 crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
 cbBTab = V.fromListN 256 [(fix 1.77200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
 crGTab = V.fromListN 256 [negate (fix 0.71414) * x | x <- [-128 .. 127]]

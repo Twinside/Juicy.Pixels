@@ -1,6 +1,5 @@
 module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
-                              , mutate
                               , printMacroBlock
                               ) where
 
@@ -17,17 +16,6 @@ type MutableMacroBlock s a = M.STVector s a
 -- | Create a new macroblock with the good array size
 createEmptyMutableMacroBlock :: (Storable a, Num a) => ST s (MutableMacroBlock s a)
 createEmptyMutableMacroBlock = M.replicate 64 0
-
-{-# INLINE mutate #-}
--- | Return the transformed block
-mutate :: Storable a
-       => (Int -> a -> a)   -- ^ The updating function
-       -> MutableMacroBlock s a -> ST s (MutableMacroBlock s a)
-mutate f block = update 0 >> return block
-   where updateVal i = (block `M.unsafeRead` i) >>= (block `M.unsafeWrite` i) . f i
-
-         update 63 = updateVal 63
-         update n  = updateVal n >> update (n + 1)
 
 printMacroBlock :: (Storable a, PrintfArg a)
                 => MutableMacroBlock s a -> ST s String

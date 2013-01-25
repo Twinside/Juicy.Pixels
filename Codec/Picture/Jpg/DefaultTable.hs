@@ -42,25 +42,38 @@ import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import qualified Data.Vector.Storable.Mutable as M
 
-import Debug.Trace
-import Text.Printf
 -- | Tree storing the code used for huffman encoding.
 data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the first subtree, if 1, the right.
                  | Leaf Word8       -- ^ We should output the value
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
-type HuffmanPackedTree = SV.Vector Int16
+type HuffmanPackedTree = SV.Vector Word16
 
 type HuffmanWriterCode = V.Vector (Word8, Word16)
 
 packHuffmanTree :: HuffmanTree -> HuffmanPackedTree
 packHuffmanTree tree = runST $ do
-    table <- M.replicate 2048 0x0800
+    table <- M.replicate 512 0x8000
     let aux (Empty) idx = return $ idx + 1
         aux (Leaf v) idx = do
-            (table `M.unsafeWrite` idx) . negate $ fromIntegral v
+            (table `M.unsafeWrite` idx) $ (fromIntegral v .|. 0x4000)
             return $ idx + 1
+
+        aux (Branch i1@(Leaf _) i2@(Leaf _)) idx =
+            aux i1 idx >>= aux i2
+
+        aux (Branch i1@(Leaf _) i2) idx = do
+            _ <- aux i1 idx
+            ix2 <- aux i2 $ idx + 2
+            (table `M.unsafeWrite` (idx + 1)) $ fromIntegral $ idx + 2
+            return ix2
+
+        aux (Branch i1 i2@(Leaf _)) idx = do
+            ix1 <- aux i1 (idx + 2)
+            _ <- aux i2 (idx + 1)
+            (table `M.unsafeWrite` idx) (fromIntegral ix1)
+            return ix1
 
         aux (Branch i1 i2) idx = do
             ix1 <- aux i1 (idx + 2)
@@ -68,8 +81,8 @@ packHuffmanTree tree = runST $ do
             (table `M.unsafeWrite` idx) (fromIntegral $ idx + 2)
             (table `M.unsafeWrite` (idx + 1)) (fromIntegral ix1)
             return ix2
-    final <- aux tree 0
-    trace (printf "final ix:%d" final) $ SV.unsafeFreeze table
+    _ <- aux tree 0
+    SV.unsafeFreeze table
 
 makeInverseTable :: HuffmanTree -> HuffmanWriterCode
 makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t

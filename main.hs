@@ -248,9 +248,9 @@ gifTest = ["delta.gif"
           ,"animated.gif"
           ,"Gif_pixel_cube.gif"
           ,"magceit.gif"
-          ,"huge.gif"
           ,"2k.gif"
           ,"interleaved.gif"
+          ,"huge.gif"
           ]
 
 radianceTest :: [FilePath]
@@ -264,15 +264,15 @@ testSuite = do
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
 
-    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : []) -- jpegValidTests)
-    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
-    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
+    planeSeparationRGB8Test 
+    planeSeparationRGBA8Test 
+    planeSeparationYA8Test 
 
-    {-planeSeparationRGB8Test -}
-    {-planeSeparationRGBA8Test -}
-    {-planeSeparationYA8Test -}
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
 
 jpegToPng :: IO ()
 jpegToPng = do
@@ -297,32 +297,31 @@ benchMark :: IO ()
 benchMark = do
     putStrLn "Benchmarking"
 
-    {-hugeJpeg <- B.readFile "tests/jpeg/huge.jpg"-}
-    {-hugePng <- B.readFile "tests/pngsuite/huge.png"-}
+    hugeJpeg <- B.readFile "tests/jpeg/huge.jpg"
+    hugePng <- B.readFile "tests/pngsuite/huge.png"
     {-hugeGif <- B.readFile "tests/gif/huge.gif"-}
 
-    {-let Right decodedImage = decodeImage hugePng-}
+    let Right decodedImage = decodeImage hugePng
 
-    {-jpegToPng >> pngToJpeg-}
+    jpegToPng >> pngToJpeg
 
     let myConfig = C.defaultConfig { C.cfgSamples = C.ljust 12 }
     defaultMainWith myConfig (return ()) [
         bgroup "trad"
             [ bench "JPG -> PNG" $ whnfIO jpegToPng 
             , bench "PNG -> JPG" $ whnfIO pngToJpeg
-            ]
-            {-,-}
+            ],
 
-        {-bgroup "reading"-}
-            {-[ bench "Huge jpeg" $ nf decodeImage hugeJpeg-}
-            {-, bench "Huge png" $ nf decodeImage hugePng-}
+        bgroup "reading"
+            [ bench "Huge jpeg" $ nf decodeImage hugeJpeg
+            , bench "Huge png" $ nf decodeImage hugePng
             {-, bench "Huge gif" $ nf decodeImage hugeGif-}
-            {-],-}
+            ],
 
-        {-bgroup "writing"-}
-            {-[ bench "Huge jpeg" $ whnfIO $ saveJpgImage 50 "s.jpg" decodedImage-}
-            {-, bench "Huge png" $ whnfIO $ savePngImage "p.png" decodedImage-}
-            {-]-}
+        bgroup "writing"
+            [ bench "Huge jpeg" $ whnfIO $ saveJpgImage 50 "s.jpg" decodedImage
+            , bench "Huge png" $ whnfIO $ savePngImage "p.png" decodedImage
+            ]
         ]
     putStrLn "END"
 
@@ -330,9 +329,6 @@ main :: IO ()
 main = do 
     args <- getArgs
     case args of
-        ("bum":_) -> 
-            -- jpegToPng
-            pngToJpeg
         ("test":_) -> testSuite
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
