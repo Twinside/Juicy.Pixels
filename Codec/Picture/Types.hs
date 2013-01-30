@@ -410,8 +410,16 @@ class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a
     -- | Write a pixel in a mutable image at position x y
     writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
 
+    -- | Unsafe version of pixelAt, read a pixel at the given
+    -- index without bound checking (if possible)
     unsafePixelAt :: V.Vector (PixelBaseComponent a) -> Int -> a
+
+    -- | Unsafe version of readPixel,  read a pixel at the given
+    -- position without bound checking (if possible)
     unsafeReadPixel :: M.STVector s (PixelBaseComponent a) -> Int -> ST s a
+
+    -- | Unsafe version of writePixel, write a pixel at the
+    -- given position without bound checking. This can be _really_ unsafe.
     unsafeWritePixel :: M.STVector s (PixelBaseComponent a) -> Int -> a -> ST s ()
 
 
@@ -461,12 +469,14 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
   where compCount = componentCount (undefined :: a)
         generated = runST $ do
             arr <- M.new (w * h * compCount)
-            let mutImage = MutableImage {
-                                mutableImageWidth = w,
-                                mutableImageHeight = h,
-                                mutableImageData = arr }
-            forM_ [(x,y) | y <- [0 .. h-1], x <- [0 .. w-1]] $ \(x,y) ->
-                writePixel mutImage x y $ f x y
+            let lineGenerator _ y | y >= h = return ()
+                lineGenerator lineIdx y = column lineIdx 0
+                  where column idx x | x >= w = lineGenerator idx $ y + 1
+                        column idx x = do
+                            unsafeWritePixel arr idx $ f x y
+                            column (idx + compCount) $ x + 1
+
+            lineGenerator 0 0
             V.unsafeFreeze arr
 
 -- | Create an image given a function to generate pixels.
@@ -563,6 +573,9 @@ class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- | Extract a luma plane out of an image. This
     -- method is in the typeclass to help performant
     -- implementation.
+    --
+    -- > jpegToGrayScale :: FilePath -> FilePath -> IO ()
+    -- > jpegToGrayScale source dest 
     extractLumaPlane :: Image a -> Image (PixelBaseComponent a)
     extractLumaPlane = pixelMap computeLuma
 

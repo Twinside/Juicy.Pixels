@@ -689,20 +689,50 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y 
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block =
-  forM_ pixelIndices $ \(i, j, wDup, hDup) -> do
-      let xPos = (i + x * 8) * wCoeff + wDup
-          yPos = (j + y * 8) * hCoeff + hDup
-      when (0 <= xPos && xPos < imgWidth && 0 <= yPos && yPos < imgHeight)
-           (do compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * 8))
-               let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
-               (img `M.unsafeWrite` mutableIdx) compVal)
+                 block | x >= 0 && y >= 0 && (x + 1) * 8 < imgWidth && (y + 1) * 8 < imgHeight = blockVert 0
+  where verticalWriteIncrement = imgWidth * compCount
+        horizontalWriteIncrement = imgWidth * compCount
 
-    where pixelIndices = [(i, j, wDup, hDup) | i <- [0 .. 7], j <- [0 .. 7]
-                                -- Repetition to spread macro block
-                                , wDup <- [0 .. wCoeff - 1]
-                                , hDup <- [0 .. hCoeff - 1]
-                                ]
+        blockVert j | j >= 8 = return ()
+        blockVert j = blockHoriz 0
+          where yBase = (j + y * 8) * hCoeff 
+                blockHoriz i | i >= 8 = blockVert $ j + 1
+                blockHoriz i = (pixelClamp <$> (block `M.unsafeRead` (i + j * 8))) >>= horizDup 0
+                  where xBase = (i + x * 8) * wCoeff
+                        horizDup wDup _ | wDup >= wCoeff = blockHoriz $ i + 1
+                        horizDup wDup compVal = vertDup 0
+                          where vertDup hDup | hDup >= hCoeff = horizDup (wDup + 1) compVal
+                                vertDup hDup = do
+                                  let xPos = xBase + wDup
+                                      yPos = yBase + hDup
+                                  let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
+                                  (img `M.unsafeWrite` mutableIdx) compVal
+                                  vertDup $ hDup + 1
+
+unpackMacroBlock compCount compIdx  wCoeff hCoeff x y 
+                 (MutableImage { mutableImageWidth = imgWidth,
+                                 mutableImageHeight = imgHeight, mutableImageData = img })
+                 block = blockVert 0
+  where verticalWriteIncrement = imgWidth * compCount
+        horizontalWriteIncrement = imgWidth * compCount
+
+        blockVert j | j >= 8 = return ()
+        blockVert j = blockHoriz 0
+          where yBase = (j + y * 8) * hCoeff 
+                blockHoriz i | i >= 8 = blockVert $ j + 1
+                blockHoriz i = (pixelClamp <$> (block `M.unsafeRead` (i + j * 8))) >>= horizDup 0
+                  where xBase = (i + x * 8) * wCoeff
+                        horizDup wDup _ | wDup >= wCoeff = blockHoriz $ i + 1
+                        horizDup wDup compVal = vertDup 0
+                          where vertDup hDup | hDup >= hCoeff = horizDup (wDup + 1) compVal
+                                vertDup hDup = do
+                                  let xPos = xBase + wDup
+                                      yPos = yBase + hDup
+                                  when (0 <= xPos && xPos < imgWidth && 0 <= yPos && yPos < imgHeight)
+                                       (do let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
+                                           (img `M.unsafeWrite` mutableIdx) compVal)
+
+                                  vertDup $ hDup + 1
 
 -- | Type only used to make clear what kind of integer we are carrying
 -- Might be transformed into newtype in the future

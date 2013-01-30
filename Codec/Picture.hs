@@ -178,7 +178,7 @@ saveRadianceImage path = L.writeFile path . imageToRadiance
 -- >    eitherImg <- decodeImage pathIn
 -- >    case eitherImg of
 -- >        Left _ -> return ()
--- >        Right img -> savePngImage img
+-- >        Right img -> savePngImage pathOut img
 --
 savePngImage :: String -> DynamicImage -> IO ()
 savePngImage path img = L.writeFile path $ imageToPng img
