@@ -90,8 +90,8 @@ import Codec.Picture.HDR( decodeHDR
                         )
 import Codec.Picture.Saving
 import Codec.Picture.Types
-import System.IO ( withFile, IOMode(ReadMode) )
-
+-- import System.IO ( withFile, IOMode(ReadMode) )
+import System.IO.MMap ( mmapFileByteString )
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -111,8 +111,7 @@ withImageDecoder :: (NFData a)
                  -> IO (Either String a)
 withImageDecoder decoder path = Exc.catch doit
                     (\e -> return . Left $ show (e :: Exc.IOException))
-    where doit = withFile path ReadMode $ \h ->
-                    force . decoder <$> B.hGetContents h
+    where doit = force . decoder <$> mmapFileByteString path Nothing
           -- force appeared in deepseq 1.3, Haskell Platform
           -- provide 1.1
           force x = x `deepseq` x
