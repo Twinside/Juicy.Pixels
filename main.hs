@@ -290,7 +290,7 @@ pngToJpeg = do
     Left err -> do
         putStrLn err
         {-error "Can't decompress img"-}
-    Right i -> saveJpgImage 50 "huge.jpg" i
+    Right i -> saveJpgImage 95 "huge.jpg" i
 
 
 benchMark :: IO ()
@@ -330,6 +330,7 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
+        ("prof":_) -> jpegToPng >> pngToJpeg
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark
