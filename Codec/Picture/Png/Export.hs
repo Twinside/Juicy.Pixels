@@ -9,15 +9,15 @@ module Codec.Picture.Png.Export( PngSavable( .. )
                                , writeDynamicPng
                                ) where
 
-import Data.Binary( Binary(..), encode )
-import Data.Binary.Put( putWord8 )
-import qualified Data.Vector.Storable as VS
+import Data.Binary( encode )
 import Data.Word(Word8)
 import qualified Codec.Compression.Zlib as Z
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
 
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
+import Codec.Picture.VectorByteConversion
 
 -- | Encode an image into a png if possible.
 class PngSavable a where
@@ -56,30 +56,18 @@ prepareIDatChunk imgData = PngRawChunk
     , chunkData   = imgData
     }
 
-data PNGline = PNGline !(VS.Vector Word8) !Int !Int !Int
-
-instance Binary PNGline where
-    get = error "Unimplemented"
-    put (PNGline vec lineWidth comp line) = do
-        putWord8 0
-        let baseIdx = line * lineWidth * comp
-            toPush = lineWidth * comp
-
-            pusher _ 0 = return ()
-            pusher idx n = do
-                putWord8 $ vec `VS.unsafeIndex` idx
-                pusher (idx + 1) (n - 1)
-
-        pusher baseIdx toPush
-
 genericEncodePng :: (PixelBaseComponent a ~ Word8)
                  => PngImageType -> Int -> Image a -> Lb.ByteString
 genericEncodePng imgKind compCount 
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr, chunks = [prepareIDatChunk imgEncodedData, endChunk]}
     where hdr = preparePngHeader image imgKind 8
-          encodeLine line = encode (PNGline arr w compCount line)
-          imgEncodedData = Z.compress $ Lb.concat [encodeLine line | line <- [0 .. h - 1]]
+          zero = B.singleton 0
+
+          lineSize = compCount * w
+          encodeLine line = blitVector arr (line * lineSize) lineSize
+          imgEncodedData = Z.compress . Lb.fromChunks
+                        $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
 instance PngSavable PixelRGBA8 where
     encodePng = genericEncodePng PngTrueColourWithAlpha 4
