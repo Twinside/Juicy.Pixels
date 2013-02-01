@@ -547,7 +547,7 @@ pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
           destComponentCount = componentCount (undefined :: b)
 
           pixels = runST $ do
-            newArr <- M.replicate (w * h * destComponentCount) 0
+            newArr <- M.new (w * h * destComponentCount)
             let lineMapper _ _ y | y >= h = return ()
                 lineMapper readIdxLine writeIdxLine y = colMapper readIdxLine writeIdxLine 0
                   where colMapper readIdx writeIdx x
@@ -943,12 +943,37 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     convertPixel (PixelYCbCr8 y cb cr) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
         where clampWord8 = fromIntegral . max 0 . min 255
               yi = fromIntegral y
-              cri = fromIntegral cr
               cbi = fromIntegral cb
+              cri = fromIntegral cr
 
               r = yi +  crRTab `V.unsafeIndex` cri
               g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `shiftR` scaleBits
               b = yi +  cbBTab `V.unsafeIndex` cbi
+
+    convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
+        where maxi = w * h
+              clampWord8 v | v < 0 = 0
+                           | v > 255 = 255
+                           | otherwise = fromIntegral v
+
+              newData = runST $ do
+                block <- M.new $ maxi * 3
+                let traductor _ idx | idx >= maxi = return block
+                    traductor readIdx idx = do
+                        let yi =  fromIntegral $ d `V.unsafeIndex` readIdx
+                            cbi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
+                            cri = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
+
+                            r = yi +  crRTab `V.unsafeIndex` cri
+                            g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `shiftR` scaleBits
+                            b = yi +  cbBTab `V.unsafeIndex` cbi
+
+                        (block `M.unsafeWrite` (readIdx + 0)) $ clampWord8 r
+                        (block `M.unsafeWrite` (readIdx + 1)) $ clampWord8 g
+                        (block `M.unsafeWrite` (readIdx + 2)) $ clampWord8 b
+                        traductor (readIdx + 3) (idx + 1)
+
+                traductor 0 0 >>= V.freeze
 
 -- | Perform a gamma correction for an image with HDR pixels.
 gammaCorrection :: PixelF          -- ^ Gamma value, should be between 0.5 and 3.0
