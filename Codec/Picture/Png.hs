@@ -349,7 +349,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
             PngNoInterlace -> scanLineInterleaving
             PngInterlaceAdam7 -> adam7Unpack
         iBitDepth = fromIntegral depth
-    imgArray <- lift $ M.replicate arraySize 0
+    imgArray <- lift $ M.new arraySize
     let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
     deinterlaceFunction iBitDepth 
                         (fromIntegral compCount)

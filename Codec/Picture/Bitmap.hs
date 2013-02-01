@@ -216,7 +216,7 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
   where wi = fromIntegral w
         hi = fromIntegral h
         stArray = runST $ do
-            arr <- M.replicate (fromIntegral $ w * h * 3) 128
+            arr <- M.new (fromIntegral $ w * h * 3)
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
             V.unsafeFreeze arr
 

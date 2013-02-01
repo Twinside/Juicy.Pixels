@@ -987,7 +987,7 @@ decodeJpeg file = case runGetStrict get file of
             imageSize = imgWidth * imgHeight * compCount
 
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
-                resultImage <- lift $ M.replicate imageSize 0
+                resultImage <- lift $ M.new imageSize
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedStringJpg imgData
                 decodeImage img compCount wrapped
