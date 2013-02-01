@@ -22,6 +22,7 @@ import Control.Monad.Trans.Class( MonadTrans( .. ) )
 import Data.Word( Word8, Word32 )
 import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
 
+import Codec.Picture.VectorByteConversion( blitVector )
 import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString as B
@@ -135,18 +136,10 @@ flushCurrentBuffer :: BoolWriteState s -> ST s (BoolWriteState s)
 flushCurrentBuffer st | writtenWords st < M.length (wordWrite st) = return st
 flushCurrentBuffer st = forceBufferFlushing st
 
--- Data.Vector.Storable.Mutable
--- unsafeToForeignPtr0 :: Storable a => MVector s a -> (ForeignPtr a, Int)
---
--- Data.ByteString.Unsafe
--- unsafePackCStringFinalizer :: Ptr Word8 -> Int -> IO () -> IO ByteString
---
--- Data.Vector.Storable.Internal
--- getPtr :: ForeignPtr a -> Ptr a
 byteStringFromVector :: M.MVector s Word8 -> Int -> ST s B.ByteString
 byteStringFromVector vec size = do
     frozen <- VS.unsafeFreeze vec
-    return . B.pack . take size $ VS.toList frozen
+    return $ blitVector frozen 0 size
 
 setBitCount :: Word8 -> Int -> BoolWriter s ()
 setBitCount acc count = S.modify $ \s ->
