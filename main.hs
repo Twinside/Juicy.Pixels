@@ -119,12 +119,11 @@ imgToImg path = do
                 jpg = validationJpegEncode img
                 png = encodePng rgb
                 bmp = encodeBitmap rgb
-            {-return ()-}
-            {-putStrLn $ "YCbCr : " ++ path-}
+            putStrLn $ "YCbCr : " ++ path
             putStrLn "-> JPG"
             L.writeFile (path ++ "._fromYCbCr8.jpg") jpg
-            {-putStrLn "-> BMP"-}
-            {-L.writeFile (path ++ "._fromYCbCr8.bmp") bmp-}
+            putStrLn "-> BMP"
+            L.writeFile (path ++ "._fromYCbCr8.bmp") bmp
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYCbCr8.png") png
 
