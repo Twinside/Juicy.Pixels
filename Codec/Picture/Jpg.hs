@@ -521,7 +521,7 @@ inverseDirectCosineTransform :: MutableMacroBlock s Int16
 inverseDirectCosineTransform mBlock =
     fastIdct mBlock >>= mutableLevelShift
 
-zigZagOrder :: MacroBlock Word8
+zigZagOrder :: MacroBlock Int
 zigZagOrder = makeMacroBlock $ concat
     [[ 0, 1, 5, 6,14,15,27,28]
     ,[ 2, 4, 7,13,16,26,29,42]
@@ -543,14 +543,20 @@ zigZagReorderForward :: (Storable a, Num a)
                      => MutableMacroBlock s a
                      -> MutableMacroBlock s a
                      -> ST s (MutableMacroBlock s a)
+{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Int16
+                                           -> MutableMacroBlock s Int16
+                                           -> ST s (MutableMacroBlock s Int16) #-}
+{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Word8
+                                           -> MutableMacroBlock s Word8
+                                           -> ST s (MutableMacroBlock s Word8) #-}
 zigZagReorderForward zigzaged block = do
-    let update i =  do
+    let reorder i | i >= 64 = return ()
+        reorder i  = do
             let idx = zigZagOrder `VS.unsafeIndex` i
             v <- block `M.unsafeRead` fromIntegral i
-            (zigzaged `M.unsafeWrite` fromIntegral idx) v
+            (zigzaged `M.unsafeWrite` idx) v
 
-        reorder 64 = return ()
-        reorder i  = update i >> reorder (i + 1)
+            reorder (i + 1)
 
     reorder (0 :: Int)
     return zigzaged
@@ -560,7 +566,7 @@ zigZagReorder :: MutableMacroBlock s Int16 -> MutableMacroBlock s Int16
 zigZagReorder zigzaged block = do
     let update i =  do
             let idx = zigZagOrder `VS.unsafeIndex` i
-            v <- block `M.unsafeRead` fromIntegral idx
+            v <- block `M.unsafeRead` idx
             (zigzaged `M.unsafeWrite` i) v
 
         reorder 63 = update 63

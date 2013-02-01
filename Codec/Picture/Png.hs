@@ -18,7 +18,7 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( foldM_, forM_, when )
+import Control.Monad( forM_, when )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
@@ -31,6 +31,7 @@ import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Unsafe as BU
 import qualified Data.ByteString.Lazy as Lb
 import Foreign.Storable ( Storable )
 
@@ -68,15 +69,16 @@ unparsePngFilter 2 = Right FilterUp
 unparsePngFilter 3 = Right FilterAverage
 unparsePngFilter 4 = Right FilterPaeth
 unparsePngFilter _ = Left "Invalid scanline filter"
+{-# INLINE unparsePngFilter #-}
 
-type ByteReader s a = S.StateT B.ByteString (ST s) a
+type ByteReader s a = S.StateT (B.ByteString, Int) (ST s) a
 
 {-# INLINE getNextByte #-}
 getNextByte :: ByteReader s Word8
-getNextByte = do str <- S.get
-                 case B.uncons str of
-                    Just (v, rest) -> S.put rest >> return v
-                    Nothing -> return 0
+getNextByte = do
+    (str, idx) <- S.get
+    S.put (str, idx + 1)
+    return $ str `BU.unsafeIndex` idx
 
 {-# INLINE getBounds #-}
 getBounds :: (Monad m, Storable a) => M.STVector s a -> m (Int, Int)
@@ -91,7 +93,8 @@ pngFiltering _ _ (imgWidth, imgHeight) | imgWidth <= 0 || imgHeight <= 0 = retur
 pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
     thisLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
     otherLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
-    foldM_ (\(previousLine, currentLine) lineIndex -> do
+    let folder            _          _  lineIndex | lineIndex >= imgHeight = return ()
+        folder previousLine currentLine lineIndex = do
                byte <- getNextByte
                let lineFilter = case unparsePngFilter byte of
                        Right FilterNone    -> filterNone
@@ -102,8 +105,9 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
                        _ -> filterNone
                lineFilter (previousLine, currentLine)
                lift $ unpacker lineIndex (stride, currentLine)
-               return (currentLine, previousLine)
-        ) (thisLine, otherLine) [0 .. imgHeight - 1]
+               folder currentLine previousLine $ lineIndex + 1
+
+    folder thisLine otherLine (0 :: Int)
 
     where stride = fromIntegral beginZeroes
           lastIdx = beginZeroes + imgWidth - 1
@@ -155,20 +159,20 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
                                              lift . (thisLine `M.unsafeWrite` idx) $ byte + paeth valA valB valC
                                              inner (idx + 1)
 
+                  paeth a b c
+                    | pa <= pb && pa <= pc = a
+                    | pb <= pc             = b
+                    | otherwise            = c
+                      where a' = fromIntegral a :: Int
+                            b' = fromIntegral b
+                            c' = fromIntegral c
+                            p = a' + b' - c'
+                            pa = abs $ p - a'
+                            pb = abs $ p - b'
+                            pc = abs $ p - c'
+                  
 -- | Directly stolen from the definition in the standard (on W3C page),
 -- pixel predictor.
-paeth :: Word8 -> Word8 -> Word8 -> Word8
-paeth a b c
-  | pa <= pb && pa <= pc = a
-  | pb <= pc             = b
-  | otherwise            = c
-    where a' = fromIntegral a :: Int
-          b' = fromIntegral b
-          c' = fromIntegral c
-          p = a' + b' - c'
-          pa = abs $ p - a'
-          pb = abs $ p - b'
-          pc = abs $ p - c'
 
 type PngLine s = M.STVector s Word8
 type LineUnpacker s = Int -> (Int, PngLine s) -> ST s ()
@@ -446,5 +450,5 @@ decodePng byte = do
                     Just p -> case parsePalette p of
                             Left _ -> Nothing
                             Right plte -> Just plte
-            in unparse palette (colourType ihdr) parseableData
+            in unparse palette (colourType ihdr) (parseableData, 0)
 
