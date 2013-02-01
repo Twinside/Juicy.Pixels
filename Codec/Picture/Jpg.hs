@@ -930,7 +930,7 @@ decodeImage img compCount outImage = do
               where liner yd | yd >= vertCount = comp (compIdx + 1) comp_rest
                     liner yd = columner 0
                       where columner xd | xd >= horizCount = liner (yd + 1)
-                            columner xd | xd == horizCount - 1 && x == horizontalBlockCount - 1= do
+                            columner xd | (xd == horizCount - 1 && x == horizontalBlockCount - 1) || yd == horizCount - 1 = do
                                 dc <- lift $ dcArray `M.unsafeRead` compIdx
                                 (dcCoeff, block) <-
                                     decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
