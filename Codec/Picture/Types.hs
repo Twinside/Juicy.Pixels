@@ -533,14 +533,13 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
 --
 pixelMap :: forall a b. (Pixel a, Pixel b)
          => (a -> b) -> Image a -> Image b
-{-# INLINE pixelMap #-}
 {-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
-{-# SPECIALIZE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
-{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
-{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
-{-# SPECIALIZE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
-{-# SPECIALIZE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
-{-# SPECIALIZE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
 pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
   Image w h pixels
     where sourceComponentCount = componentCount (undefined :: a)
@@ -907,10 +906,6 @@ instance (Pixel a) => ColorSpaceConvertible a a where
     convertPixel = id
     convertImage = id
 
-#define SCALEBITS	16	/* speediest right-shift on some machines */
-#define ONE_HALF	((INT32) 1 << (SCALEBITS-1))
-#define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
-
 scaleBits, oneHalf :: Int
 scaleBits = 16
 oneHalf = 1 `shiftL` (scaleBits - 1)
@@ -918,19 +913,47 @@ oneHalf = 1 `shiftL` (scaleBits - 1)
 fix :: Float -> Int
 fix x = floor $ x * fromIntegral ((1 :: Int) `shiftL` scaleBits) + 0.5
 
+
+rYTab, gYTab, bYTab, rCbTab, gCbTab, bCbTab, gCrTab, bCrTab :: V.Vector Int
+rYTab = V.fromListN 256 [fix 0.29900 * i | i <- [0..255] ]
+gYTab = V.fromListN 256 [fix 0.58700 * i | i <- [0..255] ]
+bYTab = V.fromListN 256 [fix 0.11400 * i + oneHalf | i <- [0..255] ]
+rCbTab = V.fromListN 256 [(- fix 0.16874) * i | i <- [0..255] ]
+gCbTab = V.fromListN 256 [(- fix 0.33126) * i | i <- [0..255] ]
+bCbTab = V.fromListN 256 [fix 0.5 * i + (128 `shiftL` scaleBits) + oneHalf - 1| i <- [0..255] ]
+gCrTab = V.fromListN 256 [(- fix 0.41869) * i | i <- [0..255] ]
+bCrTab = V.fromListN 256 [(- fix 0.08131) * i | i <- [0..255] ]
+
 instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
     {-# INLINE convertPixel #-}
-    convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (truncate y)
-                                                 (truncate cb)
-                                                 (truncate cr)
-      where rf = fromIntegral r :: Float
-            gf = fromIntegral g
-            bf = fromIntegral b
+    convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (fromIntegral y) (fromIntegral cb) (fromIntegral cr)
+      where ri = fromIntegral r
+            gi = fromIntegral g
+            bi = fromIntegral b
 
+            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `shiftR` scaleBits
+            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `shiftR` scaleBits
+            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `shiftR` scaleBits
 
-            y  =  0.29900 * rf + 0.58700 * gf + 0.11400 * bf
-            cb = -0.16874 * rf - 0.33126 * gf + 0.50000 * bf + 128
-            cr =  0.50000 * rf - 0.41869 * gf - 0.08131 * bf + 128
+    convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
+        where maxi = w * h
+              newData = runST $ do
+                block <- M.new $ maxi * 3
+                let traductor _ idx | idx >= maxi = return block
+                    traductor readIdx idx = do
+                        let ri = fromIntegral $ d `V.unsafeIndex` readIdx
+                            gi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
+                            bi = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
+
+                            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `shiftR` scaleBits
+                            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `shiftR` scaleBits
+                            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `shiftR` scaleBits
+                        (block `M.unsafeWrite` (readIdx + 0)) $ fromIntegral y
+                        (block `M.unsafeWrite` (readIdx + 1)) $ fromIntegral cb
+                        (block `M.unsafeWrite` (readIdx + 2)) $ fromIntegral cr
+                        traductor (readIdx + 3) (idx + 1)
+
+                traductor 0 0 >>= V.freeze
 
 crRTab, cbBTab, crGTab, cbGTab :: V.Vector Int
 crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
