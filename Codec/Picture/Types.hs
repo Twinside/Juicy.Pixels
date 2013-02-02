@@ -319,6 +319,7 @@ type PixelF = Float
 --
 data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
                          {-# UNPACK #-} !Word8  -- Alpha value
+              deriving (Eq, Show)
 
 -- | Pixel type storing classic pixel on 8 bits
 -- Value are stored in the following order :
@@ -332,6 +333,7 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
 data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
                            {-# UNPACK #-} !Word8 -- Green
                            {-# UNPACK #-} !Word8 -- Blue
+               deriving (Eq, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
 -- Value are stored in the following order :
@@ -345,6 +347,7 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
 data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Green
                            {-# UNPACK #-} !PixelF -- Blue
+               deriving (Eq, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in the following order :
@@ -358,6 +361,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
                                {-# UNPACK #-} !Word8 -- Cr red difference
                                {-# UNPACK #-} !Word8 -- Cb blue difference
+                 deriving (Eq, Show)
 
 -- | Pixel type storing a classic pixel, with an alpha component.
 -- Values are stored in the following order
@@ -374,10 +378,11 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
                              {-# UNPACK #-} !Word8 -- Green
                              {-# UNPACK #-} !Word8 -- Blue
                              {-# UNPACK #-} !Word8 -- Alpha
+                deriving (Eq, Show)
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).
-class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a where
+class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a), Eq a ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
