@@ -20,7 +20,7 @@ module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
 
 import qualified Data.Vector.Storable as V
 import Control.Monad.ST( ST )
-import Data.Bits( shiftL, shiftR )
+import Data.Bits( unsafeShiftL, unsafeShiftR )
 import Data.Int( Int16 )
 import qualified Data.Vector.Storable.Mutable as M
 
@@ -70,8 +70,8 @@ idctRow blk idx = do
   xx5 <- blk `M.unsafeRead` (7 + idx)
   xx6 <- blk `M.unsafeRead` (5 + idx)
   xx7 <- blk `M.unsafeRead` (3 + idx)
-  let initialState = IDctStage { x0 = (fromIntegral xx0 `shiftL` 11) + 128
-                               , x1 =  fromIntegral xx1 `shiftL` 11
+  let initialState = IDctStage { x0 = (fromIntegral xx0 `unsafeShiftL` 11) + 128
+                               , x1 =  fromIntegral xx1 `unsafeShiftL` 11
                                , x2 =  fromIntegral xx2
                                , x3 =  fromIntegral xx3
                                , x4 =  fromIntegral xx4
@@ -106,17 +106,17 @@ idctRow blk idx = do
                        , x8 = x8 c - x3 c
                        , x3 = x0 c + x2 c
                        , x0 = x0 c - x2 c
-                       , x2 = (181 * (x4 c + x5 c) + 128) `shiftR` 8
-                       , x4 = (181 * (x4 c - x5 c) + 128) `shiftR` 8
+                       , x2 = (181 * (x4 c + x5 c) + 128) `unsafeShiftR` 8
+                       , x4 = (181 * (x4 c - x5 c) + 128) `unsafeShiftR` 8
                        }
-      scaled c = c { x0 = (x7 c + x1 c) `shiftR` 8
-                   , x1 = (x3 c + x2 c) `shiftR` 8
-                   , x2 = (x0 c + x4 c) `shiftR` 8
-                   , x3 = (x8 c + x6 c) `shiftR` 8
-                   , x4 = (x8 c - x6 c) `shiftR` 8
-                   , x5 = (x0 c - x4 c) `shiftR` 8
-                   , x6 = (x3 c - x2 c) `shiftR` 8
-                   , x7 = (x7 c - x1 c) `shiftR` 8
+      scaled c = c { x0 = (x7 c + x1 c) `unsafeShiftR` 8
+                   , x1 = (x3 c + x2 c) `unsafeShiftR` 8
+                   , x2 = (x0 c + x4 c) `unsafeShiftR` 8
+                   , x3 = (x8 c + x6 c) `unsafeShiftR` 8
+                   , x4 = (x8 c - x6 c) `unsafeShiftR` 8
+                   , x5 = (x0 c - x4 c) `unsafeShiftR` 8
+                   , x6 = (x3 c - x2 c) `unsafeShiftR` 8
+                   , x7 = (x7 c - x1 c) `unsafeShiftR` 8
                    }
       transformed = scaled . thirdStage . secondStage $ firstStage initialState
 
@@ -148,8 +148,8 @@ idctCol blk idx = do
   xx5 <- blk `M.unsafeRead` (8 * 7 + idx)
   xx6 <- blk `M.unsafeRead` (8 * 5 + idx)
   xx7 <- blk `M.unsafeRead` (8 * 3 + idx)
-  let initialState = IDctStage { x0 = (fromIntegral xx0 `shiftL` 8) + 8192
-                               , x1 =  fromIntegral xx1 `shiftL` 8
+  let initialState = IDctStage { x0 = (fromIntegral xx0 `unsafeShiftL` 8) + 8192
+                               , x1 =  fromIntegral xx1 `unsafeShiftL` 8
                                , x2 =  fromIntegral xx2
                                , x3 =  fromIntegral xx3
                                , x4 =  fromIntegral xx4
@@ -158,10 +158,10 @@ idctCol blk idx = do
                                , x7 =  fromIntegral xx7
                                , x8 = 0
                                } 
-      firstStage c = c { x4 = (x8'  + (w1 - w7) * x4 c) `shiftR` 3
-                       , x5 = (x8'  - (w1 + w7) * x5 c) `shiftR` 3
-                       , x6 = (x8'' - (w3 - w5) * x6 c) `shiftR` 3
-                       , x7 = (x8'' - (w3 + w5) * x7 c) `shiftR` 3
+      firstStage c = c { x4 = (x8'  + (w1 - w7) * x4 c) `unsafeShiftR` 3
+                       , x5 = (x8'  - (w1 + w7) * x5 c) `unsafeShiftR` 3
+                       , x6 = (x8'' - (w3 - w5) * x6 c) `unsafeShiftR` 3
+                       , x7 = (x8'' - (w3 + w5) * x7 c) `unsafeShiftR` 3
                        , x8 = x8''
                        }
           where x8'  = w7 * (x4 c + x5 c) + 4
@@ -169,8 +169,8 @@ idctCol blk idx = do
 
       secondStage c = c { x8 = x0 c + x1 c
                         , x0 = x0 c - x1 c
-                        , x2 = (x1' - (w2 + w6) * x2 c) `shiftR` 3
-                        , x3 = (x1' + (w2 - w6) * x3 c) `shiftR` 3
+                        , x2 = (x1' - (w2 + w6) * x2 c) `unsafeShiftR` 3
+                        , x3 = (x1' + (w2 - w6) * x3 c) `unsafeShiftR` 3
                         , x4 = x4 c - x6 c
                         , x1 = x1''
                         , x6 = x5 c + x7 c
@@ -183,8 +183,8 @@ idctCol blk idx = do
                        , x8 = x8 c - x3 c
                        , x3 = x0 c + x2 c
                        , x0 = x0 c - x2 c
-                       , x2 = (181 * (x4 c + x5 c) + 128) `shiftR` 8
-                       , x4 = (181 * (x4 c - x5 c) + 128) `shiftR` 8
+                       , x2 = (181 * (x4 c + x5 c) + 128) `unsafeShiftR` 8
+                       , x4 = (181 * (x4 c - x5 c) + 128) `unsafeShiftR` 8
                        }
 
       clip i | i < 511 = if i > -512 then iclip `V.unsafeIndex` (i + 512)
@@ -193,14 +193,14 @@ idctCol blk idx = do
              | otherwise = iclip `V.unsafeIndex` 1023
 
       f = thirdStage . secondStage $ firstStage initialState
-  (blk `M.unsafeWrite` (idx + 8*0)) . clip $ (x7 f + x1 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8  )) . clip $ (x3 f + x2 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*2)) . clip $ (x0 f + x4 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*3)) . clip $ (x8 f + x6 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*4)) . clip $ (x8 f - x6 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*5)) . clip $ (x0 f - x4 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*6)) . clip $ (x3 f - x2 f) `shiftR` 14
-  (blk `M.unsafeWrite` (idx + 8*7)) . clip $ (x7 f - x1 f) `shiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*0)) . clip $ (x7 f + x1 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8  )) . clip $ (x3 f + x2 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*2)) . clip $ (x0 f + x4 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*3)) . clip $ (x8 f + x6 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*4)) . clip $ (x8 f - x6 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*5)) . clip $ (x0 f - x4 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*6)) . clip $ (x3 f - x2 f) `unsafeShiftR` 14
+  (blk `M.unsafeWrite` (idx + 8*7)) . clip $ (x7 f - x1 f) `unsafeShiftR` 14
 
 
 {-# INLINE fastIdct #-}

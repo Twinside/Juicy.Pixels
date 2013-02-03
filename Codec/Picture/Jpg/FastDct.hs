@@ -2,7 +2,7 @@ module Codec.Picture.Jpg.FastDct( referenceDct, fastDctLibJpeg ) where
 
 import Control.Applicative( (<$>) )
 import Data.Int( Int16, Int32 )
-import Data.Bits( Bits, shiftR, shiftL )
+import Data.Bits( Bits, unsafeShiftR, unsafeShiftL )
 import Control.Monad.ST( ST )
 
 import qualified Data.Vector.Storable.Mutable as M
@@ -72,7 +72,7 @@ fastDctLibJpeg workData sample_block = do
                 mult = (*)
                 writeAt idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx)) n
                 writeAtPos idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx))
-                                    (n `shiftR` (cONST_BITS - pASS1_BITS))
+                                    (n `unsafeShiftR` (cONST_BITS - pASS1_BITS))
 
             blk0 <- readAt 0
             blk1 <- readAt 1
@@ -99,11 +99,11 @@ fastDctLibJpeg workData sample_block = do
                 tmp3' = blk3 - blk4
 
             -- Stage 4 and output
-            writeAt 0 $ (tmp10 + tmp11 - 8 * cENTERJSAMPLE) `shiftL` pASS1_BITS
-            writeAt 4 $ (tmp10 - tmp11) `shiftL` pASS1_BITS
+            writeAt 0 $ (tmp10 + tmp11 - 8 * cENTERJSAMPLE) `unsafeShiftL` pASS1_BITS
+            writeAt 4 $ (tmp10 - tmp11) `unsafeShiftL` pASS1_BITS
 
             let z1 = mult (tmp12 + tmp13) fIX_0_541196100
-                     + (1 `shiftL` (cONST_BITS - pASS1_BITS - 1))
+                     + (1 `unsafeShiftL` (cONST_BITS - pASS1_BITS - 1))
 
             writeAtPos 2 $ z1 + mult tmp12 fIX_0_765366865
             writeAtPos 6 $ z1 - mult tmp13 fIX_1_847759065
@@ -114,7 +114,7 @@ fastDctLibJpeg workData sample_block = do
                 tmp13' = tmp1' + tmp3'
                 z1' = mult (tmp12' + tmp13') fIX_1_175875602 --  c3 */
                         -- Add fudge factor here for final descale. */
-                        + (1 `shiftL` (cONST_BITS - pASS1_BITS-1))
+                        + (1 `unsafeShiftL` (cONST_BITS - pASS1_BITS-1))
                 tmp0'' = mult tmp0' fIX_1_501321110
                 tmp1'' = mult tmp1' fIX_3_072711026
                 tmp2'' = mult tmp2' fIX_2_053119869
@@ -141,7 +141,7 @@ fastDctLibJpeg workData sample_block = do
             let readAt idx = block `M.unsafeRead` ((7 - i) + idx * 8)
                 mult = (*)
                 writeAt idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) n
-                writeAtPos idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) $ n `shiftR` (cONST_BITS + pASS1_BITS + 3)
+                writeAtPos idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) $ n `unsafeShiftR` (cONST_BITS + pASS1_BITS + 3)
             blk0 <- readAt 0
             blk1 <- readAt 1
             blk2 <- readAt 2
@@ -157,7 +157,7 @@ fastDctLibJpeg workData sample_block = do
                 tmp3 = blk3 + blk4
 
                 -- Add fudge factor here for final descale. */
-                tmp10 = tmp0 + tmp3 + (1 `shiftL` (pASS1_BITS-1))
+                tmp10 = tmp0 + tmp3 + (1 `unsafeShiftL` (pASS1_BITS-1))
                 tmp12 = tmp0 - tmp3
                 tmp11 = tmp1 + tmp2
                 tmp13 = tmp1 - tmp2
@@ -167,11 +167,11 @@ fastDctLibJpeg workData sample_block = do
                 tmp2' = blk2 - blk5
                 tmp3' = blk3 - blk4
 
-            writeAt 0 $ (tmp10 + tmp11) `shiftR` (pASS1_BITS + 3)
-            writeAt 4 $ (tmp10 - tmp11) `shiftR` (pASS1_BITS + 3)
+            writeAt 0 $ (tmp10 + tmp11) `unsafeShiftR` (pASS1_BITS + 3)
+            writeAt 4 $ (tmp10 - tmp11) `unsafeShiftR` (pASS1_BITS + 3)
 
             let z1 = mult (tmp12 + tmp13) fIX_0_541196100
-                    + (1 `shiftL` (cONST_BITS + pASS1_BITS - 1))
+                    + (1 `unsafeShiftL` (cONST_BITS + pASS1_BITS - 1))
 
             writeAtPos 2 $ z1 + mult tmp12 fIX_0_765366865
             writeAtPos 6 $ z1 - mult tmp13 fIX_1_847759065
@@ -183,7 +183,7 @@ fastDctLibJpeg workData sample_block = do
 
                 z1' = mult (tmp12' + tmp13') fIX_1_175875602
                     -- Add fudge factor here for final descale. */
-                   + 1 `shiftL` (cONST_BITS+pASS1_BITS-1);
+                   + 1 `unsafeShiftL` (cONST_BITS+pASS1_BITS-1);
 
                 tmp0''  = mult tmp0'    fIX_1_501321110
                 tmp1''  = mult tmp1'    fIX_3_072711026

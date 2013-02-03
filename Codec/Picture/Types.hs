@@ -65,7 +65,7 @@ import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
-import Data.Bits( shiftL, shiftR )
+import Data.Bits( unsafeShiftL, unsafeShiftR )
 import Data.Word( Word8 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
@@ -913,10 +913,10 @@ instance (Pixel a) => ColorSpaceConvertible a a where
 
 scaleBits, oneHalf :: Int
 scaleBits = 16
-oneHalf = 1 `shiftL` (scaleBits - 1)
+oneHalf = 1 `unsafeShiftL` (scaleBits - 1)
 
 fix :: Float -> Int
-fix x = floor $ x * fromIntegral ((1 :: Int) `shiftL` scaleBits) + 0.5
+fix x = floor $ x * fromIntegral ((1 :: Int) `unsafeShiftL` scaleBits) + 0.5
 
 
 rYTab, gYTab, bYTab, rCbTab, gCbTab, bCbTab, gCrTab, bCrTab :: V.Vector Int
@@ -925,7 +925,7 @@ gYTab = V.fromListN 256 [fix 0.58700 * i | i <- [0..255] ]
 bYTab = V.fromListN 256 [fix 0.11400 * i + oneHalf | i <- [0..255] ]
 rCbTab = V.fromListN 256 [(- fix 0.16874) * i | i <- [0..255] ]
 gCbTab = V.fromListN 256 [(- fix 0.33126) * i | i <- [0..255] ]
-bCbTab = V.fromListN 256 [fix 0.5 * i + (128 `shiftL` scaleBits) + oneHalf - 1| i <- [0..255] ]
+bCbTab = V.fromListN 256 [fix 0.5 * i + (128 `unsafeShiftL` scaleBits) + oneHalf - 1| i <- [0..255] ]
 gCrTab = V.fromListN 256 [(- fix 0.41869) * i | i <- [0..255] ]
 bCrTab = V.fromListN 256 [(- fix 0.08131) * i | i <- [0..255] ]
 
@@ -936,9 +936,9 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
             gi = fromIntegral g
             bi = fromIntegral b
 
-            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `shiftR` scaleBits
-            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `shiftR` scaleBits
-            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `shiftR` scaleBits
+            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
 
     convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
         where maxi = w * h
@@ -950,9 +950,9 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
                             gi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
                             bi = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
 
-                            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `shiftR` scaleBits
-                            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `shiftR` scaleBits
-                            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `shiftR` scaleBits
+                            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+                            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+                            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
                         (block `M.unsafeWrite` (readIdx + 0)) $ fromIntegral y
                         (block `M.unsafeWrite` (readIdx + 1)) $ fromIntegral cb
                         (block `M.unsafeWrite` (readIdx + 2)) $ fromIntegral cr
@@ -961,8 +961,8 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
                 traductor 0 0 >>= V.freeze
 
 crRTab, cbBTab, crGTab, cbGTab :: V.Vector Int
-crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
-cbBTab = V.fromListN 256 [(fix 1.77200 * x + oneHalf) `shiftR` scaleBits | x <- [-128 .. 127]]
+crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `unsafeShiftR` scaleBits | x <- [-128 .. 127]]
+cbBTab = V.fromListN 256 [(fix 1.77200 * x + oneHalf) `unsafeShiftR` scaleBits | x <- [-128 .. 127]]
 crGTab = V.fromListN 256 [negate (fix 0.71414) * x | x <- [-128 .. 127]]
 cbGTab = V.fromListN 256 [negate (fix 0.34414) * x + oneHalf | x <- [-128 .. 127]]
 
@@ -975,7 +975,7 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
               cri = fromIntegral cr
 
               r = yi +  crRTab `V.unsafeIndex` cri
-              g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `shiftR` scaleBits
+              g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `unsafeShiftR` scaleBits
               b = yi +  cbBTab `V.unsafeIndex` cbi
 
     convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
@@ -993,7 +993,7 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
                             cri = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
 
                             r = yi +  crRTab `V.unsafeIndex` cri
-                            g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `shiftR` scaleBits
+                            g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `unsafeShiftR` scaleBits
                             b = yi +  cbBTab `V.unsafeIndex` cbi
 
                         (block `M.unsafeWrite` (readIdx + 0)) $ clampWord8 r

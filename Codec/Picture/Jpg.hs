@@ -14,7 +14,7 @@ import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.List( find, foldl' )
-import Data.Bits( (.|.), (.&.), shiftL, shiftR )
+import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word16, Word32)
 import Data.Binary( Binary(..), encode )
@@ -393,12 +393,12 @@ instance Binary JpgFrameKind where
               | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
 
 put4BitsOfEach :: Word8 -> Word8 -> Put
-put4BitsOfEach a b = put $ (a `shiftL` 4) .|. b
+put4BitsOfEach a b = put $ (a `unsafeShiftL` 4) .|. b
 
 get4BitOfEach :: Get (Word8, Word8)
 get4BitOfEach = do
     val <- get
-    return ((val `shiftR` 4) .&. 0xF, val .&. 0xF)
+    return ((val `unsafeShiftR` 4) .&. 0xF, val .&. 0xF)
 
 newtype RestartInterval = RestartInterval Word16
 
@@ -589,8 +589,8 @@ decodeMacroBlock quantizationTable zigZagBlock block =
 
 packInt :: [Bool] -> Int32
 packInt = foldl' bitStep 0
-    where bitStep acc True = (acc `shiftL` 1) + 1
-          bitStep acc False = acc `shiftL` 1
+    where bitStep acc True = (acc `unsafeShiftL` 1) + 1
+          bitStep acc False = acc `unsafeShiftL` 1
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int32 -> BoolReader s Int32
@@ -611,7 +611,7 @@ encodeInt ssss n         = writeBits (fromIntegral $ n - 1) (fromIntegral ssss)
 decodeInt :: Int32 -> BoolReader s Int32
 decodeInt ssss = do
     signBit <- getNextBitJpg
-    let dataRange = 1 `shiftL` fromIntegral (ssss - 1)
+    let dataRange = 1 `unsafeShiftL` fromIntegral (ssss - 1)
         leftBitCount = ssss - 1
     -- First following bits store the sign of the coefficient, and counted in
     -- SSSS, so the bit count for the int, is ssss - 1
@@ -634,7 +634,7 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
   where parseAcCoefficient n | n >= 64 = return ()
                              | otherwise = do
             rrrrssss <- huffmanPackedDecode acTree
-            let rrrr = fromIntegral $ (rrrrssss `shiftR` 4) .&. 0xF
+            let rrrr = fromIntegral $ (rrrrssss `unsafeShiftR` 4) .&. 0xF
                 ssss =  rrrrssss .&. 0xF
             case (rrrr, ssss) of
                 (  0, 0) -> return ()
@@ -1061,7 +1061,7 @@ serializeMacroBlock dcCode acCode blk =
             where (bitCount, code) = acCode V.! 0xF0
         encodeAc zeroCount n =
           writeBits (fromIntegral code) (fromIntegral bitCount) >> encodeInt ssss n
-            where rrrr = zeroCount `shiftL` 4
+            where rrrr = zeroCount `unsafeShiftL` 4
                   ssss = powerOf $ fromIntegral n
                   rrrrssss = rrrr .|. ssss
                   (bitCount, code) = acCode V.! fromIntegral rrrrssss

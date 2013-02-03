@@ -26,7 +26,7 @@ import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Bits( (.&.), (.|.), shiftL, shiftR )
+import Data.Bits( (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.List( find, zip4 )
 import Data.Word( Word8, Word16, Word32 )
 import qualified Codec.Compression.Zlib as Z
@@ -220,13 +220,13 @@ bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = ar
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 8 + n) * strideWidth + beginLeft 
-        forM_ [0 .. 7] $ \bit -> (arr `M.unsafeWrite` writeIdx (7 - bit)) ((val `shiftR` bit) .&. 1)
+        forM_ [0 .. 7] $ \bit -> (arr `M.unsafeWrite` writeIdx (7 - bit)) ((val `unsafeShiftR` bit) .&. 1)
 
     when (lineRest /= 0)
          (do val <- line `M.unsafeRead` endLine
              let writeIdx n = lineIndex + (pixelToRead * 8 + n) * strideWidth + beginLeft
              forM_ [0 .. lineRest - 1] $ \bit ->
-                (arr `M.unsafeWrite` writeIdx bit) ((val `shiftR` (7 - bit)) .&. 0x1))
+                (arr `M.unsafeWrite` writeIdx bit) ((val `unsafeShiftR` (7 - bit)) .&. 0x1))
 
 
 -- | Unpack lines when bit depth is 2
@@ -244,16 +244,16 @@ twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData 
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 4 + n) * strideWidth + beginLeft 
-        (arr `M.unsafeWrite` writeIdx 0) $ (val `shiftR` 6) .&. 0x3
-        (arr `M.unsafeWrite` writeIdx 1) $ (val `shiftR` 4) .&. 0x3
-        (arr `M.unsafeWrite` writeIdx 2) $ (val `shiftR` 2) .&. 0x3
+        (arr `M.unsafeWrite` writeIdx 0) $ (val `unsafeShiftR` 6) .&. 0x3
+        (arr `M.unsafeWrite` writeIdx 1) $ (val `unsafeShiftR` 4) .&. 0x3
+        (arr `M.unsafeWrite` writeIdx 2) $ (val `unsafeShiftR` 2) .&. 0x3
         (arr `M.unsafeWrite` writeIdx 3) $ val .&. 0x3
 
     when (lineRest /= 0)
          (do val <- line `M.unsafeRead` endLine
              let writeIdx n = lineIndex + (pixelToRead * 4 + n) * strideWidth + beginLeft
              forM_ [0 .. lineRest - 1] $ \bit ->
-                (arr `M.unsafeWrite` writeIdx bit) ((val `shiftR` (6 - 2 * bit)) .&. 0x3))
+                (arr `M.unsafeWrite` writeIdx bit) ((val `unsafeShiftR` (6 - 2 * bit)) .&. 0x3))
 
 halfByteUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
@@ -268,13 +268,13 @@ halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
         let writeIdx n = lineIndex + (pixelIndex * 2 + n) * strideWidth + beginLeft 
-        (arr `M.unsafeWrite` writeIdx 0) $ (val `shiftR` 4) .&. 0xF
+        (arr `M.unsafeWrite` writeIdx 0) $ (val `unsafeShiftR` 4) .&. 0xF
         (arr `M.unsafeWrite` writeIdx 1) $ val .&. 0xF
     
     when (lineRest /= 0)
          (do val <- line `M.unsafeRead` endLine
              let writeIdx = lineIndex + (pixelToRead * 2) * strideWidth + beginLeft 
-             (arr `M.unsafeWrite` writeIdx) $ (val `shiftR` 4) .&. 0xF)
+             (arr `M.unsafeWrite` writeIdx) $ (val `unsafeShiftR` 4) .&. 0xF)
 
 shortUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
 shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = arr })
@@ -290,7 +290,7 @@ shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIm
         forM_ [0 .. sampleCount - 1] $ \sample -> do
             highBits <- line `M.unsafeRead` (srcPixelIndex + sample * 2 + 0)
             lowBits <- line `M.unsafeRead` (srcPixelIndex + sample * 2 + 1)
-            let fullValue = fromIntegral lowBits .|. (fromIntegral highBits `shiftL` 8) :: Word32
+            let fullValue = fromIntegral lowBits .|. (fromIntegral highBits `unsafeShiftL` 8) :: Word32
                 word8Max = 2 ^ (8 :: Word32) - 1 :: Word32
                 word16Max = 2 ^ (16 :: Word32) - 1 :: Word32
                 val = fullValue * word8Max `div` word16Max

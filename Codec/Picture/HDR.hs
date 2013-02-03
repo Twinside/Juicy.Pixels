@@ -2,7 +2,7 @@
 -- Radiance file format is used for High dynamic range imaging.
 module Codec.Picture.HDR( decodeHDR, encodeHDR, writeHDR ) where
 
-import Data.Bits( Bits, (.&.), (.|.), shiftL, shiftR )
+import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
 import Data.Monoid( (<>) )
@@ -33,8 +33,8 @@ import Text.Printf( printf )
 
 {-# INLINE (.<<.) #-}
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
-(.<<.) = shiftL
-(.>>.) = shiftR
+(.<<.) = unsafeShiftL
+(.>>.) = unsafeShiftR
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)

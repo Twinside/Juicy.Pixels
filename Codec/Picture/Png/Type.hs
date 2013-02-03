@@ -19,7 +19,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
 
 import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM )
-import Data.Bits( xor, (.&.), shiftR )
+import Data.Bits( xor, (.&.), unsafeShiftR )
 import Data.Binary( Binary(..), Get, get )
 import Data.Binary.Get( getWord8
                       , getWord32be
@@ -309,8 +309,8 @@ imageTypeOfCode _ = fail "Invalid png color code"
 pngCrcTable :: Vector Word32
 pngCrcTable = fromListN 256 [ foldl' updateCrcConstant c [zero .. 7] | c <- [0 .. 255] ]
     where zero = 0 :: Int -- To avoid defaulting to Integer
-          updateCrcConstant c _ | c .&. 1 /= 0 = magicConstant `xor` (c `shiftR` 1)
-                                | otherwise = c `shiftR` 1
+          updateCrcConstant c _ | c .&. 1 /= 0 = magicConstant `xor` (c `unsafeShiftR` 1)
+                                | otherwise = c `unsafeShiftR` 1
           magicConstant = 0xedb88320 :: Word32
 
 -- | Compute the CRC of a raw buffer, as described in annex D of the PNG
@@ -320,5 +320,5 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . L.foldl' updateCrc 0xFFFFFFFF . L.concat
     where updateCrc crc val =
               let u32Val = fromIntegral val
                   lutVal = pngCrcTable ! (fromIntegral ((crc `xor` u32Val) .&. 0xFF))
-              in lutVal `xor` (crc `shiftR` 8)
+              in lutVal `xor` (crc `unsafeShiftR` 8)
 

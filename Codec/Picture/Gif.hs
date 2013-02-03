@@ -8,7 +8,7 @@ import Control.Monad( replicateM )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
-import Data.Bits( (.&.), shiftR, testBit )
+import Data.Bits( (.&.), unsafeShiftR, testBit )
 import Data.Word( Word8, Word16 )
 
 import qualified Data.ByteString as B
@@ -101,7 +101,7 @@ instance Binary LogicalScreenDescriptor where
             { screenWidth           = w
             , screenHeight          = h
             , hasGlobalMap          = packedField `testBit` 7
-            , colorResolution       = (packedField `shiftR` 5) .&. 0x7 + 1
+            , colorResolution       = (packedField `unsafeShiftR` 5) .&. 0x7 + 1
             , isColorTableSorted    = packedField `testBit` 3
             , colorTableSize        = (packedField .&. 0x7) + 1
             , backgroundIndex       = backgroundColorIndex
@@ -161,7 +161,7 @@ instance Binary GraphicControlExtension where
         idx              <- getWord8
         _blockTerminator <- getWord8
         return GraphicControlExtension
-            { gceDisposalMethod        = (packedFields `shiftR` 2) .&. 0x07
+            { gceDisposalMethod        = (packedFields `unsafeShiftR` 2) .&. 0x07
             , gceUserInputFlag         = packedFields `testBit` 1
             , gceTransparentFlag       = packedFields `testBit` 0
             , gceDelay                 = delay

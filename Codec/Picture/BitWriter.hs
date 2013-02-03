@@ -20,7 +20,7 @@ import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
 import Control.Monad.Trans.Class( MonadTrans( .. ) )
 import Data.Word( Word8, Word32 )
-import Data.Bits( Bits, (.&.), (.|.), shiftR, shiftL )
+import Data.Bits( Bits, (.&.), (.|.), unsafeShiftR, unsafeShiftL )
 
 import Codec.Picture.VectorByteConversion( blitVector )
 import qualified Data.Vector.Storable.Mutable as M
@@ -58,7 +58,7 @@ byteAlignJpg = do
 getNextBitJpg :: BoolReader s Bool
 getNextBitJpg = do
     BoolState idx v chain <- S.get
-    let val = (v .&. (1 `shiftL` idx)) /= 0
+    let val = (v .&. (1 `unsafeShiftL` idx)) /= 0
     if idx == 0
       then setDecodedStringJpg chain
       else S.put $ BoolState (idx - 1) v chain
@@ -70,7 +70,7 @@ getNextBits count = aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBit
-            let nextVal | bit = acc .|. (1 `shiftL` (count - n))
+            let nextVal | bit = acc .|. (1 `unsafeShiftL` (count - n))
                         | otherwise = acc
             aux nextVal (n - 1)
 
@@ -78,7 +78,7 @@ getNextBits count = aux 0 count
 getNextBit :: BoolReader s Bool
 getNextBit = do
     BoolState idx v chain <- S.get
-    let val = (v .&. (1 `shiftL` idx)) /= 0
+    let val = (v .&. (1 `unsafeShiftL` idx)) /= 0
     if idx == 7
       then setDecodedString chain
       else S.put $ BoolState (idx + 1) v chain
@@ -165,7 +165,7 @@ flushWriter = do
     when (count > 0)
          (do let newContext = st { bitAcc = 0, bitReaded = 0 }
              S.put newContext
-             pushByte $ bitAcc st `shiftL` (8 - count))
+             pushByte $ bitAcc st `unsafeShiftL` (8 - count))
 
 -- | Append some data bits to a Put monad.
 writeBits :: Word32     -- ^ The real data to be stored. Actual data should be in the LSB
@@ -181,25 +181,25 @@ writeBits d c = do
         serialize bitData bitCount currentWord count
             | bitCount + count == 8 = do
                      resetBitCount
-                     dumpByte (fromIntegral $ (currentWord `shiftL` bitCount) .|.
+                     dumpByte (fromIntegral $ (currentWord `unsafeShiftL` bitCount) .|.
                                                 fromIntegral cleanData)
 
             | bitCount + count < 8 =
-                let newVal = currentWord `shiftL` bitCount
+                let newVal = currentWord `unsafeShiftL` bitCount
                 in setBitCount (newVal .|. fromIntegral cleanData) $ count + bitCount
 
             | otherwise =
                 let leftBitCount = 8 - count :: Int
-                    highPart = cleanData `shiftR` (bitCount - leftBitCount) :: Word32
-                    prevPart = fromIntegral currentWord `shiftL` leftBitCount :: Word32
+                    highPart = cleanData `unsafeShiftR` (bitCount - leftBitCount) :: Word32
+                    prevPart = fromIntegral currentWord `unsafeShiftL` leftBitCount :: Word32
 
-                    nextMask = (1 `shiftL` (bitCount - leftBitCount)) - 1 :: Word32
+                    nextMask = (1 `unsafeShiftL` (bitCount - leftBitCount)) - 1 :: Word32
                     newData = cleanData .&. nextMask :: Word32
                     newCount = bitCount - leftBitCount :: Int
 
                     toWrite = fromIntegral $ prevPart .|. highPart :: Word8
                 in resetBitCount >> dumpByte toWrite >> serialize newData newCount 0 0
 
-              where cleanMask = (1 `shiftL` bitCount) - 1 :: Word32
+              where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
                     cleanData = bitData .&. cleanMask     :: Word32
 

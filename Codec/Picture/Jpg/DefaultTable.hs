@@ -37,7 +37,7 @@ import Foreign.Storable ( Storable )
 import Control.Monad.ST( runST )
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
-import Data.Bits( shiftL, (.|.) )
+import Data.Bits( unsafeShiftL, (.|.) )
 import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import qualified Data.Vector.Storable.Mutable as M
@@ -90,7 +90,7 @@ makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
         inner depth code (Leaf v) = [(fromIntegral v, (depth, code))]
         inner depth code (Branch l r) =
           inner (depth + 1) shifted l ++ inner (depth + 1) (shifted .|. 1) r
-            where shifted = code `shiftL` 1
+            where shifted = code `unsafeShiftL` 1
 
 -- | Represent a compact array of 8 * 8 values. The size
 -- is not guarenteed by type system, but if makeMacroBlock is
