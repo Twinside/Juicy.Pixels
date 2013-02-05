@@ -329,7 +329,8 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
-        ("prof":_) -> jpegToPng >> pngToJpeg
+        ("prof":_) -> -- jpegToPng >> 
+                        pngToJpeg
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark

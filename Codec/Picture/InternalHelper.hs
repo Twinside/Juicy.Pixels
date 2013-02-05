@@ -1,7 +1,8 @@
 module Codec.Picture.InternalHelper ( runGet
                                     , runGetStrict
                                     , decode
-                                    , getRemainingBytes ) where
+                                    , getRemainingBytes
+                                    , getRemainingLazyBytes ) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -26,4 +27,7 @@ getRemainingBytes = do
         [] -> B.empty
         [a] -> a
         lst -> B.concat lst
+
+getRemainingLazyBytes :: Get L.ByteString
+getRemainingLazyBytes = getRemainingLazyByteString 
 

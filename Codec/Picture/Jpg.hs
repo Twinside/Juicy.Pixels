@@ -23,6 +23,7 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16be
                       , getByteString
+                      , getLazyByteString
                       , skip
                       , bytesRead
                       )
@@ -31,6 +32,7 @@ import Data.Binary.Put( Put
                       , putWord8
                       , putWord16be
                       , putByteString
+                      , putLazyByteString 
                       )
 
 import Data.Maybe( fromJust )
@@ -45,7 +47,7 @@ import qualified Data.ByteString.Lazy as L
 import Foreign.Storable ( Storable )
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.BitWriter
+import Codec.Picture.BitWriter hiding ( BoolWriter )
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
@@ -85,7 +87,7 @@ data JpgFrame =
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
     | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanTreeInfo)]
-    | JpgScanBlob        !JpgScanHeader !B.ByteString
+    | JpgScanBlob        !JpgScanHeader !L.ByteString
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
     deriving Show
@@ -309,7 +311,7 @@ putFrame (JpgHuffmanTable tables) =
 putFrame (JpgIntervalRestart size) =
     put JpgRestartInterval >> put (RestartInterval size)
 putFrame (JpgScanBlob hdr blob) =
-    put JpgStartOfScan >> put hdr >> putByteString blob
+    put JpgStartOfScan >> put hdr >> putLazyByteString blob
 putFrame (JpgScans kind hdr) =
     put kind >> put hdr
 
@@ -339,7 +341,7 @@ parseFrames = do
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
             (\frm imgData -> [JpgScanBlob frm imgData])
-                            <$> get <*> getRemainingBytes
+                            <$> get <*> getRemainingLazyBytes
 
         _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
 
@@ -603,9 +605,10 @@ powerOf n = limit 1 0
           limit range i | val < range = i
           limit range i = limit (2 * range) (i + 1)
 
-encodeInt :: Word32 -> Int32 -> BoolWriter s ()
-encodeInt ssss n | n > 0 = writeBits (fromIntegral n) (fromIntegral ssss)
-encodeInt ssss n         = writeBits (fromIntegral $ n - 1) (fromIntegral ssss)
+encodeInt :: BoolWriteStateRef s -> Word32 -> Int32 -> ST s ()
+{-# INLINE encodeInt #-}
+encodeInt st ssss n | n > 0 = writeBits' st (fromIntegral n) (fromIntegral ssss)
+encodeInt st ssss n         = writeBits' st (fromIntegral $ n - 1) (fromIntegral ssss)
 
 {-# INLINE decodeInt #-}
 decodeInt :: Int32 -> BoolReader s Int32
@@ -995,7 +998,7 @@ decodeJpeg file = case runGetStrict get file of
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.new imageSize
                 let wrapped = MutableImage imgWidth imgHeight resultImage
-                setDecodedStringJpg imgData
+                setDecodedStringJpg . B.concat $ L.toChunks imgData
                 decodeImage img compCount wrapped
                 return resultImage) (BoolState (-1) 0 B.empty)
 
@@ -1038,29 +1041,30 @@ extractBlock (Image { imageWidth = w, imageHeight = h, imageData = src })
     sequence_ [(block `M.unsafeWrite` (y * 8 + x)) $ blockVal x y | y <- [0 .. 7], x <- [0 .. 7] ]
     return block
 
-serializeMacroBlock :: HuffmanWriterCode -> HuffmanWriterCode
+serializeMacroBlock :: BoolWriteStateRef s
+                    -> HuffmanWriterCode -> HuffmanWriterCode
                     -> MutableMacroBlock s Int32
-                    -> BoolWriter s ()
-serializeMacroBlock dcCode acCode blk =
- lift (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
+                    -> ST s ()
+serializeMacroBlock st dcCode acCode blk =
+ (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
   where writeAcs acc@(_, 63) =
-            lift (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
+            (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
         writeAcs acc@(_, i ) =
-            lift (blk `M.unsafeRead`  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
+            (blk `M.unsafeRead`  i) >>= (fromIntegral >>> encodeAcCoefs acc) >>= writeAcs
 
-        encodeDc n = writeBits (fromIntegral code) (fromIntegral bitCount)
-                        >> when (ssss /= 0) (encodeInt ssss n)
+        encodeDc n = writeBits' st (fromIntegral code) (fromIntegral bitCount)
+                        >> when (ssss /= 0) (encodeInt st ssss n)
             where ssss = powerOf $ fromIntegral n
                   (bitCount, code) = dcCode V.! fromIntegral ssss
 
-        encodeAc 0         0 = writeBits (fromIntegral code) $ fromIntegral bitCount
+        encodeAc 0         0 = writeBits' st (fromIntegral code) $ fromIntegral bitCount
             where (bitCount, code) = acCode V.! 0
 
         encodeAc zeroCount n | zeroCount >= 16 =
-          writeBits (fromIntegral code) (fromIntegral bitCount) >>  encodeAc (zeroCount - 16) n
+          writeBits' st (fromIntegral code) (fromIntegral bitCount) >>  encodeAc (zeroCount - 16) n
             where (bitCount, code) = acCode V.! 0xF0
         encodeAc zeroCount n =
-          writeBits (fromIntegral code) (fromIntegral bitCount) >> encodeInt ssss n
+          writeBits' st (fromIntegral code) (fromIntegral bitCount) >> encodeInt st ssss n
             where rrrr = zeroCount `unsafeShiftL` 4
                   ssss = powerOf $ fromIntegral n
                   rrrrssss = rrrr .|. ssss
@@ -1190,8 +1194,7 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = en
                                           , quantTable = zigzagedChromaQuant }
                       ]
 
-        encodedImage = runST toExtract
-        toExtract = runBoolWriter $ do
+        encodedImage = runST $ do
             let horizontalMetaBlockCount = w `divUpward` (8 * maxSampling)
                 verticalMetaBlockCount = h `divUpward` (8 * maxSampling)
                 maxSampling = 2
@@ -1205,10 +1208,11 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = en
   
                 imageComponentCount = length componentDef
 
-            dc_table <- lift $ M.replicate 3 0
-            block <- lift createEmptyMutableMacroBlock
-            workData <- lift createEmptyMutableMacroBlock
-            zigzaged <- lift createEmptyMutableMacroBlock
+            dc_table <- M.replicate 3 0
+            block <- createEmptyMutableMacroBlock
+            workData <- createEmptyMutableMacroBlock
+            zigzaged <- createEmptyMutableMacroBlock
+            writeState <- newWriteStateRef
 
             -- It's ugly, I know, be avoid allocation
             let blockLine my | my >= verticalMetaBlockCount = return ()
@@ -1227,10 +1231,12 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = en
                                                  column subX | subX >= sizeX = line (subY + 1)
                                                  column subX = do
                                                     let blockX = mx * sizeX + subX
-                                                    prev_dc <- lift $ dc_table `M.unsafeRead` comp
-                                                    (dc_coeff, neo_block) <- lift (extractor comp blockX blockY >>= 
+                                                    prev_dc <- dc_table `M.unsafeRead` comp
+                                                    (dc_coeff, neo_block) <- (extractor comp blockX blockY >>= 
                                                                             encodeMacroBlock table workData zigzaged prev_dc)
-                                                    lift . (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
-                                                    serializeMacroBlock dc ac neo_block
+                                                    (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
+                                                    serializeMacroBlock writeState dc ac neo_block
                                                     column $ subX + 1
             blockLine 0
+
+            finalizeBoolWriter writeState
