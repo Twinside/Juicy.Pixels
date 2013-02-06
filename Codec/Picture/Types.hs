@@ -59,6 +59,7 @@ module Codec.Picture.Types( -- * Types
                           , unsafeExtractComponent
                           ) where
 
+import Debug.Trace
 import Control.Monad( forM_, foldM )
 import Control.Applicative( (<$>), (<*>) )
 import Control.DeepSeq( NFData( .. ) )
@@ -929,6 +930,7 @@ bCbTab = V.fromListN 256 [fix 0.5 * i + (128 `unsafeShiftL` scaleBits) + oneHalf
 gCrTab = V.fromListN 256 [(- fix 0.41869) * i | i <- [0..255] ]
 bCrTab = V.fromListN 256 [(- fix 0.08131) * i | i <- [0..255] ]
 
+
 instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
     {-# INLINE convertPixel #-}
     convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (fromIntegral y) (fromIntegral cb) (fromIntegral cr)
@@ -942,6 +944,16 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
 
     convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
         where maxi = w * h
+
+              rY  = fix 0.29900
+              gY  = fix 0.58700
+              bY  = fix 0.11400
+              rCb = (- fix 0.16874)
+              gCb = (- fix 0.33126)
+              bCb = fix 0.5
+              gCr = (- fix 0.41869)
+              bCr = (- fix 0.08131)
+
               newData = runST $ do
                 block <- M.new $ maxi * 3
                 let traductor _ idx | idx >= maxi = return block
@@ -950,9 +962,10 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
                             gi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
                             bi = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
 
-                            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
-                            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
-                            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+                            y  = (rY * ri + gY * gi + bY * bi + oneHalf) `unsafeShiftR` scaleBits
+                            cb = (rCb * ri + gCb * gi + bCb * bi + (128 `unsafeShiftL` scaleBits) + oneHalf - 1) `unsafeShiftR` scaleBits
+                            cr = (bCb * ri + (128 `unsafeShiftL` scaleBits) + oneHalf - 1+ gCr * gi + bCr * bi) `unsafeShiftR` scaleBits
+
                         (block `M.unsafeWrite` (readIdx + 0)) $ fromIntegral y
                         (block `M.unsafeWrite` (readIdx + 1)) $ fromIntegral cb
                         (block `M.unsafeWrite` (readIdx + 2)) $ fromIntegral cr

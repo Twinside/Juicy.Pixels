@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( decodeJpeg, encodeJpegAtQuality, encodeJpeg ) where
@@ -551,17 +552,17 @@ zigZagReorderForward :: (Storable a, Num a)
 {-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Word8
                                            -> MutableMacroBlock s Word8
                                            -> ST s (MutableMacroBlock s Word8) #-}
-zigZagReorderForward zigzaged block = do
-    let reorder i | i >= 64 = return ()
-        reorder i  = do
-            let idx = zigZagOrder `VS.unsafeIndex` i
-            v <- block `M.unsafeRead` fromIntegral i
-            (zigzaged `M.unsafeWrite` idx) v
-
-            reorder (i + 1)
-
-    reorder (0 :: Int)
-    return zigzaged
+zigZagReorderForward zigzaged block = ordering zigZagOrder >> return zigzaged
+  where ordering !table = reorder (0 :: Int)
+         where reorder !i | i >= 64 = return ()
+               reorder i  = do
+                    let idx = table `VS.unsafeIndex` i
+                        idx2 = table `VS.unsafeIndex` (i + 1)
+                    v <- block `M.unsafeRead` fromIntegral i
+                    v2 <- block `M.unsafeRead` fromIntegral (i + 1)
+                    (zigzaged `M.unsafeWrite` idx) v
+                    (zigzaged `M.unsafeWrite` idx2) v2
+                    reorder (i + 2)
 
 zigZagReorder :: MutableMacroBlock s Int16 -> MutableMacroBlock s Int16
               -> ST s (MutableMacroBlock s Int16)
@@ -1045,7 +1046,7 @@ serializeMacroBlock :: BoolWriteStateRef s
                     -> HuffmanWriterCode -> HuffmanWriterCode
                     -> MutableMacroBlock s Int32
                     -> ST s ()
-serializeMacroBlock st dcCode acCode blk =
+serializeMacroBlock !st !dcCode !acCode !blk =
  (blk `M.unsafeRead` 0) >>= (fromIntegral >>> encodeDc) >> writeAcs (0, 1) >> return ()
   where writeAcs acc@(_, 63) =
             (blk `M.unsafeRead` 63) >>= (fromIntegral >>> encodeAcCoefs acc) >> return ()
@@ -1055,20 +1056,20 @@ serializeMacroBlock st dcCode acCode blk =
         encodeDc n = writeBits' st (fromIntegral code) (fromIntegral bitCount)
                         >> when (ssss /= 0) (encodeInt st ssss n)
             where ssss = powerOf $ fromIntegral n
-                  (bitCount, code) = dcCode V.! fromIntegral ssss
+                  (bitCount, code) = dcCode `V.unsafeIndex` fromIntegral ssss
 
         encodeAc 0         0 = writeBits' st (fromIntegral code) $ fromIntegral bitCount
-            where (bitCount, code) = acCode V.! 0
+            where (bitCount, code) = acCode `V.unsafeIndex` 0
 
         encodeAc zeroCount n | zeroCount >= 16 =
           writeBits' st (fromIntegral code) (fromIntegral bitCount) >>  encodeAc (zeroCount - 16) n
-            where (bitCount, code) = acCode V.! 0xF0
+            where (bitCount, code) = acCode `V.unsafeIndex` 0xF0
         encodeAc zeroCount n =
           writeBits' st (fromIntegral code) (fromIntegral bitCount) >> encodeInt st ssss n
             where rrrr = zeroCount `unsafeShiftL` 4
                   ssss = powerOf $ fromIntegral n
                   rrrrssss = rrrr .|. ssss
-                  (bitCount, code) = acCode V.! fromIntegral rrrrssss
+                  (bitCount, code) = acCode `V.unsafeIndex` fromIntegral rrrrssss
 
         encodeAcCoefs (            _, 63) 0 = encodeAc 0 0 >> return (0, 64)
         encodeAcCoefs (zeroRunLength,  i) 0 = return (zeroRunLength + 1, i + 1)

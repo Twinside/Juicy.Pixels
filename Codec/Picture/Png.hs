@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files. The API has two layers, the high level, which load the image without
 -- looking deeply about it and the low level, allowing access to data chunks contained
@@ -103,7 +104,7 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
                        Right FilterUp      -> filterUp
                        Right FilterPaeth   -> filterPaeth
                        _ -> filterNone
-               lineFilter (previousLine, currentLine)
+               lineFilter previousLine currentLine
                lift $ unpacker lineIndex (stride, currentLine)
                folder currentLine previousLine $ lineIndex + 1
 
@@ -117,28 +118,28 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
           -- they are faster than mapM_, gained something like 5% with
           -- a rewrite from mapM_ to this direct version
           filterNone, filterSub, filterUp, filterPaeth,
-                filterAverage :: (PngLine s, PngLine s) -> ByteReader s ()
-          filterNone (_previousLine, thisLine) = inner beginZeroes
+                filterAverage :: PngLine s -> PngLine s -> ByteReader s ()
+          filterNone !_previousLine !thisLine = inner beginZeroes
             where inner idx | idx > lastIdx = return ()
                             | otherwise = do byte <- getNextByte
                                              lift $ (thisLine `M.unsafeWrite` idx) byte
                                              inner (idx + 1)
 
-          filterSub (_previousLine, thisLine) = inner beginZeroes
+          filterSub !_previousLine !thisLine = inner beginZeroes
             where inner idx | idx > lastIdx = return ()
                             | otherwise = do byte <- getNextByte
                                              val <- lift $ thisLine `M.unsafeRead` (idx - stride)
                                              lift . (thisLine `M.unsafeWrite` idx) $ byte + val
                                              inner (idx + 1)
 
-          filterUp (previousLine, thisLine) = inner beginZeroes
+          filterUp !previousLine !thisLine = inner beginZeroes
             where inner idx | idx > lastIdx = return ()
                             | otherwise = do byte <- getNextByte
                                              val <- lift $ previousLine `M.unsafeRead` idx
                                              lift . (thisLine `M.unsafeWrite` idx) $ val + byte
                                              inner (idx + 1)
 
-          filterAverage (previousLine, thisLine) = inner beginZeroes
+          filterAverage !previousLine !thisLine = inner beginZeroes
             where inner idx | idx > lastIdx = return ()
                             | otherwise = do byte <- getNextByte
                                              valA <- lift $ thisLine `M.unsafeRead` (idx - stride)
@@ -150,7 +151,7 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
                                              lift . (thisLine `M.unsafeWrite` idx) $ writeVal
                                              inner (idx + 1)
 
-          filterPaeth (previousLine, thisLine) = inner beginZeroes
+          filterPaeth !previousLine !thisLine = inner beginZeroes
             where inner idx | idx > lastIdx = return ()
                             | otherwise = do byte <- getNextByte
                                              valA <- lift $ thisLine `M.unsafeRead` (idx - stride)

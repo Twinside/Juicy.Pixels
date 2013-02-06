@@ -199,6 +199,7 @@ setBitCount acc count = S.modify $ \s ->
     s { bitAcc = acc, bitReaded = count }
 
 setBitCount' :: BoolWriteStateRef s -> Word8 -> Int -> ST s ()
+{-# INLINE setBitCount' #-}
 setBitCount' st acc count = do
     writeSTRef (bwsBitAcc st) acc
     writeSTRef (bwsBitReaded st) count
@@ -207,6 +208,7 @@ resetBitCount :: BoolWriter s ()
 resetBitCount = setBitCount 0 0
 
 resetBitCount' :: BoolWriteStateRef s -> ST s ()
+{-# INLINE resetBitCount' #-}
 resetBitCount' st = setBitCount' st 0 0
 
 pushByte :: Word8 -> BoolWriter s ()
@@ -218,6 +220,7 @@ pushByte v = do
     S.put $ st' { writtenWords = idx + 1 }
 
 pushByte' :: BoolWriteStateRef s -> Word8 -> ST s ()
+{-# INLINE pushByte' #-}
 pushByte' st v = do
     flushCurrentBuffer' st
     idx <- readSTRef (bwsWrittenWords st)
@@ -277,6 +280,7 @@ writeBits' :: BoolWriteStateRef s
            -> Word32     -- ^ The real data to be stored. Actual data should be in the LSB
            -> Int        -- ^ Number of bit to write from 1 to 32
            -> ST s ()
+{-# INLINE writeBits' #-}
 writeBits' st d c = do
     currWord <- readSTRef $ bwsBitAcc st
     currCount <- readSTRef $  bwsBitReaded st
@@ -304,7 +308,7 @@ writeBits' st d c = do
                     newCount = bitCount - leftBitCount :: Int
 
                     toWrite = fromIntegral $ prevPart .|. highPart :: Word8
-                in resetBitCount' st >> dumpByte toWrite >> serialize newData newCount 0 0
+                in dumpByte toWrite >> serialize newData newCount 0 0
 
               where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
                     cleanData = bitData .&. cleanMask     :: Word32
