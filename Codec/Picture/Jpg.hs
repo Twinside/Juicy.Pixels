@@ -14,6 +14,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import qualified Control.Monad.Trans.State.Strict as S
 
+import Data.Maybe( fromMaybe )
 import Data.List( find, foldl' )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.Int( Int16, Int32 )
@@ -542,27 +543,31 @@ zigZagReorderForwardv vec = runST $ do
     mv <- VS.thaw vec
     zigZagReorderForward v mv >>= VS.freeze
 
+zigZagOrderForward :: MacroBlock Int
+zigZagOrderForward = VS.generate 64 inv
+  where inv i = fromMaybe 0 $ VS.findIndex (i ==) zigZagOrder
+
 zigZagReorderForward :: (Storable a, Num a)
                      => MutableMacroBlock s a
                      -> MutableMacroBlock s a
                      -> ST s (MutableMacroBlock s a)
+{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Int32
+                                           -> MutableMacroBlock s Int32
+                                           -> ST s (MutableMacroBlock s Int32) #-}
 {-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Int16
                                            -> MutableMacroBlock s Int16
                                            -> ST s (MutableMacroBlock s Int16) #-}
 {-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Word8
                                            -> MutableMacroBlock s Word8
                                            -> ST s (MutableMacroBlock s Word8) #-}
-zigZagReorderForward zigzaged block = ordering zigZagOrder >> return zigzaged
+zigZagReorderForward zigzaged block = ordering zigZagOrderForward >> return zigzaged
   where ordering !table = reorder (0 :: Int)
          where reorder !i | i >= 64 = return ()
                reorder i  = do
                     let idx = table `VS.unsafeIndex` i
-                        idx2 = table `VS.unsafeIndex` (i + 1)
-                    v <- block `M.unsafeRead` fromIntegral i
-                    v2 <- block `M.unsafeRead` fromIntegral (i + 1)
-                    (zigzaged `M.unsafeWrite` idx) v
-                    (zigzaged `M.unsafeWrite` idx2) v2
-                    reorder (i + 2)
+                    v <- block `M.unsafeRead` idx
+                    (zigzaged `M.unsafeWrite` i) v
+                    reorder (i + 1)
 
 zigZagReorder :: MutableMacroBlock s Int16 -> MutableMacroBlock s Int16
               -> ST s (MutableMacroBlock s Int16)
