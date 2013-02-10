@@ -87,7 +87,7 @@ lzw nMaxBitKeySize initialKeySize outVec = do
                      (lzwData ..<-.. (dicWriteIdx - 1)) firstVal
 
                   when (dicWriteIdx + dataSize <= maxDataSize) $
-                       duplicateData lzwData lzwData dataOffset dataSize dicWriteIdx
+                       duplicateData lzwData lzwData dataOffset (dataSize + 1) dicWriteIdx
 
 
                   (lzwSizeTable ..<-.. writeIdx) $ dataSize + 1
@@ -105,7 +105,7 @@ lzw nMaxBitKeySize initialKeySize outVec = do
         loop 0 firstFreeIndex firstFreeIndex startCodeSize
 
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
-        maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount)
+        maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount) + 1
 
         initialElementCount = 2 ^ initialKeySize :: Int
         clearCode = initialElementCount
