@@ -25,7 +25,6 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16be
                       , getByteString
-                      , getLazyByteString
                       , skip
                       , bytesRead
                       )
@@ -33,7 +32,6 @@ import Data.Binary.Get( Get
 import Data.Binary.Put( Put
                       , putWord8
                       , putWord16be
-                      , putByteString
                       , putLazyByteString 
                       )
 
@@ -49,7 +47,7 @@ import qualified Data.ByteString.Lazy as L
 import Foreign.Storable ( Storable )
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.BitWriter hiding ( BoolWriter )
+import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable

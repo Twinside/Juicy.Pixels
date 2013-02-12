@@ -1,18 +1,13 @@
 {-# LANGUAGE Rank2Types #-}
 -- | This module implement helper functions to read & write data
 -- at bits level.
-module Codec.Picture.BitWriter( BoolWriter
-                              , BoolReader
+module Codec.Picture.BitWriter( BoolReader
                               , BoolState( .. )
-                              , writeBits
                               , byteAlignJpg
                               , getNextBits
                               , getNextBitJpg
                               , setDecodedString
                               , setDecodedStringJpg
-                              , pushByte
-                              , BoolWriteState
-                              , runBoolWriter
                               , runBoolReader
 
                               , BoolWriteStateRef 
@@ -26,7 +21,6 @@ import Control.Applicative( (<$>), (<*>) )
 import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
-import Control.Monad.Trans.Class( MonadTrans( .. ) )
 import Data.Word( Word8, Word32 )
 import Data.Bits( Bits, (.&.), (.|.), unsafeShiftR, unsafeShiftL )
 
@@ -110,14 +104,6 @@ setDecodedStringJpg str = case B.uncons str of
 defaultBufferSize :: Int
 defaultBufferSize = 256 * 1024
 
--- | Run the writer and get the serialized data.
-runBoolWriter :: BoolWriter s b -> ST s B.ByteString
-runBoolWriter writer = do
-    origMv <- M.new defaultBufferSize
-    st <- S.execStateT (writer >> flushWriter) (BoolWriteState origMv [] 0 0 0)
-    st' <- forceBufferFlushing st
-    return . B.concat $ strings st'
-
 data BoolWriteStateRef s = BoolWriteStateRef
         { bwsCurrBuffer   :: STRef s (M.MVector s Word8)
         , bwsBufferList   :: STRef s [B.ByteString]
@@ -140,29 +126,6 @@ finalizeBoolWriter st = do
     forceBufferFlushing' st
     L.fromChunks <$> readSTRef (bwsBufferList st)
 
--- | Current serializer, bit buffer, bit count
-data BoolWriteState s = BoolWriteState
-        { wordWrite    :: M.MVector s Word8
-        , strings      :: ![B.ByteString]
-        , writtenWords :: {-# UNPACK #-} !Int
-        , bitAcc       :: {-# UNPACK #-} !Word8
-        , bitReaded    :: {-# UNPACK #-} !Int
-        }
-
-type BoolWriter s a = S.StateT (BoolWriteState s) (ST s) a
-
-forceBufferFlushing :: BoolWriteState s -> ST s (BoolWriteState s)
-forceBufferFlushing st@(BoolWriteState { wordWrite = vec
-                                       , writtenWords = count
-                                       , strings = lst
-                                       }) = do
-    nmv <- M.new defaultBufferSize
-    str <- byteStringFromVector vec count
-    return $ st { wordWrite = nmv
-                , strings = lst ++ [str]
-                , writtenWords = 0
-                }
-
 forceBufferFlushing' :: BoolWriteStateRef s -> ST s ()
 forceBufferFlushing' (BoolWriteStateRef { bwsCurrBuffer = vecRef
                                         , bwsWrittenWords = countRef
@@ -179,10 +142,6 @@ forceBufferFlushing' (BoolWriteStateRef { bwsCurrBuffer = vecRef
     writeSTRef lstRef $ lst ++ [str]
     writeSTRef countRef 0
 
-flushCurrentBuffer :: BoolWriteState s -> ST s (BoolWriteState s)
-flushCurrentBuffer st | writtenWords st < M.length (wordWrite st) = return st
-flushCurrentBuffer st = forceBufferFlushing st
-
 flushCurrentBuffer' :: BoolWriteStateRef s -> ST s ()
 flushCurrentBuffer' st = do
     count <- readSTRef $ bwsWrittenWords st
@@ -194,30 +153,15 @@ byteStringFromVector vec size = do
     frozen <- VS.unsafeFreeze vec
     return $ blitVector frozen 0 size
 
-setBitCount :: Word8 -> Int -> BoolWriter s ()
-setBitCount acc count = S.modify $ \s ->
-    s { bitAcc = acc, bitReaded = count }
-
 setBitCount' :: BoolWriteStateRef s -> Word8 -> Int -> ST s ()
 {-# INLINE setBitCount' #-}
 setBitCount' st acc count = do
     writeSTRef (bwsBitAcc st) acc
     writeSTRef (bwsBitReaded st) count
 
-resetBitCount :: BoolWriter s ()
-resetBitCount = setBitCount 0 0
-
 resetBitCount' :: BoolWriteStateRef s -> ST s ()
 {-# INLINE resetBitCount' #-}
 resetBitCount' st = setBitCount' st 0 0
-
-pushByte :: Word8 -> BoolWriter s ()
-pushByte v = do
-    st <- S.get
-    st'@(BoolWriteState { writtenWords = idx })
-        <- lift $ flushCurrentBuffer st
-    lift $ M.write (wordWrite st') idx v
-    S.put $ st' { writtenWords = idx + 1 }
 
 pushByte' :: BoolWriteStateRef s -> Word8 -> ST s ()
 {-# INLINE pushByte' #-}
@@ -227,53 +171,6 @@ pushByte' st v = do
     vec <- readSTRef (bwsCurrBuffer st)
     M.write vec idx v
     writeSTRef (bwsWrittenWords st) $ idx + 1
-
--- | If some bits are not serialized yet, write
--- them in the MSB of a word.
-flushWriter :: BoolWriter s ()
-flushWriter = do
-    st <- S.get
-    let count = bitReaded st
-    when (count > 0)
-         (do let newContext = st { bitAcc = 0, bitReaded = 0 }
-             S.put newContext
-             pushByte $ bitAcc st `unsafeShiftL` (8 - count))
-
--- | Append some data bits to a Put monad.
-writeBits :: Word32     -- ^ The real data to be stored. Actual data should be in the LSB
-          -> Int        -- ^ Number of bit to write from 1 to 32
-          -> BoolWriter s ()
-writeBits d c = do
-    currWord <- S.gets bitAcc
-    currCount <- S.gets bitReaded
-    serialize d c currWord currCount
-  where dumpByte 0xFF = pushByte 0xFF >> pushByte 0x00
-        dumpByte    i = pushByte i
-
-        serialize bitData bitCount currentWord count
-            | bitCount + count == 8 = do
-                     resetBitCount
-                     dumpByte (fromIntegral $ (currentWord `unsafeShiftL` bitCount) .|.
-                                                fromIntegral cleanData)
-
-            | bitCount + count < 8 =
-                let newVal = currentWord `unsafeShiftL` bitCount
-                in setBitCount (newVal .|. fromIntegral cleanData) $ count + bitCount
-
-            | otherwise =
-                let leftBitCount = 8 - count :: Int
-                    highPart = cleanData `unsafeShiftR` (bitCount - leftBitCount) :: Word32
-                    prevPart = fromIntegral currentWord `unsafeShiftL` leftBitCount :: Word32
-
-                    nextMask = (1 `unsafeShiftL` (bitCount - leftBitCount)) - 1 :: Word32
-                    newData = cleanData .&. nextMask :: Word32
-                    newCount = bitCount - leftBitCount :: Int
-
-                    toWrite = fromIntegral $ prevPart .|. highPart :: Word8
-                in resetBitCount >> dumpByte toWrite >> serialize newData newCount 0 0
-
-              where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
-                    cleanData = bitData .&. cleanMask     :: Word32
 
 -- | Append some data bits to a Put monad.
 writeBits' :: BoolWriteStateRef s
