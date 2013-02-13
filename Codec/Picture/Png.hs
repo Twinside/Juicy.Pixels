@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files. The API has two layers, the high level, which load the image without
 -- looking deeply about it and the low level, allowing access to data chunks contained
@@ -18,10 +19,8 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
-import Control.Monad( forM_, when )
+import Control.Monad( forM_, foldM_, when )
 import Control.Monad.ST( ST, runST )
-import Control.Monad.Trans( lift )
-import qualified Control.Monad.Trans.State.Strict as S
 import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V
@@ -63,39 +62,32 @@ adam7MatrixInfo = Adam7MatrixInfo
     }
 
 unparsePngFilter :: Word8 -> Either String PngFilter
+{-# INLINE unparsePngFilter #-}
 unparsePngFilter 0 = Right FilterNone
 unparsePngFilter 1 = Right FilterSub
 unparsePngFilter 2 = Right FilterUp
 unparsePngFilter 3 = Right FilterAverage
 unparsePngFilter 4 = Right FilterPaeth
 unparsePngFilter _ = Left "Invalid scanline filter"
-{-# INLINE unparsePngFilter #-}
 
-type ByteReader s a = S.StateT (B.ByteString, Int) (ST s) a
-
-{-# INLINE getNextByte #-}
-getNextByte :: ByteReader s Word8
-getNextByte = do
-    (str, idx) <- S.get
-    S.put (str, idx + 1)
-    return $ str `BU.unsafeIndex` idx
-
-{-# INLINE getBounds #-}
 getBounds :: (Monad m, Storable a) => M.STVector s a -> m (Int, Int)
+{-# INLINE getBounds #-}
 getBounds v = return (0, M.length v - 1)
 
 -- | Apply a filtering method on a reduced image. Apply the filter
 -- on each line, using the previous line (the one above it) to perform
 -- some prediction on the value.
 pngFiltering :: LineUnpacker s -> Int -> (Int, Int)    -- ^ Image size
-             -> ByteReader s ()
-pngFiltering _ _ (imgWidth, imgHeight) | imgWidth <= 0 || imgHeight <= 0 = return ()
-pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
-    thisLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
-    otherLine <- lift $ M.replicate (beginZeroes + imgWidth) 0
-    let folder            _          _  lineIndex | lineIndex >= imgHeight = return ()
-        folder previousLine currentLine lineIndex = do
-               byte <- getNextByte
+             -> B.ByteString -> Int
+             -> ST s Int
+pngFiltering _ _ (imgWidth, imgHeight) _str initialIdx
+        | imgWidth <= 0 || imgHeight <= 0 = return initialIdx
+pngFiltering unpacker beginZeroes (imgWidth, imgHeight) str initialIdx = do
+    thisLine <- M.replicate (beginZeroes + imgWidth) 0
+    otherLine <- M.replicate (beginZeroes + imgWidth) 0
+    let folder            _          _  lineIndex !idx | lineIndex >= imgHeight = return idx
+        folder previousLine currentLine lineIndex !idx = do
+               let byte = str `BU.unsafeIndex` idx
                let lineFilter = case unparsePngFilter byte of
                        Right FilterNone    -> filterNone
                        Right FilterSub     -> filterSub
@@ -103,11 +95,11 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
                        Right FilterUp      -> filterUp
                        Right FilterPaeth   -> filterPaeth
                        _ -> filterNone
-               lineFilter (previousLine, currentLine)
-               lift $ unpacker lineIndex (stride, currentLine)
-               folder currentLine previousLine $ lineIndex + 1
+               idx' <- lineFilter previousLine currentLine $ idx + 1
+               unpacker lineIndex (stride, currentLine)
+               folder currentLine previousLine (lineIndex + 1) idx'
 
-    folder thisLine otherLine (0 :: Int)
+    folder thisLine otherLine (0 :: Int) initialIdx
 
     where stride = fromIntegral beginZeroes
           lastIdx = beginZeroes + imgWidth - 1
@@ -117,47 +109,52 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) = do
           -- they are faster than mapM_, gained something like 5% with
           -- a rewrite from mapM_ to this direct version
           filterNone, filterSub, filterUp, filterPaeth,
-                filterAverage :: (PngLine s, PngLine s) -> ByteReader s ()
-          filterNone (_previousLine, thisLine) = inner beginZeroes
-            where inner idx | idx > lastIdx = return ()
-                            | otherwise = do byte <- getNextByte
-                                             lift $ (thisLine `M.unsafeWrite` idx) byte
-                                             inner (idx + 1)
+                filterAverage :: PngLine s -> PngLine s -> Int -> ST s Int
+          filterNone !_previousLine !thisLine = inner beginZeroes
+            where inner idx !readIdx
+                            | idx > lastIdx = return readIdx
+                            | otherwise = do let byte = str `BU.unsafeIndex` readIdx
+                                             (thisLine `M.unsafeWrite` idx) byte
+                                             inner (idx + 1) $ readIdx + 1
 
-          filterSub (_previousLine, thisLine) = inner beginZeroes
-            where inner idx | idx > lastIdx = return ()
-                            | otherwise = do byte <- getNextByte
-                                             val <- lift $ thisLine `M.unsafeRead` (idx - stride)
-                                             lift . (thisLine `M.unsafeWrite` idx) $ byte + val
-                                             inner (idx + 1)
+          filterSub !_previousLine !thisLine = inner beginZeroes
+            where inner idx !readIdx
+                            | idx > lastIdx = return readIdx
+                            | otherwise = do let byte = str `BU.unsafeIndex` readIdx
+                                             val <- thisLine `M.unsafeRead` (idx - stride)
+                                             (thisLine `M.unsafeWrite` idx) $ byte + val
+                                             inner (idx + 1) $ readIdx + 1
 
-          filterUp (previousLine, thisLine) = inner beginZeroes
-            where inner idx | idx > lastIdx = return ()
-                            | otherwise = do byte <- getNextByte
-                                             val <- lift $ previousLine `M.unsafeRead` idx
-                                             lift . (thisLine `M.unsafeWrite` idx) $ val + byte
-                                             inner (idx + 1)
+          filterUp !previousLine !thisLine = inner beginZeroes
+            where inner idx !readIdx
+                            | idx > lastIdx = return readIdx
+                            | otherwise = do let byte = str `BU.unsafeIndex` readIdx
+                                             val <- previousLine `M.unsafeRead` idx
+                                             (thisLine `M.unsafeWrite` idx) $ val + byte
+                                             inner (idx + 1) $ readIdx + 1
 
-          filterAverage (previousLine, thisLine) = inner beginZeroes
-            where inner idx | idx > lastIdx = return ()
-                            | otherwise = do byte <- getNextByte
-                                             valA <- lift $ thisLine `M.unsafeRead` (idx - stride)
-                                             valB <- lift $ previousLine `M.unsafeRead` idx
+          filterAverage !previousLine !thisLine = inner beginZeroes
+            where inner idx !readIdx
+                            | idx > lastIdx = return readIdx
+                            | otherwise = do let byte = str `BU.unsafeIndex` readIdx
+                                             valA <- thisLine `M.unsafeRead` (idx - stride)
+                                             valB <- previousLine `M.unsafeRead` idx
                                              let a' = fromIntegral valA
                                                  b' = fromIntegral valB
                                                  average = fromIntegral ((a' + b') `div` (2 :: Word16)) 
                                                  writeVal = byte + average 
-                                             lift . (thisLine `M.unsafeWrite` idx) $ writeVal
-                                             inner (idx + 1)
+                                             (thisLine `M.unsafeWrite` idx) $ writeVal
+                                             inner (idx + 1) $ readIdx + 1
 
-          filterPaeth (previousLine, thisLine) = inner beginZeroes
-            where inner idx | idx > lastIdx = return ()
-                            | otherwise = do byte <- getNextByte
-                                             valA <- lift $ thisLine `M.unsafeRead` (idx - stride)
-                                             valC <- lift $ previousLine `M.unsafeRead` (idx - stride)
-                                             valB <- lift $ previousLine `M.unsafeRead` idx
-                                             lift . (thisLine `M.unsafeWrite` idx) $ byte + paeth valA valB valC
-                                             inner (idx + 1)
+          filterPaeth !previousLine !thisLine = inner beginZeroes
+            where inner idx !readIdx
+                            | idx > lastIdx = return readIdx
+                            | otherwise = do let byte = str `BU.unsafeIndex` readIdx
+                                             valA <- thisLine `M.unsafeRead` (idx - stride)
+                                             valC <- previousLine `M.unsafeRead` (idx - stride)
+                                             valB <- previousLine `M.unsafeRead` idx
+                                             (thisLine `M.unsafeWrite` idx) $ byte + paeth valA valB valC
+                                             inner (idx + 1) $ readIdx + 1
 
                   paeth a b c
                     | pa <= pb && pa <= pc = a
@@ -312,9 +309,10 @@ byteSizeOfBitLength pixelBitDepth sampleCount dimension = size + (if rest /= 0 t
    where (size, rest) = (pixelBitDepth * dimension * sampleCount) `quotRem` 8
 
 scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
-                     -> ByteReader s ()
-scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker =
-    pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight)
+                     -> B.ByteString
+                     -> ST s ()
+scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker str =
+    pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight) str 0 >> return ()
         where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
               strideInfo | depth < 8 = 1
                          | otherwise = sampleCount * (depth `div` 8)
@@ -322,19 +320,21 @@ scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker =
 -- | Given data and image size, recreate an image with deinterlaced
 -- data for PNG's adam 7 method.
 adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
-            -> ByteReader s ()
-adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
-  [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) strideInfo (byteWidth, passHeight)
-                | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
-                , let passWidth = sizer imgWidth beginW incrW
-                      passHeight = sizer imgHeight beginH incrH
-                      byteWidth = byteSizeOfBitLength depth sampleCount passWidth
-                ]
+            -> B.ByteString -> ST s ()
+adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker str =
+  foldM_ (\i f -> f i) 0 subImages >> return ()
     where Adam7MatrixInfo { adam7StartingRow  = startRows
                           , adam7RowIncrement = rowIncrement
                           , adam7StartingCol  = startCols
                           , adam7ColIncrement = colIncrement } = adam7MatrixInfo
 
+          subImages = 
+              [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) strideInfo (byteWidth, passHeight) str
+                            | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
+                            , let passWidth = sizer imgWidth beginW incrW
+                                  passHeight = sizer imgHeight beginH incrH
+                                  byteWidth = byteSizeOfBitLength depth sampleCount passWidth
+                            ]
           strideInfo | depth < 8 = 1
                      | otherwise = sampleCount * (depth `div` 8)
           sizer dimension begin increment
@@ -344,22 +344,23 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker = sequence_
 
 -- | deinterlace picture in function of the method indicated
 -- in the iHDR
-deinterlacer :: PngIHdr -> ByteReader s (M.STVector s Word8)
+deinterlacer :: PngIHdr -> B.ByteString -> ST s (M.STVector s Word8)
 deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
-                      , interlaceMethod = method, bitDepth = depth  }) = do
+                      , interlaceMethod = method, bitDepth = depth  }) str = do
     let compCount = sampleCountOfImageType imgKind 
         arraySize = fromIntegral $ w * h * compCount
         deinterlaceFunction = case method of
             PngNoInterlace -> scanLineInterleaving
             PngInterlaceAdam7 -> adam7Unpack
         iBitDepth = fromIntegral depth
-    imgArray <- lift $ M.new arraySize
+    imgArray <- M.new arraySize
     let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
     deinterlaceFunction iBitDepth 
                         (fromIntegral compCount)
                         (fromIntegral w, fromIntegral h)
                         (scanlineUnpacker iBitDepth (fromIntegral compCount)
                                                     mutableImage)
+                        str
     return imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
@@ -425,20 +426,20 @@ decodePng byte = do
             | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
             | otherwise = Right . ImageY8 . imager $ runST stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                where stArray = deinterlacer ihdr bytes >>= V.unsafeFreeze
         unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
         unparse _ PngTrueColour          bytes =
             Right . ImageRGB8 . imager $ runST stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                where stArray = deinterlacer ihdr bytes >>= V.unsafeFreeze
         unparse _ PngGreyscaleWithAlpha  bytes =
             Right . ImageYA8 . imager $ runST stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                where stArray = deinterlacer ihdr bytes >>= V.unsafeFreeze
         unparse _ PngTrueColourWithAlpha bytes =
             Right . ImageRGBA8 . imager $ runST stArray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                where stArray = deinterlacer ihdr bytes >>= V.unsafeFreeze
         unparse (Just plte) PngIndexedColor bytes =
             Right . ImageRGB8 . imager $ applyPalette plte uarray
-                where stArray = S.evalStateT (deinterlacer ihdr) bytes >>= V.unsafeFreeze
+                where stArray = deinterlacer ihdr bytes >>= V.unsafeFreeze
                       uarray = runST stArray
 
     if Lb.length compressedImageData <= zlibHeaderSize
@@ -450,5 +451,5 @@ decodePng byte = do
                     Just p -> case parsePalette p of
                             Left _ -> Nothing
                             Right plte -> Just plte
-            in unparse palette (colourType ihdr) (parseableData, 0)
+            in unparse palette (colourType ihdr) parseableData
 
