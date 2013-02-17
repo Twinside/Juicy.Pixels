@@ -59,7 +59,6 @@ module Codec.Picture.Types( -- * Types
                           , unsafeExtractComponent
                           ) where
 
-import Debug.Trace
 import Control.Monad( forM_, foldM )
 import Control.Applicative( (<$>), (<*>) )
 import Control.DeepSeq( NFData( .. ) )

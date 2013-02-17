@@ -301,6 +301,15 @@ pngToBmp = do
         {-error "Can't decompress img"-}
     _ -> return ()
 
+gifToPng :: IO ()
+gifToPng = do
+  img <- readImage "tests/gif/2k.gif"
+  case img of
+    Right (ImageRGB8 i) -> writeBitmap "huge.png" i
+    Left err -> do
+        putStrLn err
+        {-error "Can't decompress img"-}
+    _ -> return ()
 
 benchMark :: IO ()
 benchMark = do
@@ -308,7 +317,7 @@ benchMark = do
 
     hugeJpeg <- B.readFile "tests/jpeg/huge.jpg"
     hugePng <- B.readFile "tests/pngsuite/huge.png"
-    {-hugeGif <- B.readFile "tests/gif/huge.gif"-}
+    hugeGif <- B.readFile "tests/gif/huge.gif"
 
     let Right decodedImage = decodeImage hugePng
 
@@ -319,12 +328,14 @@ benchMark = do
         bgroup "trad"
             [ bench "JPG -> PNG" $ whnfIO jpegToPng 
             , bench "PNG -> JPG" $ whnfIO pngToJpeg
+            , bench "GIF -> PNG" $ whnfIO gifToPng
+            , bench "PNG -> BMP" $ whnfIO pngToBmp
             ],
 
         bgroup "reading"
             [ bench "Huge jpeg" $ nf decodeImage hugeJpeg
             , bench "Huge png" $ nf decodeImage hugePng
-            {-, bench "Huge gif" $ nf decodeImage hugeGif-}
+            , bench "Huge gif" $ nf decodeImage hugeGif
             ],
 
         bgroup "writing"
