@@ -9,7 +9,7 @@ before_install:
   - cabal update
 install:
   - cabal install --force-reinstalls
-  
+
 notifications:
   email:
       - twinside@gmail.com
