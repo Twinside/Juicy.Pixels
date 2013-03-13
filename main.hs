@@ -4,6 +4,7 @@
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
+import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
@@ -326,7 +327,7 @@ benchMark = do
     let myConfig = C.defaultConfig { C.cfgSamples = C.ljust 12 }
     defaultMainWith myConfig (return ()) [
         bgroup "trad"
-            [ bench "JPG -> PNG" $ whnfIO jpegToPng 
+            [ bench "JPG -> PNG" $ whnfIO jpegToPng
             , bench "PNG -> JPG" $ whnfIO pngToJpeg
             , bench "GIF -> PNG" $ whnfIO gifToPng
             , bench "PNG -> BMP" $ whnfIO pngToBmp

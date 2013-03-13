@@ -1,24 +1,29 @@
+{-# LANGUAGE TupleSections #-}
 module Codec.Picture.Tiff where
 
-import Control.Applicative( (<$>), (<*>) )
+import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM )
 import Data.Word( Word16 )
-{-import Data.Bits( (.|.), unsafeShiftL )-}
+import Data.Bits( unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
                       , getWord16le, getWord16be
                       , getWord32le, getWord32be
                       , bytesRead 
                       , skip
+                      , getByteString
                       )
 import Data.Binary.Put( Put
                       , putWord16le, putWord16be
                       , putWord32le, putWord32be )
+
+import qualified Data.Vector as V
 import Data.Word( Word32 )
 import qualified Data.ByteString as B
 
 import Text.Groom
 import Codec.Picture.InternalHelper
+import Codec.Picture.Types
 
 data Endianness = EndianLittle
                 | EndianBig
@@ -70,6 +75,12 @@ instance Binary TiffHeader where
         when (magic /= 42)
              (fail "Invalid TIFF magic number")
         TiffHeader endian <$> getWord32Endian endian
+
+data TiffCompression =
+      CompressionNone           -- 1
+    | CompressionModifiedRLE    -- 2
+    | CompressionPackBit        -- 32273
+    deriving (Eq, Show)
 
 data IfdType = TypeByte
              | TypeAscii
@@ -158,13 +169,32 @@ tagOfWord16 = aux
         aux 320 = TagColorMap
         aux v = TagUnknown v
 
+data ExtendedDirectoryData =
+      ExtendedDataNone
+    | ExtendedDataAscii !B.ByteString
+    | ExtendedDataShort !(V.Vector Word16)
+    | ExtendedDataLong  !(V.Vector Word32)
+    deriving (Eq, Show)
+
 data ImageFileDirectory = ImageFileDirectory
     { ifdIdentifier :: !TiffTag
     , ifdType       :: !IfdType
     , ifdCount      :: !Word32
     , ifdOffset     :: !Word32
+    , ifdExtended   :: !ExtendedDirectoryData
     }
     deriving (Eq, Show)
+
+unLong :: String -> ExtendedDirectoryData -> Get (V.Vector Word32)
+unLong _ (ExtendedDataShort v) = pure $ V.map fromIntegral v
+unLong _ (ExtendedDataLong v) = pure v
+unLong errMessage _ = fail errMessage
+
+cleanImageFileDirectory :: ImageFileDirectory -> ImageFileDirectory
+cleanImageFileDirectory ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
+    where aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
+          aux _ = ifd
+cleanImageFileDirectory ifd = ifd
 
 getImageFileDirectory :: Endianness -> Get ImageFileDirectory
 getImageFileDirectory endianness =
@@ -172,6 +202,7 @@ getImageFileDirectory endianness =
                      <*> (getWord16 >>= typeOfWord)
                      <*> getWord32
                      <*> getWord32
+                     <*> pure ExtendedDataNone
     where getWord16 = getWord16Endian endianness
           getWord32 = getWord32Endian endianness
 
@@ -181,17 +212,90 @@ getImageFileDirectories endianness = do
     replicateM (fromIntegral count) (getImageFileDirectory endianness)
    where getWord16 = getWord16Endian endianness
 
-tiffDebug :: IO ()
-tiffDebug = do
+fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
+fetchExtended endian = mapM fetcher
+  where align ImageFileDirectory { ifdOffset = offset } = do
+            readed <- bytesRead
+            skip . fromIntegral $ fromIntegral offset - readed
 
-    tiffFile <- B.readFile "C:/Users/Vince/Downloads/test_suite/tiff/libtiffpic/depth/flower-rgb-planar-08.tif"
-    let v = flip runGetStrict tiffFile $ do
-              hdr <- get
-              readed <- bytesRead
-              skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
-              ifd <- getImageFileDirectories $ hdrEndianness hdr
-              return (hdr, ifd)
+        getWord16 = getWord16Endian endian
+        getWord32 = getWord32Endian endian
 
-    putStrLn $ groom v
+        update ifd v = ifd { ifdExtended = v }
+        getVec count = V.replicateM (fromIntegral count)
 
+        fetcher ifd@ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
+            align ifd >> (update ifd . ExtendedDataAscii <$> getByteString (fromIntegral count))
+        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 1 =
+            align ifd >> (update ifd . ExtendedDataShort <$> getVec count getWord16)
+        fetcher ifd@ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
+            align ifd >> (update ifd . ExtendedDataLong <$> getVec count getWord32)
 
+        fetcher ifd = pure ifd
+
+findIFD :: String -> TiffTag -> [ImageFileDirectory]
+        -> Get ImageFileDirectory
+findIFD errorMessage tag lst =
+    case [v | v <- lst, ifdIdentifier v == tag] of
+        [] -> fail errorMessage
+        (x:_) -> pure x
+
+findIFDData :: String -> TiffTag -> [ImageFileDirectory] -> Get Word32
+findIFDData msg tag lst = ifdOffset <$> findIFD msg tag lst
+
+findIFDExt :: String -> TiffTag -> [ImageFileDirectory] -> Get ExtendedDirectoryData
+findIFDExt msg tag lst = ifdExtended <$> findIFD msg tag lst
+
+data TiffInfo = TiffInfo
+    { tiffHeader        :: TiffHeader
+    , tiffWidth         :: Word32
+    , tiffHeight        :: Word32
+    , tiffSampleCount   :: Word32
+    , tiffBitsPerSample :: V.Vector Word32
+    , tiffCompression   :: TiffCompression
+    , tiffStripSize     :: V.Vector Word32
+    , tiffOffsets       :: V.Vector Word32
+    }
+    deriving (Eq, Show)
+
+unPackCompression :: Word32 -> Get TiffCompression
+unPackCompression 1 = pure CompressionNone
+unPackCompression 2 = pure CompressionModifiedRLE
+unPackCompression 32273 = pure CompressionPackBit
+unPackCompression _ = fail "Unknown compression scheme"
+
+getTiffInfo :: Get TiffInfo
+getTiffInfo = do
+    hdr <- get
+    readed <- bytesRead
+    skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
+    let endian = hdrEndianness hdr
+
+    ifd <- fmap cleanImageFileDirectory <$> getImageFileDirectories endian
+    cleaned <- fetchExtended endian ifd
+
+    let dataFind str tag = findIFDData str tag cleaned
+        extFind str tag = findIFDExt str tag cleaned
+
+    TiffInfo hdr
+        <$> dataFind "Can't find width" TagImageWidth
+        <*> dataFind "Can't find height" TagImageLength
+        <*> dataFind "Can't find sample per pixel" TagSamplesPerPixel
+        <*> (extFind "Can't find bit per sample" TagBitsPerSample
+                     >>= unLong "Can't find bit depth")
+        <*> (dataFind "Can't find Compression" TagCompression
+                     >>= unPackCompression)
+        <*> (extFind "Can't find byte counts" TagStripByteCounts
+                     >>= unLong "Can't find bit per sample")
+        <*> (extFind "Strip offsets missing" TagStripOffsets
+                     >>= unLong "Can't find strip offsets")
+
+unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
+unpack file _ = Left "Failure to unpack TIFF file"
+
+decodeTiff :: B.ByteString -> Either String DynamicImage
+decodeTiff file = runGetStrict getTiffInfo file >>= unpack file
+
+tiffDebug :: B.ByteString -> IO ()
+tiffDebug tiffFile = putStrLn $ groom tiffInfo
+  where tiffInfo = flip runGetStrict tiffFile getTiffInfo

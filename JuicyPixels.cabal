@@ -29,7 +29,7 @@ Source-Repository this
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -O3 -Wall -rtsopts -prof -fprof-auto-top
+  Ghc-options: -O3 -Wall
   -- -ddump-simpl
   -- -rtsopts -prof -fprof-auto-top
   Include-Dirs: Codec/Picture
@@ -46,7 +46,8 @@ Executable imageTest
                  filepath            >= 1.3     && < 1.4,
                  criterion           >= 0.6.2   && < 0.7,
                  hastache            >= 0.4     && < 0.5,
-                 mmap
+                 mmap,
+                 groom
 
 
 Library
