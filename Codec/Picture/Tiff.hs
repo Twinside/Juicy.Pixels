@@ -1,9 +1,11 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Tiff where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM )
-import Data.Word( Word16 )
+import Control.Monad.ST( ST, runST )
+import Data.Word( Word8, Word16 )
 import Data.Bits( unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
@@ -18,8 +20,10 @@ import Data.Binary.Put( Put
                       , putWord32le, putWord32be )
 
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable.Mutable as M
 import Data.Word( Word32 )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Unsafe as BU
 
 import Text.Groom
 import Codec.Picture.InternalHelper
@@ -75,6 +79,16 @@ instance Binary TiffHeader where
         when (magic /= 42)
              (fail "Invalid TIFF magic number")
         TiffHeader endian <$> getWord32Endian endian
+
+data TiffPlanarConfiguration =
+      PlanarConfigContig    -- = 1
+    | PlanarConfigSeparate  -- = 2
+    deriving (Eq, Show)
+
+planarConfgOfConstant :: Word32 -> Get TiffPlanarConfiguration
+planarConfgOfConstant 1 = pure PlanarConfigContig
+planarConfgOfConstant 2 = pure PlanarConfigSeparate
+planarConfgOfConstant _ = fail "Unknown plannar constant"
 
 data TiffCompression =
       CompressionNone           -- 1
@@ -247,14 +261,15 @@ findIFDExt :: String -> TiffTag -> [ImageFileDirectory] -> Get ExtendedDirectory
 findIFDExt msg tag lst = ifdExtended <$> findIFD msg tag lst
 
 data TiffInfo = TiffInfo
-    { tiffHeader        :: TiffHeader
-    , tiffWidth         :: Word32
-    , tiffHeight        :: Word32
-    , tiffSampleCount   :: Word32
-    , tiffBitsPerSample :: V.Vector Word32
-    , tiffCompression   :: TiffCompression
-    , tiffStripSize     :: V.Vector Word32
-    , tiffOffsets       :: V.Vector Word32
+    { tiffHeader             :: TiffHeader
+    , tiffWidth              :: Word32
+    , tiffHeight             :: Word32
+    , tiffSampleCount        :: Word32
+    , tiffPlaneConfiguration :: TiffPlanarConfiguration
+    , tiffBitsPerSample      :: V.Vector Word32
+    , tiffCompression        :: TiffCompression
+    , tiffStripSize          :: V.Vector Word32
+    , tiffOffsets            :: V.Vector Word32
     }
     deriving (Eq, Show)
 
@@ -263,6 +278,46 @@ unPackCompression 1 = pure CompressionNone
 unPackCompression 2 = pure CompressionModifiedRLE
 unPackCompression 32273 = pure CompressionPackBit
 unPackCompression _ = fail "Unknown compression scheme"
+
+copyByteString :: B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
+               -> ST s Int
+copyByteString str vec stride startWrite (from, count) = inner startWrite fromi
+  where fromi = fromIntegral from
+        maxi = fromi + fromIntegral count
+
+        inner writeIdx i | i >= maxi = pure writeIdx
+        inner writeIdx i = do
+            let v = str `BU.unsafeIndex` i
+            (vec `M.unsafeWrite` writeIdx) v
+            inner (writeIdx + stride) $ i + 1
+
+gatherStrips :: (PixelBaseComponent pixel ~ Word8)
+             => B.ByteString -> TiffInfo -> Image pixel
+gatherStrips str nfo = runST $ do
+  let width = tiffWidth nfo
+      height = tiffHeight nfo
+      sampleCount = tiffSampleCount nfo
+
+  outVec <- M.new . fromIntegral $ width * height * sampleCount
+  let mutableImage = MutableImage
+                   { mutableImageWidth = fromIntegral width
+                   , mutableImageHeight = fromIntegral height
+                   , mutableImageData = outVec
+                   }
+
+  case tiffPlaneConfiguration nfo of
+    PlanarConfigContig ->
+            V.foldM'_ (copyByteString str outVec 1) 0
+                              $ V.zip (tiffOffsets nfo) (tiffStripSize nfo)
+    PlanarConfigSeparate ->
+        let stride = V.length $ tiffOffsets nfo
+            idxVector = V.enumFromN 0 stride
+        in
+        V.mapM_ (\(idx, offset, size) -> copyByteString str outVec stride
+                                                        idx (offset, size))
+                    $ V.zip3 idxVector (tiffOffsets nfo) (tiffStripSize nfo)
+
+  unsafeFreezeImage mutableImage
 
 getTiffInfo :: Get TiffInfo
 getTiffInfo = do
@@ -281,6 +336,8 @@ getTiffInfo = do
         <$> dataFind "Can't find width" TagImageWidth
         <*> dataFind "Can't find height" TagImageLength
         <*> dataFind "Can't find sample per pixel" TagSamplesPerPixel
+        <*> (dataFind "Can't find planar configuration" TagPlanarConfiguration
+                     >>= planarConfgOfConstant)
         <*> (extFind "Can't find bit per sample" TagBitsPerSample
                      >>= unLong "Can't find bit depth")
         <*> (dataFind "Can't find Compression" TagCompression
@@ -291,7 +348,11 @@ getTiffInfo = do
                      >>= unLong "Can't find strip offsets")
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
-unpack file _ = Left "Failure to unpack TIFF file"
+unpack file nfo@TiffInfo { tiffBitsPerSample = lst
+                         , tiffCompression = CompressionNone }
+  | lst == V.fromList [8, 8, 8] =
+        pure . ImageRGB8 $ gatherStrips file nfo
+unpack _ _ = fail "Failure to unpack TIFF file"
 
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff file = runGetStrict getTiffInfo file >>= unpack file
