@@ -4,7 +4,8 @@
 module Codec.Picture.BitWriter( BoolReader
                               , BoolState( .. )
                               , byteAlignJpg
-                              , getNextBits
+                              , getNextBitsLSBFirst
+                              , getNextBitsMSBFirst 
                               , getNextBitJpg
                               , setDecodedString
                               , setDecodedStringJpg
@@ -67,9 +68,19 @@ getNextBitJpg = do
       else S.put $ BoolState (idx - 1) v chain
     return val
 
-{-# INLINE getNextBits #-}
-getNextBits :: Int -> BoolReader s Word32
-getNextBits count = aux 0 count
+{-# INLINE getNextBitsMSBFirst #-}
+getNextBitsMSBFirst :: Int -> BoolReader s Word32
+getNextBitsMSBFirst count = aux 0 count
+  where aux acc 0 = return acc
+        aux acc n = do
+            bit <- getNextBit
+            let nextVal | bit = (acc `unsafeShiftL` 1) .|. 1
+                        | otherwise = acc `unsafeShiftL` 1
+            aux nextVal (n - 1)
+
+{-# INLINE getNextBitsLSBFirst #-}
+getNextBitsLSBFirst :: Int -> BoolReader s Word32
+getNextBitsLSBFirst count = aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBit

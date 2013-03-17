@@ -1,4 +1,4 @@
-module Codec.Picture.Gif.LZW( decodeLzw, lzw ) where
+module Codec.Picture.Gif.LZW( decodeLzw, decodeLzwTiff ) where
 
 import Data.Word( Word8 )
 import Control.Applicative( (<$>) )
@@ -57,12 +57,19 @@ decodeLzw :: B.ByteString -> Int -> Int -> M.STVector s Word8
           -> BoolReader s ()
 decodeLzw str maxBitKey initialKey outVec = do
     setDecodedString str
-    lzw maxBitKey initialKey outVec
+    lzw False maxBitKey initialKey 0 outVec
+
+decodeLzwTiff :: B.ByteString -> M.STVector s Word8 -> Int
+              -> BoolReader s()
+decodeLzwTiff str outVec initialWriteIdx = do
+    setDecodedString str
+    lzw True 12 9 initialWriteIdx outVec
+
 
 -- | Gif image constraint from spec-gif89a, code size max : 12 bits.
-lzw :: Int -> Int -> M.STVector s Word8
+lzw :: Bool -> Int -> Int -> Int -> M.STVector s Word8
     -> BoolReader s ()
-lzw nMaxBitKeySize initialKeySize outVec = do
+lzw isTiffVariant nMaxBitKeySize initialKeySize initialWriteIdx outVec = do
     -- Allocate buffer of maximum size.
     lzwData <- lift (M.new maxDataSize) >>= resetArray
     lzwOffsetTable <- lift (M.new tableEntryCount) >>= resetArray
@@ -102,7 +109,7 @@ lzw nMaxBitKeySize initialKeySize outVec = do
                      (dicWriteIdx + dataSize + 1) (updateCodeSize codeSize $ writeIdx + 1)
 
     getNextCode startCodeSize >>=
-        loop 0 firstFreeIndex firstFreeIndex startCodeSize
+        loop initialWriteIdx firstFreeIndex firstFreeIndex startCodeSize
 
   where tableEntryCount =  2 ^ min 12 nMaxBitKeySize
         maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount) + 1
@@ -116,10 +123,17 @@ lzw nMaxBitKeySize initialKeySize outVec = do
 
         resetArray a = lift $ rangeSetter initialElementCount a
 
+        updateOffset | isTiffVariant = 1
+                     | otherwise = 0
+
         updateCodeSize codeSize writeIdx
-            | writeIdx == 2 ^ codeSize = min 12 $ codeSize + 1
+            | writeIdx == 2 ^ codeSize - updateOffset =
+                min 12 $ codeSize + 1
             | otherwise = codeSize
 
-        getNextCode s = fromIntegral <$> getNextBits s
-
+        getNextCode 
+          | isTiffVariant =
+                \s -> fromIntegral <$> getNextBitsMSBFirst s
+          | otherwise =
+                \s -> fromIntegral <$> getNextBitsLSBFirst s
 
