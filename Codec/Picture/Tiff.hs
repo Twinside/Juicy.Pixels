@@ -312,7 +312,7 @@ uncompressAt :: TiffCompression
              -> B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
              -> ST s Int
 uncompressAt CompressionNone = copyByteString
-uncompressAt CompressionLZW = \str outVec _stride writeIndex (offset, size) -> do
+uncompressAt CompressionLZW =  \str outVec _stride writeIndex (offset, size) -> do
     let toDecode = B.take (fromIntegral size) $ B.drop (fromIntegral offset) str
     runBoolReader $ decodeLzwTiff toDecode outVec writeIndex
     return 0

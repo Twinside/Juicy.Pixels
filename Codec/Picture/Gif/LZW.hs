@@ -18,7 +18,8 @@ import Codec.Picture.BitWriter
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (PrimMonad m, Storable a)
         => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.unsafeRead -- M.read
+(.!!!.) = M.unsafeRead 
+        -- M.read
 
 {-# INLINE (..!!!..) #-}
 (..!!!..) :: (MonadTrans t, PrimMonad m, Storable a)
@@ -28,7 +29,8 @@ import Codec.Picture.BitWriter
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a)
        => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite -- M.write
+(.<-.) = M.unsafeWrite 
+         -- M.write
 
 {-# INLINE (..<-..) #-}
 (..<-..) :: (MonadTrans t, PrimMonad m, Storable a)
@@ -115,25 +117,23 @@ lzw isTiffVariant nMaxBitKeySize initialKeySize initialWriteIdx outVec = do
         maxDataSize = tableEntryCount `div` 2 * (1 + tableEntryCount) + 1
 
         initialElementCount = 2 ^ initialKeySize :: Int
-        clearCode = initialElementCount
-        endOfInfo = clearCode + 1
-        startCodeSize = initialKeySize + 1
+        clearCode | isTiffVariant = 256
+                  | otherwise = initialElementCount
+
+        endOfInfo | isTiffVariant = 257
+                  | otherwise = clearCode + 1
+
+        startCodeSize 
+                  | isTiffVariant = initialKeySize
+                  | otherwise = initialKeySize + 1
 
         firstFreeIndex = endOfInfo + 1
 
         resetArray a = lift $ rangeSetter initialElementCount a
 
-        updateOffset | isTiffVariant = 1
-                     | otherwise = 0
-
         updateCodeSize codeSize writeIdx
-            | writeIdx == 2 ^ codeSize - updateOffset =
-                min 12 $ codeSize + 1
+            | writeIdx == 2 ^ codeSize = min 12 $ codeSize + 1
             | otherwise = codeSize
 
-        getNextCode 
-          | isTiffVariant =
-                \s -> fromIntegral <$> getNextBitsMSBFirst s
-          | otherwise =
-                \s -> fromIntegral <$> getNextBitsLSBFirst s
+        getNextCode s = fromIntegral <$> getNextBitsLSBFirst s
 
