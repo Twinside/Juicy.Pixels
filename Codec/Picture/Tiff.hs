@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
-module Codec.Picture.Tiff where
+module Codec.Picture.Tiff( decodeTiff, tiffDebug ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM )
@@ -90,9 +90,10 @@ data TiffPlanarConfiguration =
     deriving (Eq, Show)
 
 planarConfgOfConstant :: Word32 -> Get TiffPlanarConfiguration
+planarConfgOfConstant 0 = pure PlanarConfigContig
 planarConfgOfConstant 1 = pure PlanarConfigContig
 planarConfgOfConstant 2 = pure PlanarConfigSeparate
-planarConfgOfConstant _ = fail "Unknown plannar constant"
+planarConfgOfConstant v = fail $ "Unknown planar constant (" ++ show v ++ ")"
 
 data TiffCompression =
       CompressionNone           -- 1
@@ -116,6 +117,7 @@ data IfdType = TypeByte
              | TypeDouble
              deriving (Eq, Show)
 
+{-
 wordOfType :: IfdType -> Word16
 wordOfType TypeByte           = 1
 wordOfType TypeAscii          = 2
@@ -129,6 +131,7 @@ wordOfType TypeSignedLong     = 9
 wordOfType TypeSignedRational = 10
 wordOfType TypeFloat          = 11
 wordOfType TypeDouble         = 12
+ -- -}
 
 typeOfWord :: Word16 -> Get IfdType
 typeOfWord 1  = return TypeByte
@@ -163,6 +166,7 @@ data TiffTag = TagPhotometricInterpretation
              | TagSoftware
              | TagPlanarConfiguration
              | TagOrientation
+             | TagSampleFormat
              | TagUnknown Word16
              deriving (Eq, Show)
 
@@ -187,6 +191,7 @@ tagOfWord16 = aux
         aux 305 = TagSoftware
         aux 315 = TagArtist
         aux 320 = TagColorMap
+        aux 339 = TagSampleFormat
         aux v = TagUnknown v
 
 data ExtendedDirectoryData =
@@ -195,6 +200,21 @@ data ExtendedDirectoryData =
     | ExtendedDataShort !(V.Vector Word16)
     | ExtendedDataLong  !(V.Vector Word32)
     deriving (Eq, Show)
+
+data TiffSampleFormat =
+      TiffSampleUint
+    | TiffSampleInt
+    | TiffSampleDouble
+    | TiffSampleUnknown
+    deriving (Eq, Show)
+
+unpackSampleFormat :: Word32 -> Get TiffSampleFormat 
+unpackSampleFormat = aux
+  where aux 1 = pure TiffSampleUint
+        aux 2 = pure TiffSampleInt
+        aux 3 = pure TiffSampleDouble
+        aux 4 = pure TiffSampleUnknown
+        aux v = fail $ "Undefined data format (" ++ show v ++ ")"
 
 data ImageFileDirectory = ImageFileDirectory
     { ifdIdentifier :: !TiffTag
@@ -272,19 +292,44 @@ findIFDDefaultData d tag lst =
 findIFDExt :: String -> TiffTag -> [ImageFileDirectory] -> Get ExtendedDirectoryData
 findIFDExt msg tag lst = ifdExtended <$> findIFD msg tag lst
 
+findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory] -> Get [Word32]
+findIFDExtDefaultData d tag lst =
+    case [v | v <- lst, ifdIdentifier v == tag] of
+        [] -> pure d
+        (x:_) -> V.toList <$> unLong "Can't unlong" (ifdExtended x)
+
 data TiffInfo = TiffInfo
-    { tiffHeader             :: TiffHeader
+    { _tiffHeader            :: TiffHeader
     , tiffWidth              :: Word32
     , tiffHeight             :: Word32
+    , tiffColorspace         :: TiffColorspace 
     , tiffSampleCount        :: Word32
     , tiffRowPerStrip        :: Word32
     , tiffPlaneConfiguration :: TiffPlanarConfiguration
+    , tiffSampleFormat       :: [TiffSampleFormat]
     , tiffBitsPerSample      :: V.Vector Word32
     , tiffCompression        :: TiffCompression
     , tiffStripSize          :: V.Vector Word32
     , tiffOffsets            :: V.Vector Word32
     }
     deriving (Eq, Show)
+
+data TiffColorspace =
+      TiffMonochrome -- 0 or 1
+    | TiffRGB    -- 2
+    | TiffCMYK   -- 5
+    | TiffYCbCr  -- 6
+    | TiffCIELab -- 8
+    deriving (Eq, Show)
+
+unpackPhotometricInterpretation :: Word32 -> Get TiffColorspace
+unpackPhotometricInterpretation = aux
+  where aux 0 = pure TiffMonochrome
+        aux 1 = pure TiffMonochrome
+        aux 2 = pure TiffRGB
+        aux 6 = pure TiffYCbCr 
+        aux 8 = pure TiffCIELab
+        aux _ = fail "Unrecognized color space"
 
 unPackCompression :: Word32 -> Get TiffCompression
 unPackCompression 0 = pure CompressionNone
@@ -370,14 +415,19 @@ getTiffInfo = do
     let dataFind str tag = findIFDData str tag cleaned
         dataDefault def tag = findIFDDefaultData def tag cleaned
         extFind str tag = findIFDExt str tag cleaned
+        extDefault def tag = findIFDExtDefaultData def tag cleaned
 
     (\a -> trace (groom a) a) <$> (TiffInfo hdr
         <$> dataFind "Can't find width" TagImageWidth
         <*> dataFind "Can't find height" TagImageLength
+        <*> (dataFind "Can't find color space" TagPhotometricInterpretation
+                     >>= unpackPhotometricInterpretation)
         <*> dataFind "Can't find sample per pixel" TagSamplesPerPixel
         <*> dataFind "Can't find row per strip" TagRowPerStrip
         <*> (dataDefault 1 TagPlanarConfiguration
                      >>= planarConfgOfConstant)
+        <*> (extDefault [1] TagSampleFormat
+                     >>= mapM unpackSampleFormat)
         <*> (extFind "Can't find bit per sample" TagBitsPerSample
                      >>= unLong "Can't find bit depth")
         <*> (dataFind "Can't find Compression" TagCompression
@@ -389,7 +439,7 @@ getTiffInfo = do
             )
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
-unpack file nfo@TiffInfo { tiffBitsPerSample = lst }
+unpack file nfo@TiffInfo { tiffColorspace = TiffRGB, tiffBitsPerSample = lst }
   | lst == V.fromList [8, 8, 8] =
         pure . ImageRGB8 $ gatherStrips file nfo
 unpack _ _ = fail "Failure to unpack TIFF file"
