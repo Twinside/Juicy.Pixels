@@ -5,6 +5,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE CPP #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
@@ -20,10 +21,14 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Pixel types
                           , Pixel8
+                          , Pixel16
                           , PixelF
+                          , PixelD
                           , PixelYA8( .. )
                           , PixelRGB8( .. )
+                          , PixelRGB16( .. )
                           , PixelRGBF( .. )
+                          , PixelRGBD( .. )
                           , PixelRGBA8( .. )
                           , PixelYCbCr8( .. )
 
@@ -36,6 +41,7 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
+                          , dynamicMap
                           , pixelMap
                           , pixelFold
                           , dropAlphaLayer
@@ -66,7 +72,7 @@ import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR )
-import Data.Word( Word8 )
+import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
@@ -279,35 +285,75 @@ instance NFData (MutableImage s a) where
 -- structures
 data DynamicImage =
        -- | A greyscale image.
-       ImageY8   (Image Pixel8)
+       ImageY8    (Image Pixel8)
+       -- | A greyscale image with 16bit components
+     | ImageY16   (Image Pixel16)
        -- | A greyscale HDR image 
-     | ImageYF   (Image PixelF)
+     | ImageYF    (Image PixelF)
+       -- | A greyscale image with 64 bits floating components
+     | ImageYD    (Image PixelD)
+
        -- | An image in greyscale with an alpha channel.
-     | ImageYA8  (Image PixelYA8)
+     | ImageYA8   (Image PixelYA8)
        -- | An image in true color.
-     | ImageRGB8 (Image PixelRGB8)
+     | ImageRGB8  (Image PixelRGB8)
+       -- | An image in true color with 16bit depth.
+     | ImageRGB16 (Image PixelRGB16)
        -- | An image with HDR pixels
-     | ImageRGBF (Image PixelRGBF)
+     | ImageRGBF  (Image PixelRGBF)
+       -- | An image with HDR pixels (double precision)
+     | ImageRGBD  (Image PixelRGBD)
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
        -- | An image in the colorspace used by Jpeg images.
      | ImageYCbCr8 (Image PixelYCbCr8)
 
+-- | Helper function to help extract information from dynamic
+-- image. To get the width of an dynamic image, you can use
+-- the following snippet :
+--
+-- > dynWidth :: DynamicImage -> Int
+-- > dynWidth img = dynamicMap imageWidth img
+--
+dynamicMap :: (forall pixel. Image pixel -> a) -> DynamicImage -> a
+dynamicMap f (ImageY8    i) = f i
+dynamicMap f (ImageY16   i) = f i
+dynamicMap f (ImageYF    i) = f i
+dynamicMap f (ImageYD    i) = f i
+dynamicMap f (ImageYA8   i) = f i
+dynamicMap f (ImageRGB8  i) = f i
+dynamicMap f (ImageRGB16 i) = f i
+dynamicMap f (ImageRGBF  i) = f i
+dynamicMap f (ImageRGBD  i) = f i
+dynamicMap f (ImageRGBA8 i) = f i
+dynamicMap f (ImageYCbCr8 i) = f i
+
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
+    rnf (ImageY16 img)    = rnf img
     rnf (ImageYF img)     = rnf img
+    rnf (ImageYD img)     = rnf img
     rnf (ImageYA8 img)    = rnf img
     rnf (ImageRGB8 img)   = rnf img
+    rnf (ImageRGB16 img)  = rnf img
     rnf (ImageRGBF img)   = rnf img
+    rnf (ImageRGBD img)   = rnf img
     rnf (ImageRGBA8 img)  = rnf img
     rnf (ImageYCbCr8 img) = rnf img
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
 
+-- | Simple alias for greyscale value in 16 bits.
+type Pixel16 = Word16
+
 -- | Floating greyscale value, the 0 to 255 8 bit range maps
 -- to 0 to 1 in this floating version
 type PixelF = Float
+
+-- | Floating greyscale value, the 0 to 255 8 bit range maps
+-- to 0 to 1 in this floating version
+type PixelD = Double
 
 -- | Pixel type storing Luminance (Y) and alpha information
 -- on 8 bits.
@@ -317,8 +363,8 @@ type PixelF = Float
 --
 --  * Alpha
 --
-data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
-                         {-# UNPACK #-} !Word8  -- Alpha value
+data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
+                         {-# UNPACK #-} !Pixel8  -- Alpha value
               deriving (Eq, Show)
 
 -- | Pixel type storing classic pixel on 8 bits
@@ -330,9 +376,23 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
 --
 --  * Blue
 --
-data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
-                           {-# UNPACK #-} !Word8 -- Green
-                           {-# UNPACK #-} !Word8 -- Blue
+data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
+                           {-# UNPACK #-} !Pixel8 -- Green
+                           {-# UNPACK #-} !Pixel8 -- Blue
+               deriving (Eq, Show)
+
+-- | Pixel type storing pixels on 16 bits
+-- Value are stored in the following order :
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
+                             {-# UNPACK #-} !Pixel16 -- Green
+                             {-# UNPACK #-} !Pixel16 -- Blue
                deriving (Eq, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
@@ -349,6 +409,20 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Blue
                deriving (Eq, Show)
 
+-- | Pixel type storing HDR pixel on 64 bits double
+-- Value are stored in the following order :
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+data PixelRGBD = PixelRGBD {-# UNPACK #-} !PixelD -- Red
+                           {-# UNPACK #-} !PixelD -- Green
+                           {-# UNPACK #-} !PixelD -- Blue
+               deriving (Eq, Show)
+
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in the following order :
 --
@@ -358,9 +432,9 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 --
 --  * Cb
 --
-data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
-                               {-# UNPACK #-} !Word8 -- Cr red difference
-                               {-# UNPACK #-} !Word8 -- Cb blue difference
+data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
+                               {-# UNPACK #-} !Pixel8 -- Cr red difference
+                               {-# UNPACK #-} !Pixel8 -- Cb blue difference
                  deriving (Eq, Show)
 
 -- | Pixel type storing a classic pixel, with an alpha component.
@@ -374,15 +448,16 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
 --
 --  * Alpha
 --
-data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
-                             {-# UNPACK #-} !Word8 -- Green
-                             {-# UNPACK #-} !Word8 -- Blue
-                             {-# UNPACK #-} !Word8 -- Alpha
+data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Pixel8 -- Red
+                             {-# UNPACK #-} !Pixel8 -- Green
+                             {-# UNPACK #-} !Pixel8 -- Blue
+                             {-# UNPACK #-} !Pixel8 -- Alpha
                 deriving (Eq, Show)
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).
-class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a), Eq a ) => Pixel a where
+class ( Storable (PixelBaseComponent a)
+      , Num (PixelBaseComponent a), Eq a ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
@@ -658,9 +733,45 @@ instance Pixel Pixel8 where
     unsafeReadPixel = M.unsafeRead
     unsafeWritePixel = M.unsafeWrite
 
+instance Pixel Pixel16 where
+    type PixelBaseComponent Pixel16 = Word16
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
 
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
+
+instance Pixel PixelD where
+    type PixelBaseComponent PixelD = PixelD
 
     {-# INLINE colorMap #-}
     colorMap f = f
@@ -737,6 +848,45 @@ instance ColorConvertible PixelYA8 PixelRGBA8 where
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
 
 --------------------------------------------------
+----            PixelRGBD instances
+--------------------------------------------------
+instance Pixel PixelRGBD where
+    type PixelBaseComponent PixelRGBD = PixelD
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGBD r g b) = PixelRGBD (f r) (f g) (f b)
+
+    componentCount _ = 3
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGBD (arr ! (baseIdx + 0))
+                                                              (arr ! (baseIdx + 1))
+                                                              (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        return $ PixelRGBD rv gv bv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGBD rv gv bv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+
+    unsafePixelAt v idx = 
+        PixelRGBD (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGBD <$> M.unsafeRead vec idx
+                  <*> M.unsafeRead vec (idx + 1)
+                  <*> M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGBD r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
+--------------------------------------------------
 ----            PixelRGBF instances
 --------------------------------------------------
 instance Pixel PixelRGBF where
@@ -772,6 +922,45 @@ instance Pixel PixelRGBF where
                   <*> M.unsafeRead vec (idx + 1)
                   <*> M.unsafeRead vec (idx + 2)
     unsafeWritePixel v idx (PixelRGBF r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
+--------------------------------------------------
+----            PixelRGB16 instances
+--------------------------------------------------
+instance Pixel PixelRGB16 where
+    type PixelBaseComponent PixelRGB16 = Pixel16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGB16 r g b) = PixelRGB16 (f r) (f g) (f b)
+
+    componentCount _ = 3
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGB16 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        return $ PixelRGB16 rv gv bv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGB16 rv gv bv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+
+    unsafePixelAt v idx = 
+        PixelRGB16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGB16 <$> M.unsafeRead vec idx
+                   <*> M.unsafeRead vec (idx + 1)
+                   <*> M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGB16 r g b) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
 

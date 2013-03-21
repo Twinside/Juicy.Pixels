@@ -68,8 +68,15 @@ module Codec.Picture (
                      , Pixel( .. )
                      -- $graph
                      , Pixel8
+                     , Pixel16
+                     , PixelF
+                     , PixelD
+
                      , PixelYA8( .. )
                      , PixelRGB8( .. )
+                     , PixelRGB16( .. )
+                     , PixelRGBF( .. )
+                     , PixelRGBD( .. )
                      , PixelRGBA8( .. )
                      , PixelYCbCr8( .. )
                      ) where
