@@ -89,6 +89,17 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
+-- "caspian.tif"
+tiffValidTests :: [FilePath]
+tiffValidTests =
+    ["depth/flower-rgb-planar-08.tif"
+    ,"depth/flower-rgb-planar-16.tif"
+    ,"depth/flower-rgb-contig-08.tif"
+    ,"depth/flower-rgb-contig-16.tif"
+    ,"quad-lzw.tif"
+    ,"pc260001.tif"
+    ]
+
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
 
@@ -143,6 +154,12 @@ imgToImg path = do
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
 
+        Right (ImageRGB16 img) -> do
+            let pngFile = imageToPng $ ImageRGB16 img
+            putStrLn $ "RGB16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromRGB16.png") pngFile
+
         Right (ImageRGBA8 img) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
@@ -181,7 +198,7 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYA8.png") png
 
         Left err ->
-            putStrLn $ "Error loading " ++ path ++ " " ++ show err
+            putStrLn $ "Error loading " ++ path ++ " " ++ err
 
 toStandardDef :: Image PixelRGBF -> Image PixelRGB8
 toStandardDef img = pixelMap pixelConverter img
@@ -268,6 +285,7 @@ testSuite = do
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
+    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)

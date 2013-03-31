@@ -54,6 +54,9 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** Tiff handling
+                     , decodeTiff
+
                      -- ** HDR (Radiance/RGBE) handling
                      , readHDR
                      , decodeHDR
@@ -95,6 +98,7 @@ import Codec.Picture.HDR( decodeHDR
                         , encodeHDR
                         , writeHDR
                         )
+import Codec.Picture.Tiff( decodeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 -- import System.IO ( withFile, IOMode(ReadMode) )
@@ -138,6 +142,7 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("Bitmap", decodeBitmap)
                                  ,("GIF", decodeGif)
                                  ,("HDR", decodeHDR)
+                                 ,("Tiff", decodeTiff)
                                  ]
     
 -- | Helper function trying to load a png file from a file on disk.
