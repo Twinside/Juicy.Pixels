@@ -73,11 +73,8 @@ imageToPng (ImageRGBA8  img) = encodePng img
 imageToPng (ImageY8     img) = encodePng img
 imageToPng (ImageYF     img) = encodePng $ greyScaleToStandardDef img
 imageToPng (ImageYA8    img) = encodePng (promoteImage img :: Image PixelRGBA8)
-imageToPng (ImageY16    img) =
-    encodePng (pixelMap (\v -> fromIntegral v :: Word8) img)
-imageToPng (ImageRGB16 img) = encodePng (pixelMap conv img)
-  where conv (PixelRGB16 r g b) = PixelRGB8 (toW8 r) (toW8 g) (toW8 b)
-        toW8 = fromIntegral . (`div` 256)
+imageToPng (ImageY16    img) = encodePng img
+imageToPng (ImageRGB16 img) = encodePng img
 
 -- | This function will try to do anything to encode an image
 -- as bitmap, make all color conversion and such. Equivalent
