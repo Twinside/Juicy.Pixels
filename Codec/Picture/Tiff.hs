@@ -1,13 +1,14 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Codec.Picture.Tiff( decodeTiff, tiffDebug ) where
+{-# LANGUAGE FlexibleInstances #-}
+module Codec.Picture.Tiff( decodeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM )
 import Control.Monad.ST( ST, runST )
 import Data.Word( Word8, Word16 )
-import Data.Bits( (.|.), unsafeShiftL, unsafeShiftR )
+import Data.Bits( (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
                       , getWord16le, getWord16be
@@ -21,6 +22,7 @@ import Data.Binary.Put( Put
                       , putWord32le, putWord32be )
 
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Word( Word32 )
 import qualified Data.ByteString as B
@@ -28,6 +30,7 @@ import qualified Data.ByteString.Unsafe as BU
 
 import Debug.Trace
 import Text.Groom
+import Text.Printf
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
@@ -281,6 +284,17 @@ findIFD errorMessage tag lst =
         [] -> fail errorMessage
         (x:_) -> pure x
 
+findPalette :: [ImageFileDirectory] -> Get (Maybe (Image PixelRGB16))
+findPalette ifds =
+    case [v | v <- ifds, ifdIdentifier v == TagColorMap] of
+        (ImageFileDirectory { ifdExtended = ExtendedDataShort vec }:_) ->
+            pure . Just . Image pixelCount 1 $ VS.generate (V.length vec) axx
+                where pixelCount = V.length vec `div` 3
+                      axx v = vec `V.unsafeIndex` (idx + color * pixelCount)
+                          where (idx, color) = v `divMod` 3
+
+        _ -> pure Nothing
+
 findIFDData :: String -> TiffTag -> [ImageFileDirectory] -> Get Word32
 findIFDData msg tag lst = ifdOffset <$> findIFD msg tag lst
 
@@ -291,13 +305,25 @@ findIFDDefaultData d tag lst =
         (x:_) -> pure $ ifdOffset x
 
 findIFDExt :: String -> TiffTag -> [ImageFileDirectory] -> Get ExtendedDirectoryData
-findIFDExt msg tag lst = ifdExtended <$> findIFD msg tag lst
+findIFDExt msg tag lst = do
+    val <- findIFD msg tag lst
+    case val of
+      ImageFileDirectory
+        { ifdCount = 1, ifdOffset = ofs } ->
+               pure . ExtendedDataShort . V.singleton $ fromIntegral ofs
+      ImageFileDirectory { ifdExtended = v } -> pure v
+     
 
 findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory] -> Get [Word32]
 findIFDExtDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
         (x:_) -> V.toList <$> unLong "Can't unlong" (ifdExtended x)
+
+-- It's temporary, remove once tiff decoding is better
+-- handled.
+instance Show (Image PixelRGB16) where
+    show _ = "Image PixelRGB16"
 
 data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
@@ -312,15 +338,18 @@ data TiffInfo = TiffInfo
     , tiffCompression        :: TiffCompression
     , tiffStripSize          :: V.Vector Word32
     , tiffOffsets            :: V.Vector Word32
+    , tiffPalette            :: Maybe (Image PixelRGB16)
     }
-    deriving (Eq, Show)
+    deriving Show
 
 data TiffColorspace =
-      TiffMonochrome -- 0 or 1
-    | TiffRGB    -- 2
-    | TiffCMYK   -- 5
-    | TiffYCbCr  -- 6
-    | TiffCIELab -- 8
+      TiffMonochrome       -- ^ 0 or 1
+    | TiffRGB              -- ^ 2
+    | TiffPaleted          -- ^ 3
+    | TiffTransparencyMask -- ^ 4
+    | TiffCMYK             -- ^ 5
+    | TiffYCbCr            -- ^ 6
+    | TiffCIELab           -- ^ 8
     deriving (Eq, Show)
 
 unpackPhotometricInterpretation :: Word32 -> Get TiffColorspace
@@ -328,6 +357,8 @@ unpackPhotometricInterpretation = aux
   where aux 0 = pure TiffMonochrome
         aux 1 = pure TiffMonochrome
         aux 2 = pure TiffRGB
+        aux 3 = pure TiffPaleted
+        aux 4 = pure TiffTransparencyMask
         aux 6 = pure TiffYCbCr 
         aux 8 = pure TiffCIELab
         aux _ = fail "Unrecognized color space"
@@ -375,11 +406,10 @@ class Unpackable a where
 
     offsetStride :: a -> Int -> Int -> (Int, Int)
 
-    sizeOf :: a -> Int
-
     mergeBackTempBuffer :: a    -- ^ Type witness, just for the type checker.
                         -> Endianness
                         -> M.STVector s Word8 -- ^ Temporary buffer handling decompression.
+                        -> Int -- ^ Line size in pixels
                         -> Int  -- ^ Write index, in bytes
                         -> Word32  -- ^ size, in bytes
                         -> Int  -- ^ Stride
@@ -391,20 +421,18 @@ class Unpackable a where
 instance Unpackable Word8 where
   type StorageType Word8 = Word8
 
-  sizeOf _ = 1
   offsetStride _ i stride = (i, stride)
   allocTempBuffer _ buff _ = pure buff
-  mergeBackTempBuffer _ _ _ _ _ _ _ = pure ()
+  mergeBackTempBuffer _ _ _ _ _ _ _ _ = pure ()
   outAlloc _ = M.new
 
 instance Unpackable Word16 where
   type StorageType Word16 = Word16
 
-  sizeOf _ = 2
   offsetStride _ _ _ = (0, 1)
   outAlloc _ = M.new
-  allocTempBuffer _ _ = M.new
-  mergeBackTempBuffer _ EndianLittle tempVec index size stride outVec =
+  allocTempBuffer _ _ s = M.new $ s * 2
+  mergeBackTempBuffer _ EndianLittle tempVec _ index size stride outVec =
         looperLe index 0
     where looperLe _ readIndex | readIndex >= fromIntegral size = pure ()
           looperLe writeIndex readIndex = do
@@ -415,7 +443,7 @@ instance Unpackable Word16 where
               (outVec `M.write` writeIndex) finalValue
 
               looperLe (writeIndex + stride) (readIndex + 2)
-  mergeBackTempBuffer _ EndianBig tempVec index size stride outVec =
+  mergeBackTempBuffer _ EndianBig tempVec _ index size stride outVec =
          looperBe index 0
     where looperBe _ readIndex | readIndex >= fromIntegral size = pure ()
           looperBe writeIndex readIndex = do
@@ -426,6 +454,32 @@ instance Unpackable Word16 where
               (outVec `M.write` writeIndex) finalValue
 
               looperBe (writeIndex + stride) (readIndex + 2)
+
+data Pack4 = Pack4
+
+instance Unpackable Pack4 where
+  type StorageType Pack4 = Word8
+  allocTempBuffer _ _ = M.new
+  offsetStride _ _ _ = (0, 1)
+  outAlloc _ = M.new
+  mergeBackTempBuffer _ _ tempVec lineSize index size stride outVec =
+        inner 0 index pxCount
+    where pxCount = lineSize `div` stride
+
+          maxWrite = M.length outVec
+          inner readIdx writeIdx _
+                | readIdx >= fromIntegral size || writeIdx >= maxWrite = pure ()
+          inner readIdx writeIdx line
+                | line <= 0 = inner readIdx (writeIdx + line * stride) pxCount
+          inner readIdx writeIdx line = do
+            v <- tempVec `M.read` readIdx
+            let high = (v `unsafeShiftR` 4) .&. 0xF
+                low = v .&. 0xF
+            (outVec `M.write` writeIdx) high
+            when (writeIdx + stride < maxWrite) $
+                 (outVec `M.write` (writeIdx + stride)) low
+
+            inner (readIdx + 1) (writeIdx + 2 * stride) (line - 2)
 
 gatherStrips :: ( Unpackable comp
                 , Pixel pixel
@@ -445,11 +499,9 @@ gatherStrips comp str nfo = runST $ do
       stripCount = V.length $ tiffOffsets nfo
       compression = tiffCompression nfo
 
-      compSize = sizeOf comp
-
   outVec <- outAlloc comp $ width * height * sampleCount
   tempVec <- allocTempBuffer comp outVec
-                        (rowPerStrip * width * sampleCount * compSize)
+                        (rowPerStrip * width * sampleCount)
 
   let mutableImage = MutableImage
                    { mutableImageWidth = fromIntegral width
@@ -463,7 +515,8 @@ gatherStrips comp str nfo = runST $ do
                   let (writeIdx, tempStride)  = offsetStride comp idx 1
                   _ <- uncompressAt compression str tempVec tempStride
                                     writeIdx (offset, size)
-                  mergeBackTempBuffer comp endianness tempVec idx size 1 outVec
+                  mergeBackTempBuffer comp endianness tempVec (width * sampleCount)
+                                      idx size 1 outVec
 
               startWriteOffset =
                   V.generate stripCount(width * rowPerStrip * sampleCount *)
@@ -475,7 +528,8 @@ gatherStrips comp str nfo = runST $ do
                   let (writeIdx, tempStride) = offsetStride comp idx stride
                   _ <- uncompressAt compression str tempVec tempStride
                                     writeIdx (offset, size)
-                  mergeBackTempBuffer comp endianness tempVec idx size stride outVec
+                  mergeBackTempBuffer comp endianness tempVec (width * sampleCount)
+                                      idx size stride outVec
 
               stride = V.length $ tiffOffsets nfo
               idxVector = V.enumFromN 0 stride
@@ -517,21 +571,47 @@ getTiffInfo = do
                      >>= unLong "Can't find bit per sample")
         <*> (extFind "Strip offsets missing" TagStripOffsets
                      >>= unLong "Can't find strip offsets")
+        <*> findPalette cleaned
             )
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
+unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
+                         , tiffBitsPerSample = lst
+                         , tiffSampleFormat = format  
+                         , tiffPalette = Just p
+                         }
+  | lst == V.singleton 8 && format == [TiffSampleUint] =
+      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
+          gathered :: Image Pixel8
+          gathered = gatherStrips (0 :: Word8) file nfo
+      in
+      pure . ImageRGB16 $ applyPalette gathered
+
+  | lst == V.singleton 4 && format == [TiffSampleUint] =
+      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
+          gathered :: Image Pixel8
+          gathered = gatherStrips Pack4 file nfo
+      in
+      pure . ImageRGB16 $ applyPalette gathered
+
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
+        pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageRGB16 $ gatherStrips (0 :: Word16) file nfo
-unpack _ _ = fail "Failure to unpack TIFF file"
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
+                         , tiffBitsPerSample = lst
+                         , tiffSampleFormat = format }
+  -- some files are a little bit borked...
+  | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
+
+unpack _ tiffInfo = trace (groom tiffInfo) $ fail "Failure to unpack TIFF file"
 
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff file = runGetStrict getTiffInfo file >>= unpack file
 
-tiffDebug :: B.ByteString -> IO ()
-tiffDebug tiffFile = putStrLn $ groom tiffInfo
-  where tiffInfo = flip runGetStrict tiffFile getTiffInfo
