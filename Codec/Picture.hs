@@ -73,14 +73,14 @@ module Codec.Picture (
                      , Pixel8
                      , Pixel16
                      , PixelF
-                     , PixelD
 
                      , PixelYA8( .. )
+                     , PixelYA16( .. )
                      , PixelRGB8( .. )
                      , PixelRGB16( .. )
                      , PixelRGBF( .. )
-                     , PixelRGBD( .. )
                      , PixelRGBA8( .. )
+                     , PixelRGBA16( .. )
                      , PixelYCbCr8( .. )
                      ) where
 

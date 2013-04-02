@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 -- | Helper functions to save dynamic images to other file format
 -- with automatic color space/sample format conversion done automatically.
 module Codec.Picture.Saving( imageToJpg
@@ -6,13 +7,16 @@ module Codec.Picture.Saving( imageToJpg
                            , imageToRadiance
                            ) where
 
-import Data.Word( Word8 )
+import Data.Bits( unsafeShiftR )
+import Data.Word( Word8, Word16 )
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
 import Codec.Picture.Png
 import Codec.Picture.HDR
 import Codec.Picture.Types
+
+import qualified Data.Vector.Storable as V
 
 componentToLDR :: Float -> Word8
 componentToLDR = truncate . (255 *) . min 1.0 . max 0.0
@@ -26,6 +30,22 @@ toStandardDef img = pixelMap pixelConverter img
 
 greyScaleToStandardDef :: Image PixelF -> Image Pixel8
 greyScaleToStandardDef = pixelMap componentToLDR
+
+from16to8 :: ( PixelBaseComponent source ~ Word16
+             , PixelBaseComponent dest ~ Word8 )
+          => Image source -> Image dest
+from16to8 Image { imageWidth = w, imageHeight = h
+                , imageData = arr } = Image w h transformed
+   where transformed = V.map toWord8 arr
+         toWord8 v = fromIntegral (v `unsafeShiftR` 8)
+
+from16toFloat :: ( PixelBaseComponent source ~ Word16
+                 , PixelBaseComponent dest ~ Float )
+          => Image source -> Image dest
+from16toFloat Image { imageWidth = w, imageHeight = h
+                    , imageData = arr } = Image w h transformed
+   where transformed = V.map toWord8 arr
+         toWord8 v = fromIntegral v / 65536.0
 
 -- | This function will try to do anything to encode an image
 -- as RADIANCE, make all color conversion and such. Equivalent
@@ -44,6 +64,21 @@ imageToRadiance (ImageYF     img) =
     imageToRadiance . ImageRGBF $ promoteImage img
 imageToRadiance (ImageYA8    img) =
     imageToRadiance . ImageRGB8 . promoteImage $ dropAlphaLayer img
+imageToRadiance (ImageY16    img) =
+  imageToRadiance . ImageRGBF $ pixelMap toRgbf img
+    where toRgbf v = PixelRGBF val val val
+            where val = fromIntegral v / 65536.0
+
+imageToRadiance (ImageYA16   img) =
+  imageToRadiance . ImageRGBF $ pixelMap toRgbf img
+    where toRgbf (PixelYA16 v _) = PixelRGBF val val val
+            where val = fromIntegral v / 65536.0
+imageToRadiance (ImageRGB16  img) =
+    imageToRadiance . ImageRGBF $ from16toFloat img
+imageToRadiance (ImageRGBA16 img) =
+    imageToRadiance . ImageRGBF $ pixelMap toRgbf img
+    where toRgbf (PixelRGBA16 r g b _) = PixelRGBF (f r) (f g) (f b)
+            where f v = fromIntegral v / 65536.0
 
 -- | This function will try to do anything to encode an image
 -- as JPEG, make all color conversion and such. Equivalent
@@ -61,6 +96,10 @@ imageToJpg quality dynImage =
                                            $ (promoteImage img :: Image PixelRGB8)
         ImageYA8    img -> encodeAtQuality $
                             convertImage (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
+        ImageY16    img -> imageToJpg quality . ImageY8 $ from16to8 img
+        ImageYA16   img -> imageToJpg quality . ImageYA8 $ from16to8 img
+        ImageRGB16  img -> imageToJpg quality . ImageRGB8 $ from16to8 img
+        ImageRGBA16 img -> imageToJpg quality . ImageRGBA8 $ from16to8 img
 
 -- | This function will try to do anything to encode an image
 -- as PNG, make all color conversion and such. Equivalent
@@ -72,9 +111,11 @@ imageToPng (ImageRGBF   img) = encodePng $ toStandardDef img
 imageToPng (ImageRGBA8  img) = encodePng img
 imageToPng (ImageY8     img) = encodePng img
 imageToPng (ImageYF     img) = encodePng $ greyScaleToStandardDef img
-imageToPng (ImageYA8    img) = encodePng (promoteImage img :: Image PixelRGBA8)
+imageToPng (ImageYA8    img) = encodePng img
 imageToPng (ImageY16    img) = encodePng img
-imageToPng (ImageRGB16 img) = encodePng img
+imageToPng (ImageYA16   img) = encodePng img
+imageToPng (ImageRGB16  img) = encodePng img
+imageToPng (ImageRGBA16 img) = encodePng img
 
 -- | This function will try to do anything to encode an image
 -- as bitmap, make all color conversion and such. Equivalent
@@ -87,4 +128,8 @@ imageToBitmap (ImageRGBA8  img) = encodeBitmap img
 imageToBitmap (ImageY8     img) = encodeBitmap img
 imageToBitmap (ImageYF     img) = encodeBitmap $ greyScaleToStandardDef img
 imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image PixelRGBA8)
+imageToBitmap (ImageY16    img) = imageToBitmap . ImageY8 $ from16to8 img
+imageToBitmap (ImageYA16   img) = imageToBitmap . ImageYA8 $ from16to8 img
+imageToBitmap (ImageRGB16  img) = imageToBitmap . ImageRGB8 $ from16to8 img
+imageToBitmap (ImageRGBA16 img) = imageToBitmap . ImageRGBA8 $ from16to8 img
 

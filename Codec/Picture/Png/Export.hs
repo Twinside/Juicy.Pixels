@@ -114,11 +114,17 @@ instance PngSavable Pixel8 where
 instance PngSavable PixelYA8 where
     encodePng = genericEncodePng PngGreyscaleWithAlpha 2
 
+instance PngSavable PixelYA16 where
+    encodePng = genericEncode16BitsPng PngGreyscaleWithAlpha 2
+
 instance PngSavable Pixel16 where
     encodePng = genericEncode16BitsPng PngGreyscale 1
 
 instance PngSavable PixelRGB16 where
     encodePng = genericEncode16BitsPng PngTrueColour 3
+
+instance PngSavable PixelRGBA16 where
+    encodePng = genericEncode16BitsPng PngTrueColourWithAlpha 4
 
 -- | Write a dynamic image in a .png image file if possible.
 -- The same restriction as encodeDynamicPng apply.
@@ -135,11 +141,15 @@ writeDynamicPng path img = case encodeDynamicPng img of
 --
 --   - YA8
 --
+--   - YA16
+--
 --   - RGB8
 --
 --   - RGB16
 --
 --   - RGBA8
+--
+--   - RGBA16
 --
 encodeDynamicPng :: DynamicImage -> Either String Lb.ByteString
 encodeDynamicPng (ImageRGB8 img) = Right $ encodePng img
@@ -147,5 +157,7 @@ encodeDynamicPng (ImageRGBA8 img) = Right $ encodePng img
 encodeDynamicPng (ImageY8 img) = Right $ encodePng img
 encodeDynamicPng (ImageY16 img) = Right $ encodePng img
 encodeDynamicPng (ImageYA8 img) = Right $ encodePng img
+encodeDynamicPng (ImageYA16 img) = Right $ encodePng img
 encodeDynamicPng (ImageRGB16 img) = Right $ encodePng img
+encodeDynamicPng (ImageRGBA16 img) = Right $ encodePng img
 encodeDynamicPng _ = Left "Unsupported image format for PNG export"
