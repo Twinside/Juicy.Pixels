@@ -154,11 +154,29 @@ imgToImg path = do
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
 
+        Right (ImageY16 img) -> do
+            let pngFile = imageToPng $ ImageY16 img
+            putStrLn $ "Y16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromY16.png") pngFile
+
+        Right (ImageYA16 img) -> do
+            let pngFile = imageToPng $ ImageYA16 img
+            putStrLn $ "YA16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromYA16.png") pngFile
+
         Right (ImageRGB16 img) -> do
             let pngFile = imageToPng $ ImageRGB16 img
             putStrLn $ "RGB16 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB16.png") pngFile
+
+        Right (ImageRGBA16 img) -> do
+            let pngFile = imageToPng $ ImageRGBA16 img
+            putStrLn $ "RGBA16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromRGBA16.png") pngFile
 
         Right (ImageRGBA8 img) -> do
             let bmp = encodeBitmap img

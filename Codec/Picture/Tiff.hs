@@ -30,7 +30,6 @@ import qualified Data.ByteString.Unsafe as BU
 
 import Debug.Trace
 import Text.Groom
-import Text.Printf
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
@@ -481,6 +480,41 @@ instance Unpackable Pack4 where
 
             inner (readIdx + 1) (writeIdx + 2 * stride) (line - 2)
 
+data Pack2 = Pack2
+
+instance Unpackable Pack2 where
+  type StorageType Pack2 = Word8
+  allocTempBuffer _ _ = M.new
+  offsetStride _ _ _ = (0, 1)
+  outAlloc _ = M.new
+  mergeBackTempBuffer _ _ tempVec lineSize index size stride outVec =
+        inner 0 index pxCount
+    where pxCount = lineSize `div` stride
+
+          maxWrite = M.length outVec
+          inner readIdx writeIdx _
+                | readIdx >= fromIntegral size || writeIdx >= maxWrite = pure ()
+          inner readIdx writeIdx line
+                | line <= 0 = inner readIdx (writeIdx + line * stride) pxCount
+          inner readIdx writeIdx line = do
+            v <- tempVec `M.read` readIdx
+            let v0 = (v `unsafeShiftR` 6) .&. 0x3
+                v1 = (v `unsafeShiftR` 4) .&. 0x3
+                v2 = (v `unsafeShiftR` 2) .&. 0x3
+                v3 = v .&. 0x3
+
+            (outVec `M.write` writeIdx) v0
+            when (writeIdx + 1 * stride < maxWrite) $
+                 (outVec `M.write` (writeIdx + stride)) v1
+
+            when (writeIdx + 2 * stride < maxWrite) $
+                 (outVec `M.write` (writeIdx + stride * 2)) v2
+
+            when (writeIdx + 3 * stride < maxWrite) $
+                 (outVec `M.write` (writeIdx + stride * 3)) v3
+
+            inner (readIdx + 1) (writeIdx + 4 * stride) (line - 4)
+
 gatherStrips :: ( Unpackable comp
                 , Pixel pixel
                 , StorageType comp ~ PixelBaseComponent pixel
@@ -594,9 +628,30 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
       in
       pure . ImageRGB16 $ applyPalette gathered
 
+  | lst == V.singleton 2 && format == [TiffSampleUint] =
+      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
+          gathered :: Image Pixel8
+          gathered = gatherStrips Pack2 file nfo
+      in
+      pure . ImageRGB16 $ applyPalette gathered
+
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
+                         , tiffBitsPerSample = lst
+                         , tiffSampleFormat = format }
+  | lst == V.singleton 2 && all (TiffSampleUint ==) format =
+        pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+  | lst == V.singleton 4 && all (TiffSampleUint ==) format =
+        pure . ImageY8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+  | lst == V.singleton 8 && all (TiffSampleUint ==) format =
+        pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.singleton 16 && all (TiffSampleUint ==) format =
+        pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
+
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
+        pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
