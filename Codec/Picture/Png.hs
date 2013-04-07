@@ -412,11 +412,19 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
 --
 --    * PixelY8
 --
+--    * PixelY16
+--
 --    * PixelYA8
+--
+--    * PixelYA16
 --
 --    * PixelRGB8
 --
+--    * PixelRGB16
+--
 --    * PixelRGBA8
+--
+--    * PixelRGBA16
 --
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do

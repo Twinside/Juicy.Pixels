@@ -92,12 +92,30 @@ bmpValidTests = ["simple_bitmap_24bits.bmp"]
 -- "caspian.tif"
 tiffValidTests :: [FilePath]
 tiffValidTests =
-    ["depth/flower-rgb-planar-08.tif"
-    ,"depth/flower-rgb-planar-16.tif"
-    ,"depth/flower-rgb-contig-08.tif"
-    ,"depth/flower-rgb-contig-16.tif"
-    ,"quad-lzw.tif"
-    ,"pc260001.tif"
+    [
+     {-"depth/flower-rgb-planar-02.tif"-}
+    {-,"depth/flower-rgb-planar-04.tif"-}
+    {-,"depth/flower-rgb-planar-08.tif"-}
+    {-,"depth/flower-rgb-planar-16.tif"-}
+    {-,"depth/flower-rgb-contig-02.tif"-}
+    {-,"depth/flower-rgb-contig-04.tif"-}
+    {-,"depth/flower-rgb-contig-08.tif"-}
+    {-,"depth/flower-rgb-contig-16.tif"-}
+    {-,"quad-lzw.tif"-}
+    {-,"pc260001.tif"-}
+    {-,"depth/flower-palette-02.tif"-}
+    {-,"depth/flower-palette-04.tif"-}
+    {-,"depth/flower-palette-08.tif"-}
+    {-,"depth/flower-minisblack-02.tif"-}
+    {-,"depth/flower-minisblack-08.tif"-}
+    {-,"depth/flower-minisblack-04.tif"-}
+    {-,"depth/flower-minisblack-16.tif"-}
+    "depth/flower-separated-contig-08.tif"
+    ,"depth/flower-separated-contig-16.tif"
+    {-,"depth/flower-separated-planar-08.tif"-}
+    {-,"depth/flower-separated-planar-16.tif"-}
+    {-,"depth/flower-minisblack-12.tif"-}
+    {-"cramps.tif"-}
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -141,6 +159,19 @@ imgToImg path = do
 
         Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageCMYK16 img) -> do
+            let rgbimg :: Image PixelRGB16
+                rgbimg = convertImage img
+                png = encodePng rgbimg
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromCMYK16.png") png
+
+        Right (ImageCMYK8 img) -> do
+            let rgbimg :: Image PixelRGB8
+                rgbimg = convertImage img
+                png = encodePng rgbimg
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromCMYK8.png") png
 
         Right (ImageRGB8 img) -> do
             let jpg = validationJpegEncode (convertImage img)
