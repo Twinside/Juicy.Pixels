@@ -82,6 +82,8 @@ module Codec.Picture (
                      , PixelRGBA8( .. )
                      , PixelRGBA16( .. )
                      , PixelYCbCr8( .. )
+                     , PixelCMYK8( .. )
+                     , PixelCMYK16( .. )
                      ) where
 
 import Control.Applicative( (<$>) )

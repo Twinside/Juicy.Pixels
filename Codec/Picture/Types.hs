@@ -30,6 +30,8 @@ module Codec.Picture.Types( -- * Types
                           , PixelRGBF( .. )
                           , PixelRGBA8( .. )
                           , PixelRGBA16( .. )
+                          , PixelCMYK8( .. )
+                          , PixelCMYK16( .. )
                           , PixelYCbCr8( .. )
 
                           -- * Type classes
@@ -60,6 +62,10 @@ module Codec.Picture.Types( -- * Types
                           , PlaneLuma( .. )
                           , PlaneCr( .. )
                           , PlaneCb( .. )
+                          , PlaneCyan( .. )
+                          , PlaneMagenta( .. )
+                          , PlaneYellow( .. )
+                          , PlaneBlack( .. )
 
                           , extractComponent
                           , unsafeExtractComponent
@@ -127,50 +133,21 @@ data PlaneCr = PlaneCr
 -- | Define the plane for the Cb component
 data PlaneCb = PlaneCb
 
-instance ColorPlane PixelYCbCr8 PlaneLuma where
-    toComponentIndex _ _ = 0
+-- | Define plane for the cyan component of the 
+-- CMYK color space.
+data PlaneCyan = PlaneCyan
 
-instance ColorPlane PixelYCbCr8 PlaneCb where
-    toComponentIndex _ _ = 1
+-- | Define plane for the magenta component of the 
+-- CMYK color space.
+data PlaneMagenta = PlaneMagenta
 
-instance ColorPlane PixelYCbCr8 PlaneCr where
-    toComponentIndex _ _ = 2
+-- | Define plane for the yellow component of the 
+-- CMYK color space.
+data PlaneYellow = PlaneYellow
 
-instance ColorPlane PixelYA8 PlaneLuma where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelYA8 PlaneAlpha where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGB8 PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGB8 PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGB8 PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBF PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGBF PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGBF PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBA8 PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGBA8 PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGBA8 PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBA8 PlaneAlpha where
-    toComponentIndex _ _ = 3
+-- | Define plane for the black component of
+-- the CMYK color space.
+data PlaneBlack = PlaneBlack
 
 -- | Extract a color plane from an image given a present plane in the image
 -- examples :
@@ -218,10 +195,6 @@ dropAlphaLayer = pixelMap dropTransparency
 class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
     -- | Just return the opaque pixel value
     dropTransparency :: a -> b
-
-instance TransparentPixel PixelYA8 Pixel8 where
-    {-# INLINE dropTransparency #-}
-    dropTransparency (PixelYA8 y _) = y
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
@@ -306,6 +279,10 @@ data DynamicImage =
      | ImageRGBA16 (Image PixelRGBA16)
        -- | An image in the colorspace used by Jpeg images.
      | ImageYCbCr8 (Image PixelYCbCr8)
+       -- | An image in the colorspace CMYK
+     | ImageCMYK8  (Image PixelCMYK8)
+       -- | An image in the colorspace CMYK and 16 bots precision
+     | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of an dynamic image, you can use
@@ -314,7 +291,8 @@ data DynamicImage =
 -- > dynWidth :: DynamicImage -> Int
 -- > dynWidth img = dynamicMap imageWidth img
 --
-dynamicMap :: (forall pixel. Image pixel -> a) -> DynamicImage -> a
+dynamicMap :: (forall pixel . (Pixel pixel) => Image pixel -> a)
+           -> DynamicImage -> a
 dynamicMap f (ImageY8    i) = f i
 dynamicMap f (ImageY16   i) = f i
 dynamicMap f (ImageYF    i) = f i
@@ -326,6 +304,8 @@ dynamicMap f (ImageRGBF  i) = f i
 dynamicMap f (ImageRGBA8 i) = f i
 dynamicMap f (ImageRGBA16 i) = f i
 dynamicMap f (ImageYCbCr8 i) = f i
+dynamicMap f (ImageCMYK8 i) = f i
+dynamicMap f (ImageCMYK16 i) = f i
 
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
@@ -339,6 +319,8 @@ instance NFData DynamicImage where
     rnf (ImageRGBA8 img)  = rnf img
     rnf (ImageRGBA16 img) = rnf img
     rnf (ImageYCbCr8 img) = rnf img
+    rnf (ImageCMYK8 img)  = rnf img
+    rnf (ImageCMYK16 img)  = rnf img
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
@@ -429,6 +411,41 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cr red difference
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
                  deriving (Eq, Show)
+
+-- | Pixel storing data in the CMYK colorspace. value
+-- are stored in the following order :
+--
+--   * Cyan
+--
+--   * Magenta
+--
+--   * Yellow
+--
+--   * Black
+--
+data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
+                             {-# UNPACK #-} !Pixel8 -- Magenta
+                             {-# UNPACK #-} !Pixel8 -- Yellow
+                             {-# UNPACK #-} !Pixel8 -- Black
+                 deriving (Eq, Show)
+
+-- | Pixel storing data in the CMYK colorspace. value
+-- are stored in the following order :
+--
+--   * Cyan
+--
+--   * Magenta
+--
+--   * Yellow
+--
+--   * Black
+--
+data PixelCMYK16 = PixelCMYK16 {-# UNPACK #-} !Pixel16 -- Cyan
+                               {-# UNPACK #-} !Pixel16 -- Magenta
+                               {-# UNPACK #-} !Pixel16 -- Yellow
+                               {-# UNPACK #-} !Pixel16 -- Black
+                 deriving (Eq, Show)
+
 
 -- | Pixel type storing a classic pixel, with an alpha component.
 -- Values are stored in the following order
@@ -674,16 +691,15 @@ instance LumaPlaneExtractable Pixel8 where
     computeLuma = id
     extractLumaPlane = id
 
-instance LumaPlaneExtractable PixelF where
+instance LumaPlaneExtractable Pixel16 where
     {-# INLINE computeLuma #-}
     computeLuma = id
     extractLumaPlane = id
 
-instance LumaPlaneExtractable PixelRGB8 where
+instance LumaPlaneExtractable PixelF where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
-                                            0.59 * toRational g +
-                                            0.11 * toRational b
+    computeLuma = id
+    extractLumaPlane = id
 
 instance LumaPlaneExtractable PixelRGBF where
     {-# INLINE computeLuma #-}
@@ -695,11 +711,6 @@ instance LumaPlaneExtractable PixelRGBA8 where
     computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r +
                                              0.59 * toRational g +
                                              0.11 * toRational b
-
-instance LumaPlaneExtractable PixelYA8 where
-    {-# INLINE computeLuma #-}
-    computeLuma (PixelYA8 y _) = y
-    extractLumaPlane = extractComponent PlaneLuma
 
 instance LumaPlaneExtractable PixelYCbCr8 where
     {-# INLINE computeLuma #-}
@@ -752,6 +763,10 @@ instance ColorConvertible Pixel8 PixelF where
     {-# INLINE promotePixel #-}
     promotePixel c = fromIntegral c / 255.0
 
+instance ColorConvertible Pixel8 Pixel16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = fromIntegral c `unsafeShiftL` 8
+
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
@@ -781,6 +796,14 @@ instance Pixel Pixel16 where
     unsafePixelAt = V.unsafeIndex
     unsafeReadPixel = M.unsafeRead
     unsafeWritePixel = M.unsafeWrite
+
+instance ColorConvertible Pixel16 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGB16 c c c
+
+instance ColorConvertible Pixel16 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGBA16 c c c maxBound
 
 --------------------------------------------------
 ----            PixelF instances
@@ -846,6 +869,21 @@ instance ColorConvertible PixelYA8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
 
+instance ColorPlane PixelYA8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYA8 PlaneAlpha where
+    toComponentIndex _ _ = 1
+
+instance TransparentPixel PixelYA8 Pixel8 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelYA8 y _) = y
+
+instance LumaPlaneExtractable PixelYA8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelYA8 y _) = y
+    extractLumaPlane = extractComponent PlaneLuma
+
 --------------------------------------------------
 ----            PixelYA16 instances
 --------------------------------------------------
@@ -885,6 +923,15 @@ instance ColorConvertible PixelYA16 PixelRGBA16 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA16 y a) = PixelRGBA16 y y y a
 
+instance ColorPlane PixelYA16 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYA16 PlaneAlpha where
+    toComponentIndex _ _ = 1
+
+instance TransparentPixel PixelYA16 Pixel16 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelYA16 y _) = y
 --------------------------------------------------
 ----            PixelRGBF instances
 --------------------------------------------------
@@ -923,6 +970,15 @@ instance Pixel PixelRGBF where
     unsafeWritePixel v idx (PixelRGBF r g b) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
+
+instance ColorPlane PixelRGBF PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBF PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBF PlaneBlue where
+    toComponentIndex _ _ = 2
 
 --------------------------------------------------
 ----            PixelRGB16 instances
@@ -963,6 +1019,24 @@ instance Pixel PixelRGB16 where
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
 
+instance ColorPlane PixelRGB16 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGB16 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGB16 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorConvertible PixelRGB16 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB16 r g b) = PixelRGBA16 r g b maxBound
+
+instance LumaPlaneExtractable PixelRGB16 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGB16 r g b) = floor $ 0.3 * toRational r +
+                                             0.59 * toRational g +
+                                             0.11 * toRational b
 --------------------------------------------------
 ----            PixelRGB8 instances
 --------------------------------------------------
@@ -1004,12 +1078,27 @@ instance Pixel PixelRGB8 where
 
 instance ColorConvertible PixelRGB8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
-    promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b 255
+    promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b maxBound
 
 instance ColorConvertible PixelRGB8 PixelRGBF where
     {-# INLINE promotePixel #-}
     promotePixel (PixelRGB8 r g b) = PixelRGBF (toF r) (toF g) (toF b)
-        where toF v = fromIntegral v / 255
+        where toF v = fromIntegral v / 255.0
+
+instance ColorPlane PixelRGB8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGB8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGB8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance LumaPlaneExtractable PixelRGB8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
+                                            0.59 * toRational g +
+                                            0.11 * toRational b
 
 --------------------------------------------------
 ----            PixelRGBA8 instances
@@ -1058,6 +1147,18 @@ instance Pixel PixelRGBA8 where
                               >> M.unsafeWrite v (idx + 2) b
                               >> M.unsafeWrite v (idx + 3) a
 
+instance ColorPlane PixelRGBA8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBA8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBA8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA8 PlaneAlpha where
+    toComponentIndex _ _ = 3
+
 --------------------------------------------------
 ----            PixelRGBA16 instances
 --------------------------------------------------
@@ -1103,6 +1204,23 @@ instance Pixel PixelRGBA16 where
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
                               >> M.unsafeWrite v (idx + 3) a
+
+
+instance TransparentPixel PixelRGBA16 PixelRGB16 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelRGBA16 r g b _) = PixelRGB16 r g b
+
+instance ColorPlane PixelRGBA16 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBA16 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBA16 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA16 PlaneAlpha where
+    toComponentIndex _ _ = 3
 
 --------------------------------------------------
 ----            PixelYCbCr8 instances
@@ -1248,6 +1366,157 @@ instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
                         traductor (readIdx + 3) (idx + 1)
 
                 traductor 0 0 >>= V.freeze
+
+instance ColorPlane PixelYCbCr8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYCbCr8 PlaneCb where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelYCbCr8 PlaneCr where
+    toComponentIndex _ _ = 2
+
+--------------------------------------------------
+----            PixelCMYK8 instances
+--------------------------------------------------
+instance Pixel PixelCMYK8 where
+    type PixelBaseComponent PixelCMYK8 = Word8
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelCMYK8 c m y k) = PixelCMYK8 (f c) (f m) (f y) (f k)
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelCMYK8 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+                                                               (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelCMYK8 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelCMYK8 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+    unsafePixelAt v idx = 
+        PixelCMYK8 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelCMYK8 <$> M.unsafeRead vec idx
+                   <*> M.unsafeRead vec (idx + 1)
+                   <*> M.unsafeRead vec (idx + 2)
+                   <*> M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelCMYK8 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
+  convertPixel (PixelCMYK8 c m y k) =
+      PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
+    where 
+          clampWord8 = fromIntegral . (`unsafeShiftR` 8)
+          ik :: Int
+          ik = 255 - fromIntegral k
+
+          r = (255 - fromIntegral c) * ik
+          g = (255 - fromIntegral m) * ik
+          b = (255 - fromIntegral y) * ik
+
+instance ColorPlane PixelCMYK8 PlaneCyan where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelCMYK8 PlaneMagenta where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelCMYK8 PlaneYellow where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelCMYK8 PlaneBlack where
+    toComponentIndex _ _ = 3
+
+--------------------------------------------------
+----            PixelCMYK16 instances
+--------------------------------------------------
+instance Pixel PixelCMYK16 where
+    type PixelBaseComponent PixelCMYK16 = Word16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelCMYK16 c m y k) = PixelCMYK16 (f c) (f m) (f y) (f k)
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelCMYK16 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+                                                               (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelCMYK16 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelCMYK16 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+    unsafePixelAt v idx = 
+        PixelCMYK16 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelCMYK16 <$> M.unsafeRead vec idx
+                   <*> M.unsafeRead vec (idx + 1)
+                   <*> M.unsafeRead vec (idx + 2)
+                   <*> M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelCMYK16 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+instance ColorSpaceConvertible PixelCMYK16 PixelRGB16 where
+  convertPixel (PixelCMYK16 c m y k) =
+      PixelRGB16 (clampWord16 r) (clampWord16 g) (clampWord16 b)
+    where 
+          clampWord16 = fromIntegral . (`unsafeShiftR` 16)
+          ik :: Int
+          ik = 65535 - fromIntegral k
+
+          r = (65535 - fromIntegral c) * ik
+          g = (65535 - fromIntegral m) * ik
+          b = (65535 - fromIntegral y) * ik
+
+instance ColorPlane PixelCMYK16 PlaneCyan where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelCMYK16 PlaneMagenta where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelCMYK16 PlaneYellow where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelCMYK16 PlaneBlack where
+    toComponentIndex _ _ = 3
 
 -- | Perform a gamma correction for an image with HDR pixels.
 gammaCorrection :: PixelF          -- ^ Gamma value, should be between 0.5 and 3.0

@@ -51,6 +51,10 @@ from16toFloat Image { imageWidth = w, imageHeight = h
 -- as RADIANCE, make all color conversion and such. Equivalent
 -- of 'decodeImage' for radiance encoding
 imageToRadiance :: DynamicImage -> L.ByteString
+imageToRadiance (ImageCMYK8 img) =
+    imageToRadiance . ImageRGB8 $ convertImage img
+imageToRadiance (ImageCMYK16 img) =
+    imageToRadiance . ImageRGB16 $ convertImage img
 imageToRadiance (ImageYCbCr8 img) =
     imageToRadiance . ImageRGB8 $ convertImage img
 imageToRadiance (ImageRGB8   img) =
@@ -88,6 +92,8 @@ imageToJpg quality dynImage =
     let encodeAtQuality = encodeJpegAtQuality (fromIntegral quality)
     in case dynImage of
         ImageYCbCr8 img -> encodeAtQuality img
+        ImageCMYK8  img -> imageToJpg quality . ImageRGB8 $ convertImage img
+        ImageCMYK16 img -> imageToJpg quality . ImageRGB16 $ convertImage img
         ImageRGB8   img -> encodeAtQuality (convertImage img)
         ImageRGBF   img -> imageToJpg quality . ImageRGB8 $ toStandardDef img
         ImageRGBA8  img -> encodeAtQuality (convertImage $ dropAlphaLayer img)
@@ -106,6 +112,8 @@ imageToJpg quality dynImage =
 -- of 'decodeImage' for PNG encoding
 imageToPng :: DynamicImage -> L.ByteString
 imageToPng (ImageYCbCr8 img) = encodePng (convertImage img :: Image PixelRGB8)
+imageToPng (ImageCMYK8 img)  = encodePng (convertImage img :: Image PixelRGB8)
+imageToPng (ImageCMYK16 img) = encodePng (convertImage img :: Image PixelRGB16)
 imageToPng (ImageRGB8   img) = encodePng img
 imageToPng (ImageRGBF   img) = encodePng $ toStandardDef img
 imageToPng (ImageRGBA8  img) = encodePng img
@@ -122,6 +130,8 @@ imageToPng (ImageRGBA16 img) = encodePng img
 -- of 'decodeImage' for Bitmap encoding
 imageToBitmap :: DynamicImage -> L.ByteString
 imageToBitmap (ImageYCbCr8 img) = encodeBitmap (convertImage img :: Image PixelRGB8)
+imageToBitmap (ImageCMYK8  img) = encodeBitmap (convertImage img :: Image PixelRGB8)
+imageToBitmap (ImageCMYK16 img) = imageToBitmap . ImageRGB16 $ convertImage img
 imageToBitmap (ImageRGBF   img) = encodeBitmap $ toStandardDef img
 imageToBitmap (ImageRGB8   img) = encodeBitmap img
 imageToBitmap (ImageRGBA8  img) = encodeBitmap img
