@@ -2,18 +2,39 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+-- | Module implementing TIFF decoding.
+--
+-- Supported compression schemes :
+--
+--   * Uncompressed
+--
+--   * PackBits
+--
+--   * LZW
+--
+-- Supported bit depth :
+--
+--   * 2 bits
+--
+--   * 4 bits
+--
+--   * 8 bits
+--
+--   * 16 bits
+--
 module Codec.Picture.Tiff( decodeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM )
 import Control.Monad.ST( ST, runST )
+import Data.Int( Int8 )
 import Data.Word( Word8, Word16 )
 import Data.Bits( (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
                       , getWord16le, getWord16be
                       , getWord32le, getWord32be
-                      , bytesRead 
+                      , bytesRead
                       , skip
                       , getByteString
                       )
@@ -170,17 +191,21 @@ data TiffTag = TagPhotometricInterpretation
              | TagPlanarConfiguration
              | TagOrientation
              | TagSampleFormat
+             | TagInkSet
+             | TagSubfileType
+             | TagFillOrder
              | TagUnknown Word16
              deriving (Eq, Show)
 
 tagOfWord16 :: Word16 -> TiffTag
 tagOfWord16 = aux
-  where 
+  where aux 255 = TagSubfileType
         aux 256 = TagImageWidth
         aux 257 = TagImageLength
         aux 258 = TagBitsPerSample
         aux 259 = TagCompression
         aux 262 = TagPhotometricInterpretation
+        aux 266 = TagFillOrder
         aux 269 = TagDocumentName
         aux 273 = TagStripOffsets
         aux 274 = TagOrientation
@@ -194,6 +219,7 @@ tagOfWord16 = aux
         aux 305 = TagSoftware
         aux 315 = TagArtist
         aux 320 = TagColorMap
+        aux 332 = TagInkSet
         aux 339 = TagSampleFormat
         aux v = TagUnknown v
 
@@ -211,7 +237,7 @@ data TiffSampleFormat =
     | TiffSampleUnknown
     deriving (Eq, Show)
 
-unpackSampleFormat :: Word32 -> Get TiffSampleFormat 
+unpackSampleFormat :: Word32 -> Get TiffSampleFormat
 unpackSampleFormat = aux
   where aux 1 = pure TiffSampleUint
         aux 2 = pure TiffSampleInt
@@ -311,7 +337,7 @@ findIFDExt msg tag lst = do
         { ifdCount = 1, ifdOffset = ofs } ->
                pure . ExtendedDataShort . V.singleton $ fromIntegral ofs
       ImageFileDirectory { ifdExtended = v } -> pure v
-     
+
 
 findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory] -> Get [Word32]
 findIFDExtDefaultData d tag lst =
@@ -328,7 +354,7 @@ data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
     , tiffWidth              :: Word32
     , tiffHeight             :: Word32
-    , tiffColorspace         :: TiffColorspace 
+    , tiffColorspace         :: TiffColorspace
     , tiffSampleCount        :: Word32
     , tiffRowPerStrip        :: Word32
     , tiffPlaneConfiguration :: TiffPlanarConfiguration
@@ -342,7 +368,8 @@ data TiffInfo = TiffInfo
     deriving Show
 
 data TiffColorspace =
-      TiffMonochrome       -- ^ 0 or 1
+      TiffMonochromeWhite0 -- ^ 0
+    | TiffMonochrome       -- ^ 1
     | TiffRGB              -- ^ 2
     | TiffPaleted          -- ^ 3
     | TiffTransparencyMask -- ^ 4
@@ -353,12 +380,13 @@ data TiffColorspace =
 
 unpackPhotometricInterpretation :: Word32 -> Get TiffColorspace
 unpackPhotometricInterpretation = aux
-  where aux 0 = pure TiffMonochrome
+  where aux 0 = pure TiffMonochromeWhite0
         aux 1 = pure TiffMonochrome
         aux 2 = pure TiffRGB
         aux 3 = pure TiffPaleted
         aux 4 = pure TiffTransparencyMask
-        aux 6 = pure TiffYCbCr 
+        aux 5 = pure TiffCMYK
+        aux 6 = pure TiffYCbCr
         aux 8 = pure TiffCIELab
         aux _ = fail "Unrecognized color space"
 
@@ -368,7 +396,7 @@ unPackCompression 1 = pure CompressionNone
 unPackCompression 2 = pure CompressionModifiedRLE
 unPackCompression 5 = pure CompressionLZW
 unPackCompression 6 = pure CompressionJPEG
-unPackCompression 32273 = pure CompressionPackBit
+unPackCompression 32773 = pure CompressionPackBit
 unPackCompression v = fail $ "Unknown compression scheme " ++ show v
 
 copyByteString :: B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
@@ -384,10 +412,43 @@ copyByteString str vec stride startWrite (from, count) = inner startWrite fromi
             (vec `M.write` writeIdx) v
             inner (writeIdx + stride) $ i + 1
 
+unpackPackBit :: B.ByteString -> M.STVector s Word8 -> Int -> Int
+              -> (Word32, Word32)
+              -> ST s Int
+unpackPackBit str outVec stride writeIndex (offset, size) = loop fromi writeIndex
+  where fromi = fromIntegral offset
+        maxi = fromi + fromIntegral size
+
+        replicateByte writeIdx _     0 = pure writeIdx
+        replicateByte writeIdx v count = do
+            (outVec `M.write` writeIdx) v
+            replicateByte (writeIdx + stride) v $ count - 1
+
+        loop i writeIdx | i >= maxi = pure writeIdx
+        loop i writeIdx = choice
+          where v = fromIntegral (str `BU.unsafeIndex` i) :: Int8
+
+                choice
+                    -- data
+                    | 0    <= v = do
+                        copyByteString str outVec stride writeIdx
+                                        (fromIntegral $ i + 1, fromIntegral v + 1)
+                            >>= loop (i + 2 + fromIntegral v)
+                    -- run
+                    | -127 <= v = do
+                        let nextByte = str `BU.unsafeIndex` (i + 1)
+                            count = negate (fromIntegral v) + 1 :: Int
+                        replicateByte writeIdx nextByte count
+                            >>= loop (i + 2)
+
+                    -- noop
+                    | otherwise = loop writeIdx $ i + 1
+
 uncompressAt :: TiffCompression
              -> B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
              -> ST s Int
 uncompressAt CompressionNone = copyByteString
+uncompressAt CompressionPackBit = unpackPackBit
 uncompressAt CompressionLZW =  \str outVec _stride writeIndex (offset, size) -> do
     let toDecode = B.take (fromIntegral size) $ B.drop (fromIntegral offset) str
     runBoolReader $ decodeLzwTiff toDecode outVec writeIndex
@@ -515,6 +576,46 @@ instance Unpackable Pack2 where
 
             inner (readIdx + 1) (writeIdx + 4 * stride) (line - 4)
 
+data Pack12 = Pack12
+
+instance Unpackable Pack12 where
+  type StorageType Pack12 = Word16
+  allocTempBuffer _ _ = M.new
+  offsetStride _ _ _ = (0, 1)
+  outAlloc _ = M.new
+  mergeBackTempBuffer _ _ tempVec lineSize index size stride outVec =
+        inner 0 index pxCount
+    where pxCount = lineSize `div` stride
+
+          maxWrite = M.length outVec
+          inner readIdx writeIdx _
+                | readIdx >= fromIntegral size || writeIdx >= maxWrite = pure ()
+          inner readIdx writeIdx line
+                | line <= 0 = inner readIdx (writeIdx + line * stride) pxCount
+          inner readIdx writeIdx line = do
+            v0 <- tempVec `M.read` readIdx
+            v1 <- if readIdx + 1 < fromIntegral size
+                then tempVec `M.read` (readIdx + 1)
+                else pure 0
+            v2 <- if readIdx + 2 < fromIntegral size
+                then tempVec `M.read` (readIdx + 2)
+                else pure 0
+
+            let high0 = fromIntegral v0 `unsafeShiftL` 4
+                low0 = (fromIntegral v1 `unsafeShiftR` 4) .&. 0xF
+
+                p0 = high0 .|. low0
+
+                high1 = (fromIntegral v1 .&. 0xF) `unsafeShiftL` 8
+                low1 = fromIntegral v2
+                p1 = high1 .|. low1
+
+            (outVec `M.write` writeIdx) p0
+            when (writeIdx + 1 * stride < maxWrite) $
+                 (outVec `M.write` (writeIdx + stride)) p1
+
+            inner (readIdx + 3) (writeIdx + 2 * stride) (line - 2)
+
 gatherStrips :: ( Unpackable comp
                 , Pixel pixel
                 , StorageType comp ~ PixelBaseComponent pixel
@@ -611,7 +712,7 @@ getTiffInfo = do
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
                          , tiffBitsPerSample = lst
-                         , tiffSampleFormat = format  
+                         , tiffSampleFormat = format
                          , tiffPalette = Just p
                          }
   | lst == V.singleton 8 && format == [TiffSampleUint] =
@@ -635,6 +736,22 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
       in
       pure . ImageRGB16 $ applyPalette gathered
 
+unpack file nfo@TiffInfo { tiffColorspace = TiffCMYK
+                         , tiffBitsPerSample = lst
+                         , tiffSampleFormat = format }
+  | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageCMYK8 $ gatherStrips (0 :: Word8) file nfo
+
+  | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
+        pure . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
+
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
+    img <- unpack file (nfo { tiffColorspace = TiffMonochrome })
+    case img of
+      ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
+      ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
+      _ -> fail "Unexpected decoded image"
+
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
@@ -644,6 +761,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
         pure . ImageY8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
   | lst == V.singleton 8 && all (TiffSampleUint ==) format =
         pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.singleton 12 && all (TiffSampleUint ==) format =
+        pure . ImageY16 . pixelMap (16 *) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
 
@@ -667,6 +786,23 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 
 unpack _ tiffInfo = trace (groom tiffInfo) $ fail "Failure to unpack TIFF file"
 
+-- | Transform a raw tiff image to an image, without modifying
+-- the underlying pixel type.
+--
+-- This function can output the following pixel types :
+--
+-- * PixelY8
+--
+-- * PixelY16
+--
+-- * PixelRGB8
+--
+-- * PixelRGB16
+--
+-- * PixelCMYK8
+--
+-- * PixelCMYK16
+--
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff file = runGetStrict getTiffInfo file >>= unpack file
 
