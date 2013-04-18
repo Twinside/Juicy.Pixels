@@ -194,6 +194,13 @@ data TiffTag = TagPhotometricInterpretation
              | TagInkSet
              | TagSubfileType
              | TagFillOrder
+             | TagYCbCrCoeff
+             | TagYCbCrSubsampling
+             | TagYCbCrPositioning
+             | TagReferenceBlackWhite
+             | TagXPosition
+             | TagYPosition
+             | TagExtraSample
              | TagUnknown Word16
              deriving (Eq, Show)
 
@@ -215,12 +222,19 @@ tagOfWord16 = aux
         aux 282 = TagXResolution
         aux 283 = TagYResolution
         aux 284 = TagPlanarConfiguration
+        aux 286 = TagXPosition
+        aux 287 = TagYPosition
         aux 296 = TagResolutionUnit
         aux 305 = TagSoftware
         aux 315 = TagArtist
         aux 320 = TagColorMap
         aux 332 = TagInkSet
+        aux 338 = TagExtraSample
         aux 339 = TagSampleFormat
+        aux 529 = TagYCbCrCoeff
+        aux 530 = TagYCbCrSubsampling
+        aux 531 = TagYCbCrPositioning
+        aux 532 = TagReferenceBlackWhite
         aux v = TagUnknown v
 
 data ExtendedDirectoryData =
@@ -277,14 +291,13 @@ getImageFileDirectory endianness =
 
 getImageFileDirectories :: Endianness -> Get [ImageFileDirectory]
 getImageFileDirectories endianness = do
-    count <- getWord16
-    replicateM (fromIntegral count) (getImageFileDirectory endianness)
-   where getWord16 = getWord16Endian endianness
+    count <- getWord16Endian endianness
+    replicateM (fromIntegral count) $ getImageFileDirectory endianness
 
 fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
 fetchExtended endian = mapM fetcher
-  where align ImageFileDirectory { ifdOffset = offset } = do
-            readed <- bytesRead
+  where align ImageFileDirectory {ifdIdentifier = idt,  ifdOffset = offset } = do
+            readed <- trace (groom idt) $ bytesRead
             skip . fromIntegral $ fromIntegral offset - readed
 
         getWord16 = getWord16Endian endian
@@ -295,7 +308,12 @@ fetchExtended endian = mapM fetcher
 
         fetcher ifd@ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
             align ifd >> (update ifd . ExtendedDataAscii <$> getByteString (fromIntegral count))
-        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 1 =
+        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
+            pure . update ifd . ExtendedDataShort $ V.fromListN 2 [high, low]
+              where high = fromIntegral $ ofs `unsafeShiftL` 16
+                    low = fromIntegral $ ofs .&. 0xFFFF
+
+        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
             align ifd >> (update ifd . ExtendedDataShort <$> getVec count getWord16)
         fetcher ifd@ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
             align ifd >> (update ifd . ExtendedDataLong <$> getVec count getWord32)
@@ -407,7 +425,8 @@ copyByteString str vec stride startWrite (from, count) = inner startWrite fromi
 
         inner writeIdx i | i >= maxi = pure writeIdx
         inner writeIdx i = do
-            let v = str `BU.unsafeIndex` i
+            {-let v = str `BU.unsafeIndex` i-}
+            let v = str `B.index` i
             {-(vec `M.unsafeWrite` writeIdx) v-}
             (vec `M.write` writeIdx) v
             inner (writeIdx + stride) $ i + 1
@@ -426,7 +445,8 @@ unpackPackBit str outVec stride writeIndex (offset, size) = loop fromi writeInde
 
         loop i writeIdx | i >= maxi = pure writeIdx
         loop i writeIdx = choice
-          where v = fromIntegral (str `BU.unsafeIndex` i) :: Int8
+          {-where v = fromIntegral (str `BU.unsafeIndex` i) :: Int8-}
+          where v = fromIntegral (str `B.index` i) :: Int8
 
                 choice
                     -- data
@@ -436,7 +456,8 @@ unpackPackBit str outVec stride writeIndex (offset, size) = loop fromi writeInde
                             >>= loop (i + 2 + fromIntegral v)
                     -- run
                     | -127 <= v = do
-                        let nextByte = str `BU.unsafeIndex` (i + 1)
+                        {-let nextByte = str `BU.unsafeIndex` (i + 1)-}
+                        let nextByte = str `B.index` (i + 1)
                             count = negate (fromIntegral v) + 1 :: Int
                         replicateByte writeIdx nextByte count
                             >>= loop (i + 2)
@@ -444,12 +465,17 @@ unpackPackBit str outVec stride writeIndex (offset, size) = loop fromi writeInde
                     -- noop
                     | otherwise = loop writeIdx $ i + 1
 
+isOldTiffLZW :: B.ByteString -> Bool
+isOldTiffLZW str = firstByte == 0 && secondByte == 1
+    where firstByte = str `B.index` 0
+          secondByte = (str `B.index` 1) .&. 1
+
 uncompressAt :: TiffCompression
              -> B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
              -> ST s Int
 uncompressAt CompressionNone = copyByteString
 uncompressAt CompressionPackBit = unpackPackBit
-uncompressAt CompressionLZW =  \str outVec _stride writeIndex (offset, size) -> do
+uncompressAt CompressionLZW =  \str outVec _stride writeIndex (offset, size) -> trace "!!" $ do
     let toDecode = B.take (fromIntegral size) $ B.drop (fromIntegral offset) str
     runBoolReader $ decodeLzwTiff toDecode outVec writeIndex
     return 0
@@ -484,7 +510,7 @@ instance Unpackable Word8 where
   offsetStride _ i stride = (i, stride)
   allocTempBuffer _ buff _ = pure buff
   mergeBackTempBuffer _ _ _ _ _ _ _ _ = pure ()
-  outAlloc _ = M.new
+  outAlloc _ count = M.replicate count 0 -- M.new
 
 instance Unpackable Word16 where
   type StorageType Word16 = Word16
@@ -750,7 +776,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      _ -> fail "Unexpected decoded image"
+      _ -> pure img
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
@@ -766,6 +792,12 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
 
+unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
+                         , tiffBitsPerSample = lst
+                         , tiffSampleFormat = format }
+  | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageYCbCr8 $ gatherStrips (0 :: Word8) file nfo
+
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
@@ -775,8 +807,12 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
         pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageRGBA8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageRGB16 $ gatherStrips (0 :: Word16) file nfo
+  | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
+        pure . ImageRGBA16 $ gatherStrips (0 :: Word16) file nfo
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }

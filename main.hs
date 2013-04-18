@@ -101,8 +101,6 @@ tiffValidTests =
     {-,"depth/flower-rgb-contig-04.tif"-}
     {-,"depth/flower-rgb-contig-08.tif"-}
     {-,"depth/flower-rgb-contig-16.tif"-}
-    {-,"quad-lzw.tif"-}
-    {-,"pc260001.tif"-}
     {-,"depth/flower-palette-02.tif"-}
     {-,"depth/flower-palette-04.tif"-}
     {-,"depth/flower-palette-08.tif"-}
@@ -110,12 +108,18 @@ tiffValidTests =
     {-,"depth/flower-minisblack-08.tif"-}
     {-,"depth/flower-minisblack-04.tif"-}
     {-,"depth/flower-minisblack-16.tif"-}
-    "depth/flower-separated-contig-08.tif"
-    ,"depth/flower-separated-contig-16.tif"
+    {-,"depth/flower-separated-contig-08.tif"-}
+    {-,"depth/flower-separated-contig-16.tif"-}
     {-,"depth/flower-separated-planar-08.tif"-}
     {-,"depth/flower-separated-planar-16.tif"-}
     {-,"depth/flower-minisblack-12.tif"-}
-    {-"cramps.tif"-}
+    "quad-lzw.tif" -- [0]0x00 [1]0x01
+    {-,"pc260001.tif"-}
+    {-,"cramps.tif"-}
+    , "strike.tif"
+    ,"ycbcr-cat.tif"
+    ,"zackthecat.tif"
+    {-"smallliz.tif"-}
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -309,13 +313,13 @@ planeSeparationYA8Test = do
     L.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 gifTest :: [FilePath]
-gifTest = ["delta.gif"
-          ,"delta2.gif"
+gifTest = ["Gif_pixel_cube.gif"
           ,"animated.gif"
-          ,"Gif_pixel_cube.gif"
+          ,"interleaved.gif"
+          ,"delta.gif"
+          ,"delta2.gif"
           ,"magceit.gif"
           ,"2k.gif"
-          ,"interleaved.gif"
           ,"huge.gif"
           ]
 
@@ -329,17 +333,16 @@ testSuite = do
     {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
-
     planeSeparationRGB8Test 
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
-    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
+    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
 
 jpegToPng :: IO ()
 jpegToPng = do
@@ -414,7 +417,7 @@ benchMark = do
     putStrLn "END"
 
 main :: IO ()
-main = do 
+main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
@@ -424,4 +427,3 @@ main = do
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark
-

@@ -68,12 +68,22 @@ getNextBitJpg = do
       else S.put $ BoolState (idx - 1) v chain
     return val
 
+{-# INLINE getNextBitMSB #-}
+getNextBitMSB :: BoolReader s Bool
+getNextBitMSB = do
+    BoolState idx v chain <- S.get
+    let val = (v .&. (1 `unsafeShiftL` (7 - idx))) /= 0
+    if idx == 7
+      then setDecodedString chain
+      else S.put $ BoolState (idx + 1) v chain
+    return val
+
 {-# INLINE getNextBitsMSBFirst #-}
 getNextBitsMSBFirst :: Int -> BoolReader s Word32
 getNextBitsMSBFirst count = aux 0 count
   where aux acc 0 = return acc
         aux acc n = do
-            bit <- getNextBit
+            bit <- getNextBitMSB
             let nextVal | bit = (acc `unsafeShiftL` 1) .|. 1
                         | otherwise = acc `unsafeShiftL` 1
             aux nextVal (n - 1)
