@@ -16,13 +16,10 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.BitWriter
 
-import Debug.Trace
-import Text.Printf
-
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (Storable a) => M.STVector s a -> Int -> ST s a
-(.!!!.) = -- M.unsafeRead 
-        M.read
+(.!!!.) = M.unsafeRead 
+        {-M.read-}
 
 {-# INLINE (..!!!..) #-}
 (..!!!..) :: (MonadTrans t, Storable a)
@@ -31,8 +28,8 @@ import Text.Printf
 
 {-# INLINE (.<-.) #-}
 (.<-.) :: (Storable a) => M.STVector s a -> Int -> a -> ST s ()
-(.<-.) = -- M.unsafeWrite 
-         M.write
+(.<-.) = M.unsafeWrite 
+         {-M.write-}
 
 {-# INLINE (..<-..) #-}
 (..<-..) :: (MonadTrans t, Storable a)
@@ -71,7 +68,7 @@ isOldTiffLZW str = firstByte == 0 && secondByte == 1
 decodeLzwTiff :: B.ByteString -> M.STVector s Word8 -> Int
               -> BoolReader s()
 decodeLzwTiff str outVec initialWriteIdx = do
-    trace (printf "[0]:%02X [1]%02X" (B.index str 0) (B.index str 1)) $ setDecodedString str
+    setDecodedString str
     let variant | isOldTiffLZW str = OldTiffVariant
                 | otherwise = TiffVariant
     lzw variant 12 9 initialWriteIdx outVec
@@ -123,9 +120,7 @@ lzw variant nMaxBitKeySize initialKeySize initialWriteIdx outVec = do
         loop outWriteIdx writeIdx dicWriteIdx codeSize oldCode code
           | outWriteIdx >= maxWrite = return ()
           | code == endOfInfo = return ()
-          | code == clearCode -- && isNewTiff 
-                            = --trace (printf "codeSize:%2d code:%5d writeIdx:%4d dicWriteIdx:%4d" codeSize code writeIdx dicWriteIdx) $ 
-                            do
+          | code == clearCode = do
               toOutput <- getNextCode startCodeSize
               if toOutput == endOfInfo then
                 return ()
@@ -185,9 +180,7 @@ lzw variant nMaxBitKeySize initialKeySize initialWriteIdx outVec = do
         resetArray a = lift $ rangeSetter initialElementCount a
 
         updateCodeSize codeSize writeIdx
-            | writeIdx == 2 ^ codeSize - switchOffset =
-                {-trace (printf "bumping write:%d size:%d" writeIdx codeSize) $-}
-                    min 12 $ codeSize + 1
+            | writeIdx == 2 ^ codeSize - switchOffset = min 12 $ codeSize + 1
             | otherwise = codeSize
 
         getNextCode s 

@@ -92,33 +92,32 @@ bmpValidTests = ["simple_bitmap_24bits.bmp"]
 -- "caspian.tif"
 tiffValidTests :: [FilePath]
 tiffValidTests =
-    [
-     {-"depth/flower-rgb-planar-02.tif"-}
-    {-,"depth/flower-rgb-planar-04.tif"-}
-    {-,"depth/flower-rgb-planar-08.tif"-}
-    {-,"depth/flower-rgb-planar-16.tif"-}
-    {-,"depth/flower-rgb-contig-02.tif"-}
-    {-,"depth/flower-rgb-contig-04.tif"-}
-    {-,"depth/flower-rgb-contig-08.tif"-}
-    {-,"depth/flower-rgb-contig-16.tif"-}
-    {-,"depth/flower-palette-02.tif"-}
-    {-,"depth/flower-palette-04.tif"-}
-    {-,"depth/flower-palette-08.tif"-}
-    {-,"depth/flower-minisblack-02.tif"-}
-    {-,"depth/flower-minisblack-08.tif"-}
-    {-,"depth/flower-minisblack-04.tif"-}
-    {-,"depth/flower-minisblack-16.tif"-}
-    {-,"depth/flower-separated-contig-08.tif"-}
-    {-,"depth/flower-separated-contig-16.tif"-}
-    {-,"depth/flower-separated-planar-08.tif"-}
-    {-,"depth/flower-separated-planar-16.tif"-}
-    {-,"depth/flower-minisblack-12.tif"-}
-    "quad-lzw.tif" -- [0]0x00 [1]0x01
-    {-,"pc260001.tif"-}
-    {-,"cramps.tif"-}
-    , "strike.tif"
-    ,"ycbcr-cat.tif"
-    ,"zackthecat.tif"
+    ["depth/flower-rgb-planar-02.tif"
+    ,"depth/flower-rgb-planar-04.tif"
+    ,"depth/flower-rgb-planar-08.tif"
+    ,"depth/flower-rgb-planar-16.tif"
+    ,"depth/flower-rgb-contig-02.tif"
+    ,"depth/flower-rgb-contig-04.tif"
+    ,"depth/flower-rgb-contig-08.tif"
+    ,"depth/flower-rgb-contig-16.tif"
+    ,"depth/flower-palette-02.tif"
+    ,"depth/flower-palette-04.tif"
+    ,"depth/flower-palette-08.tif"
+    ,"depth/flower-minisblack-02.tif"
+    ,"depth/flower-minisblack-08.tif"
+    ,"depth/flower-minisblack-04.tif"
+    ,"depth/flower-minisblack-16.tif"
+    ,"depth/flower-separated-contig-08.tif"
+    ,"depth/flower-separated-contig-16.tif"
+    ,"depth/flower-separated-planar-08.tif"
+    ,"depth/flower-separated-planar-16.tif"
+    ,"depth/flower-minisblack-12.tif"
+    ,"quad-lzw.tif"
+    ,"pc260001.tif"
+    ,"cramps.tif"
+    ,"strike.tif"
+    {-,"ycbcr-cat.tif"-}
+    {-,"zackthecat.tif"-}
     {-"smallliz.tif"-}
     ]
 
@@ -337,10 +336,10 @@ testSuite = do
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
-    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
-    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
 
