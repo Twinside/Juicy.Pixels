@@ -47,6 +47,7 @@ module Codec.Picture.Types( -- * Types
                           , pixelMap
                           , pixelFold
                           , dropAlphaLayer
+                          , withImage
                           , generateImage
                           , generateFoldImage
                           , gammaCorrection
@@ -519,15 +520,18 @@ class ( Storable (PixelBaseComponent a)
     writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
 
     -- | Unsafe version of pixelAt, read a pixel at the given
-    -- index without bound checking (if possible)
+    -- index without bound checking (if possible).
+    -- The index is expressed in number (PixelBaseComponent a)
     unsafePixelAt :: V.Vector (PixelBaseComponent a) -> Int -> a
 
     -- | Unsafe version of readPixel,  read a pixel at the given
-    -- position without bound checking (if possible)
+    -- position without bound checking (if possible). The index
+    -- is expressed in number (PixelBaseComponent a)
     unsafeReadPixel :: M.STVector s (PixelBaseComponent a) -> Int -> ST s a
 
     -- | Unsafe version of writePixel, write a pixel at the
     -- given position without bound checking. This can be _really_ unsafe.
+    -- The index is expressed in number (PixelBaseComponent a)
     unsafeWritePixel :: M.STVector s (PixelBaseComponent a) -> Int -> a -> ST s ()
 
 
@@ -586,6 +590,32 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
 
             lineGenerator 0 0
             V.unsafeFreeze arr
+
+-- | Create an image using a monadic initializer function.
+-- The function will receive value from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- left corner of the image, and (width-1, height-1) the lower right corner.
+--
+-- The function is called for each pixel in the line from left to right (0 to width - 1)
+-- and for each line (0 to height - 1).
+withImage :: forall s pixel. (Pixel pixel)
+          => Int                     -- ^ Image width
+          -> Int                     -- ^ Image height
+          -> (Int -> Int -> ST s pixel) -- ^ Generating functions
+          -> ST s (Image pixel)
+withImage width height pixelGenerator = do
+  let pixelComponentCount = componentCount (undefined :: pixel)
+  arr <- M.new (width * height * pixelComponentCount)
+  let mutImage = MutableImage
+        { mutableImageWidth = width
+        , mutableImageHeight = height
+        , mutableImageData = arr
+        }
+
+  let pixelPositions = [(x, y) | y <- [0 .. height-1], x <- [0..width-1]]
+  sequence_ [pixelGenerator x y >>= unsafeWritePixel arr idx
+                        | ((x,y), idx) <- zip pixelPositions [0, pixelComponentCount ..]]
+  unsafeFreezeImage mutImage
 
 -- | Create an image given a function to generate pixels.
 -- The function will receive value from 0 to width-1 for the x parameter

@@ -17,6 +17,7 @@ module Codec.Picture (
                      , pixelMap
                      , generateImage
                      , generateFoldImage
+                     , withImage
 
                      -- * Generic image writing
                      , saveBmpImage
