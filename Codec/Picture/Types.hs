@@ -72,10 +72,9 @@ module Codec.Picture.Types( -- * Types
                           , unsafeExtractComponent
                           ) where
 
-import Control.Monad( forM_, foldM )
-import Control.Applicative( (<$>), (<*>) )
+import Control.Monad( forM_, foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
-import Control.Monad.ST( ST, runST )
+import Control.Monad.ST( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR )
@@ -239,15 +238,15 @@ data MutableImage s a = MutableImage
     }
 
 -- | `O(n)` Yield an immutable copy of an image by making a copy of it
-freezeImage :: (Storable (PixelBaseComponent a))
-            => MutableImage s a -> ST s (Image a)
-freezeImage (MutableImage w h d) = Image w h <$> V.freeze d
+freezeImage :: (Storable (PixelBaseComponent a), PrimMonad m)
+            => MutableImage (PrimState m) a -> m (Image a)
+freezeImage (MutableImage w h d) = Image w h `liftM` V.freeze d
 
 -- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
 -- The mutable image may not be used after this operation.
-unsafeFreezeImage ::  (Storable (PixelBaseComponent a))
-                  => MutableImage s a -> ST s (Image a)
-unsafeFreezeImage (MutableImage w h d) = Image w h <$> V.unsafeFreeze d
+unsafeFreezeImage ::  (Storable (PixelBaseComponent a), PrimMonad m)
+                  => MutableImage (PrimState m) a -> m (Image a)
+unsafeFreezeImage (MutableImage w h d) = Image w h `liftM` V.unsafeFreeze d
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
@@ -514,10 +513,10 @@ class ( Storable (PixelBaseComponent a)
     pixelAt :: Image a -> Int -> Int -> a
 
     -- | Same as pixelAt but for mutable images.
-    readPixel :: MutableImage s a -> Int -> Int -> ST s a
+    readPixel :: PrimMonad m => MutableImage (PrimState m) a -> Int -> Int -> m a
 
     -- | Write a pixel in a mutable image at position x y
-    writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
+    writePixel :: PrimMonad m => MutableImage (PrimState m) a -> Int -> Int -> a -> m ()
 
     -- | Unsafe version of pixelAt, read a pixel at the given
     -- index without bound checking (if possible).
@@ -527,12 +526,12 @@ class ( Storable (PixelBaseComponent a)
     -- | Unsafe version of readPixel,  read a pixel at the given
     -- position without bound checking (if possible). The index
     -- is expressed in number (PixelBaseComponent a)
-    unsafeReadPixel :: M.STVector s (PixelBaseComponent a) -> Int -> ST s a
+    unsafeReadPixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> m a
 
     -- | Unsafe version of writePixel, write a pixel at the
     -- given position without bound checking. This can be _really_ unsafe.
     -- The index is expressed in number (PixelBaseComponent a)
-    unsafeWritePixel :: M.STVector s (PixelBaseComponent a) -> Int -> a -> ST s ()
+    unsafeWritePixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> a -> m ()
 
 
 -- | Implement upcasting for pixel types
@@ -598,11 +597,11 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
 --
 -- The function is called for each pixel in the line from left to right (0 to width - 1)
 -- and for each line (0 to height - 1).
-withImage :: forall s pixel. (Pixel pixel)
+withImage :: forall m pixel. (Pixel pixel, PrimMonad m)
           => Int                     -- ^ Image width
           -> Int                     -- ^ Image height
-          -> (Int -> Int -> ST s pixel) -- ^ Generating functions
-          -> ST s (Image pixel)
+          -> (Int -> Int -> m pixel) -- ^ Generating functions
+          -> m (Image pixel)
 withImage width height pixelGenerator = do
   let pixelComponentCount = componentCount (undefined :: pixel)
   arr <- M.new (width * height * pixelComponentCount)
@@ -887,7 +886,7 @@ instance Pixel PixelYA8 where
     unsafePixelAt v idx = 
         PixelYA8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
-        PixelYA8 <$> M.unsafeRead vec idx <*> M.unsafeRead vec (idx + 1)
+        PixelYA8 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
     unsafeWritePixel v idx (PixelYA8 y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
 
@@ -941,7 +940,7 @@ instance Pixel PixelYA16 where
     unsafePixelAt v idx = 
         PixelYA16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
-        PixelYA16 <$> M.unsafeRead vec idx <*> M.unsafeRead vec (idx + 1)
+        PixelYA16 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
     unsafeWritePixel v idx (PixelYA16 y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
 
@@ -994,9 +993,9 @@ instance Pixel PixelRGBF where
     unsafePixelAt v idx = 
         PixelRGBF (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
-        PixelRGBF <$> M.unsafeRead vec idx
-                  <*> M.unsafeRead vec (idx + 1)
-                  <*> M.unsafeRead vec (idx + 2)
+        PixelRGBF `liftM` M.unsafeRead vec idx
+                  `ap` M.unsafeRead vec (idx + 1)
+                  `ap` M.unsafeRead vec (idx + 2)
     unsafeWritePixel v idx (PixelRGBF r g b) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1042,9 +1041,9 @@ instance Pixel PixelRGB16 where
     unsafePixelAt v idx = 
         PixelRGB16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
-        PixelRGB16 <$> M.unsafeRead vec idx
-                   <*> M.unsafeRead vec (idx + 1)
-                   <*> M.unsafeRead vec (idx + 2)
+        PixelRGB16 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
     unsafeWritePixel v idx (PixelRGB16 r g b) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1099,9 +1098,9 @@ instance Pixel PixelRGB8 where
     unsafePixelAt v idx = 
         PixelRGB8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
-        PixelRGB8 <$> M.unsafeRead vec idx
-                  <*> M.unsafeRead vec (idx + 1)
-                  <*> M.unsafeRead vec (idx + 2)
+        PixelRGB8 `liftM` M.unsafeRead vec idx
+                  `ap` M.unsafeRead vec (idx + 1)
+                  `ap` M.unsafeRead vec (idx + 2)
     unsafeWritePixel v idx (PixelRGB8 r g b) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1168,10 +1167,10 @@ instance Pixel PixelRGBA8 where
                    (V.unsafeIndex v $ idx + 2)
                    (V.unsafeIndex v $ idx + 3)
     unsafeReadPixel vec idx =
-        PixelRGBA8 <$> M.unsafeRead vec idx
-                   <*> M.unsafeRead vec (idx + 1)
-                   <*> M.unsafeRead vec (idx + 2)
-                   <*> M.unsafeRead vec (idx + 3)
+        PixelRGBA8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
     unsafeWritePixel v idx (PixelRGBA8 r g b a) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1226,10 +1225,10 @@ instance Pixel PixelRGBA16 where
                     (V.unsafeIndex v $ idx + 2)
                     (V.unsafeIndex v $ idx + 3)
     unsafeReadPixel vec idx =
-        PixelRGBA16 <$> M.unsafeRead vec idx
-                    <*> M.unsafeRead vec (idx + 1)
-                    <*> M.unsafeRead vec (idx + 2)
-                    <*> M.unsafeRead vec (idx + 3)
+        PixelRGBA16 `liftM` M.unsafeRead vec idx
+                    `ap` M.unsafeRead vec (idx + 1)
+                    `ap` M.unsafeRead vec (idx + 2)
+                    `ap` M.unsafeRead vec (idx + 3)
     unsafeWritePixel v idx (PixelRGBA16 r g b a) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1282,9 +1281,9 @@ instance Pixel PixelYCbCr8 where
     unsafePixelAt v idx = 
         PixelYCbCr8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
-        PixelYCbCr8 <$> M.unsafeRead vec idx
-                    <*> M.unsafeRead vec (idx + 1)
-                    <*> M.unsafeRead vec (idx + 2)
+        PixelYCbCr8 `liftM` M.unsafeRead vec idx
+                    `ap` M.unsafeRead vec (idx + 1)
+                    `ap` M.unsafeRead vec (idx + 2)
     unsafeWritePixel v idx (PixelYCbCr8 y cb cr) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) cb
                               >> M.unsafeWrite v (idx + 2) cr
@@ -1444,10 +1443,10 @@ instance Pixel PixelCMYK8 where
                    (V.unsafeIndex v $ idx + 2)
                    (V.unsafeIndex v $ idx + 3)
     unsafeReadPixel vec idx =
-        PixelCMYK8 <$> M.unsafeRead vec idx
-                   <*> M.unsafeRead vec (idx + 1)
-                   <*> M.unsafeRead vec (idx + 2)
-                   <*> M.unsafeRead vec (idx + 3)
+        PixelCMYK8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
     unsafeWritePixel v idx (PixelCMYK8 r g b a) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
@@ -1515,10 +1514,10 @@ instance Pixel PixelCMYK16 where
                    (V.unsafeIndex v $ idx + 2)
                    (V.unsafeIndex v $ idx + 3)
     unsafeReadPixel vec idx =
-        PixelCMYK16 <$> M.unsafeRead vec idx
-                   <*> M.unsafeRead vec (idx + 1)
-                   <*> M.unsafeRead vec (idx + 2)
-                   <*> M.unsafeRead vec (idx + 3)
+        PixelCMYK16 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
     unsafeWritePixel v idx (PixelCMYK16 r g b a) =
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
