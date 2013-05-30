@@ -847,8 +847,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
             w = defaulting $ tiffYCbCrSubsampling nfo V.! 0
             h = defaulting $ tiffYCbCrSubsampling nfo V.! 1
             cbcrConf = YCbCrSubsampling
-                { ycbcrWidth        = (trace ("w " ++ show w)) $ fromIntegral w
-                , ycbcrHeight       = (trace ("h " ++ show h)) $ fromIntegral h
+                { ycbcrWidth        = fromIntegral w
+                , ycbcrHeight       = fromIntegral h
                 , ycbcrImageWidth   = fromIntegral $ tiffWidth nfo
                 , ycbcrStripHeight  = fromIntegral $ tiffRowPerStrip nfo
                 }
