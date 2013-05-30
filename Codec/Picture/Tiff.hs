@@ -25,7 +25,7 @@
 module Codec.Picture.Tiff( decodeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
-import Control.Monad( when, replicateM )
+import Control.Monad( when, replicateM, foldM_ )
 import Control.Monad.ST( ST, runST )
 import Data.Int( Int8 )
 import Data.Word( Word8, Word16 )
@@ -385,7 +385,7 @@ data TiffInfo = TiffInfo
     , tiffStripSize          :: V.Vector Word32
     , tiffOffsets            :: V.Vector Word32
     , tiffPalette            :: Maybe (Image PixelRGB16)
-    , _tiffYCbCrSubsampling   :: V.Vector Word32
+    , tiffYCbCrSubsampling   :: V.Vector Word32
     }
 
 data TiffColorspace =
@@ -638,12 +638,11 @@ instance Unpackable Pack12 where
 
             inner (readIdx + 3) (writeIdx + 2 * stride) (line - 2)
 
-{- 
 data YCbCrSubsampling = YCbCrSubsampling 
     { ycbcrWidth        :: !Int
     , ycbcrHeight       :: !Int
     , ycbcrImageWidth   :: !Int
-    , ycbcrStripSize    :: !Int
+    , ycbcrStripHeight  :: !Int
     }
 
 instance Unpackable YCbCrSubsampling where
@@ -653,38 +652,37 @@ instance Unpackable YCbCrSubsampling where
   outAlloc _ = M.new
   allocTempBuffer _ _ = M.new
   mergeBackTempBuffer subSampling _ tempVec _ index size _ outVec =
-        looper 0 imgWidth index 0 yCountBetweenCbCr
-    where yCountBetweenCbCr = w * h
-          imgWidth = ycbcrImageWidth subSampling
-          w = ycbcrWidth subSampling
+      foldM_ unpacker 0 [(bx, by) | by <- [0, h .. lineCount - 1]
+                                  , bx <- [0, w .. imgWidth - 1]]
+    where w = ycbcrWidth subSampling
           h = ycbcrHeight subSampling
+          imgWidth = ycbcrImageWidth subSampling
+          lineCount = ycbcrStripHeight subSampling
 
-          looper _ _ _ readIndex _ | readIndex >= fromIntegral size = pure ()
-          looper y     0 writeIndex readIndex yCount =
-              looper (y + 1) imgWidth writeIndex readIndex yCount
-          looper y width writeIndex readIdx 0 = do
-              cb <- tempVec `M.read` readIdx
-              cr <- tempVec `M.read` (readIdx + 1)
+          lumaCount = w * h
+          blockSize = lumaCount + 2
 
-              let chromaIdx = writeIndex - 2 - w * 3
+          maxOut = M.length outVec
 
-              forM_ [(x,y) | y <- [0 .. h - 1]
-                           , x <- [0 .. w - 1]] $ \(x,y) -> do
-                let idx = chromaIdx + x * 3 + y * imgWidth * 3
-                (outVec `M.write` (chromaIdx + x * 3)) cb
-                (outVec `M.write` (chromaIdx + x * 3 + 1)) cr
+          unpacker readIdx _ | readIdx >= fromIntegral size * 3 = pure readIdx
+          unpacker readIdx (bx, by) = do
+              cb <- tempVec `M.read` (readIdx + lumaCount)
+              cr <- tempVec `M.read` (readIdx + lumaCount + 1)
 
+              let pixelIndices =
+                        [index + ((by + y) * imgWidth + bx + x) * 3 | y <- [0 .. h - 1], x <- [0 .. w - 1]]
 
-              looper y width writeIndex
-                     (readIdx + 2) yCountBetweenCbCr
+                  writer readIndex writeIdx | writeIdx + 3 > maxOut = pure readIndex
+                  writer readIndex writeIdx = do
+                    y <- tempVec `M.read` readIndex
+                    (outVec `M.write` writeIdx) y
+                    (outVec `M.write` (writeIdx + 1)) cb
+                    (outVec `M.write` (writeIdx + 2)) cr
+                    return $ readIndex + 1
 
-          looper y width writeIdx readIdx yCount = do
-              y <- tempVec `M.read` readIdx
-              (outVec `M.write` writeIdx) y
-
-              looper y width (writeIdx + 3)
-                     (readIdx + 1) (yCount - 1)
- -}
+              foldM_ writer readIdx pixelIndices
+              
+              return $ readIdx + blockSize
 
 gatherStrips :: ( Unpackable comp
                 , Pixel pixel
@@ -837,22 +835,24 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
 
-{- TODO : finish YCbCr support  
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
                          , tiffPlaneConfiguration = PlanarConfigContig
                          , tiffSampleFormat = format }
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
     pure . ImageYCbCr8 $ gatherStrips cbcrConf  file nfo
-      where w = tiffYCbCrSubsampling nfo V.! 0
-            h = tiffYCbCrSubsampling nfo V.! 0
+      where defaulting 0 = 2
+            defaulting n = n
+
+            w = defaulting $ tiffYCbCrSubsampling nfo V.! 0
+            h = defaulting $ tiffYCbCrSubsampling nfo V.! 1
             cbcrConf = YCbCrSubsampling
-                { ycbcrWidth        = 2 -- (trace ("w " ++ show w)) $ fromIntegral w
-                , ycbcrHeight       = 1 -- (trace ("h " ++ show h)) $ fromIntegral h
+                { ycbcrWidth        = (trace ("w " ++ show w)) $ fromIntegral w
+                , ycbcrHeight       = (trace ("h " ++ show h)) $ fromIntegral h
                 , ycbcrImageWidth   = fromIntegral $ tiffWidth nfo
-                , ycbcrStripSize    = 0
+                , ycbcrStripHeight  = fromIntegral $ tiffRowPerStrip nfo
                 }
--}
+
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
