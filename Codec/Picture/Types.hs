@@ -826,6 +826,10 @@ instance Pixel Pixel16 where
     unsafeReadPixel = M.unsafeRead
     unsafeWritePixel = M.unsafeWrite
 
+instance ColorConvertible Pixel16 PixelYA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelYA16 c maxBound
+
 instance ColorConvertible Pixel16 PixelRGB16 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB16 c c c
@@ -943,10 +947,6 @@ instance Pixel PixelYA16 where
         PixelYA16 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
     unsafeWritePixel v idx (PixelYA16 y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
-
-instance ColorConvertible PixelYA16 PixelRGB16 where
-    {-# INLINE promotePixel #-}
-    promotePixel (PixelYA16 y _) = PixelRGB16 y y y
 
 instance ColorConvertible PixelYA16 PixelRGBA16 where
     {-# INLINE promotePixel #-}
