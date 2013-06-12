@@ -1057,6 +1057,10 @@ instance ColorPlane PixelRGB16 PlaneGreen where
 instance ColorPlane PixelRGB16 PlaneBlue where
     toComponentIndex _ _ = 2
 
+instance ColorSpaceConvertible PixelRGB16 PixelCMYK16 where
+    {-# INLINE convertPixel #-}
+    convertPixel (PixelRGB16 r g b) = integralRGBToCMYK PixelCMYK16 (r, g, b)
+
 instance ColorConvertible PixelRGB16 PixelRGBA16 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelRGB16 r g b) = PixelRGBA16 r g b maxBound
@@ -1463,6 +1467,35 @@ instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
           r = (255 - fromIntegral c) * ik
           g = (255 - fromIntegral m) * ik
           b = (255 - fromIntegral y) * ik
+
+
+{-# SPECIALIZE integralRGBToCMYK :: (Word8 -> Word8 -> Word8 -> Word8 -> b)
+                                 -> (Word8, Word8, Word8) -> b #-}
+{-# SPECIALIZE integralRGBToCMYK :: (Word16 -> Word16 -> Word16 -> Word16 -> b)
+                                 -> (Word16, Word16, Word16) -> b #-}
+integralRGBToCMYK :: (Bounded a, Integral a)
+                  => (a -> a -> a -> a -> b)    -- ^ Pixel building function
+                  -> (a, a, a)                  -- ^ RGB sample
+                  -> b                          -- ^ Resulting sample
+integralRGBToCMYK build (r, g, b) =
+  build (clamp c) (clamp m) (clamp y) (fromIntegral kInt)
+    where maxi = maxBound
+
+          ir = fromIntegral $ maxi - r :: Int
+          ig = fromIntegral $ maxi - g
+          ib = fromIntegral $ maxi - b
+
+          kInt = minimum [ir, ig, ib]
+          ik = fromIntegral maxi - kInt
+
+          c = (ir - kInt) `div` ik
+          m = (ig - kInt) `div` ik
+          y = (ib - kInt) `div` ik
+
+          clamp = fromIntegral . (max 0)
+
+instance ColorSpaceConvertible PixelRGB8 PixelCMYK8 where
+  convertPixel (PixelRGB8 r g b) = integralRGBToCMYK PixelCMYK8 (r, g, b)
 
 instance ColorPlane PixelCMYK8 PlaneCyan where
     toComponentIndex _ _ = 0
