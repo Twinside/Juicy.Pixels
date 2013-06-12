@@ -184,6 +184,10 @@ data TiffTag = TagPhotometricInterpretation
              | TagStripOffsets
              | TagBitsPerSample
              | TagColorMap
+             | TagTileWidth
+             | TagTileLength
+             | TagTileOffset
+             | TagTileByteCount
              | TagSamplesPerPixel
              | TagArtist
              | TagDocumentName
@@ -202,6 +206,17 @@ data TiffTag = TagPhotometricInterpretation
              | TagYPosition
              | TagExtraSample
              | TagImageDescription
+
+             | TagJpegProc
+             | TagJPEGInterchangeFormat
+             | TagJPEGInterchangeFormatLength
+             | TagJPEGRestartInterval
+             | TagJPEGLosslessPredictors
+             | TagJPEGPointTransforms
+             | TagJPEGQTables
+             | TagJPEGDCTables
+             | TagJPEGACTables
+
              | TagUnknown Word16
              deriving (Eq, Show)
 
@@ -230,10 +245,23 @@ tagOfWord16 = aux
         aux 305 = TagSoftware
         aux 315 = TagArtist
         aux 320 = TagColorMap
+        aux 322 = TagTileWidth
+        aux 323 = TagTileLength
+        aux 324 = TagTileOffset
+        aux 325 = TagTileByteCount
         aux 332 = TagInkSet
         aux 338 = TagExtraSample
         aux 339 = TagSampleFormat
         aux 529 = TagYCbCrCoeff
+        aux 512 = TagJpegProc
+        aux 513 = TagJPEGInterchangeFormat
+        aux 514 = TagJPEGInterchangeFormatLength
+        aux 515 = TagJPEGRestartInterval
+        aux 517 = TagJPEGLosslessPredictors
+        aux 518 = TagJPEGPointTransforms
+        aux 519 = TagJPEGQTables
+        aux 520 = TagJPEGDCTables
+        aux 521 = TagJPEGACTables
         aux 530 = TagYCbCrSubsampling
         aux 531 = TagYCbCrPositioning
         aux 532 = TagReferenceBlackWhite
@@ -783,7 +811,9 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format
                          , tiffPalette = Just p
+                         , tiffRowPerStrip = rowPerStrip
                          }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.singleton 8 && format == [TiffSampleUint] =
       let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
           gathered :: Image Pixel8
@@ -806,15 +836,21 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
       pure . ImageRGB16 $ applyPalette gathered
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffCMYK
+                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageCMYK8 $ gatherStrips (0 :: Word8) file nfo
 
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
 
-unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0
+                         , tiffRowPerStrip = rowPerStrip
+                         }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
+  | otherwise = do
     img <- unpack file (nfo { tiffColorspace = TiffMonochrome })
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
@@ -822,8 +858,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
       _ -> pure img
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
+                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
         pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
@@ -837,8 +875,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
+                         , tiffRowPerStrip = rowPerStrip
                          , tiffPlaneConfiguration = PlanarConfigContig
                          , tiffSampleFormat = format }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
     pure . ImageYCbCr8 $ gatherStrips cbcrConf  file nfo
       where defaulting 0 = 2
@@ -854,8 +894,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                 }
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
+                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
@@ -869,8 +911,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageRGBA16 $ gatherStrips (0 :: Word16) file nfo
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
+                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
+  | rowPerStrip == 0 = fail "Invalid row per strip"
   -- some files are a little bit borked...
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
