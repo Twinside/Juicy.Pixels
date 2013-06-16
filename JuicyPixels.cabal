@@ -1,11 +1,10 @@
 Name:                JuicyPixels
-Version:             3.0
-Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, radiance and gif)
+Version:             3.1
+Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, gif, tiff and radiance)
 Description:
     <<data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADABAMAAACg8nE0AAAAElBMVEUAAABJqDSTWEL/qyb///8AAABH/1GTAAAAAXRSTlMAQObYZgAAAN5JREFUeF7s1sEJgFAQxFBbsAV72v5bEVYWPwT/XDxmCsi7zvHXavYREBDI3XP2GgICqBBYuwIC+/rVayPUAyAg0HvIXBcQoDFDGnUBgWQQ2Bx3AYFaRoBpAQHWb3bt2ARgGAiCYFFuwf3X5HA/McgGJWI2FdykCv4aBYzmKwDwvl6NVmUAAK2vlwEALK7fo88GANB6HQsAAAAAAAAA7P94AQCzswEAAAAAAAAAAAAAAAAAAICzh4UAO4zWAYBfRutHA4Bn5C69JhowAMGoBaMWDG0wCkbBKBgFo2AUAACPmegUST/IJAAAAABJRU5ErkJggg==>>
     .
-    This library can load and store images in PNG,Bitmap, Jpeg, Radiance and 
-    read Gif images.
+    This library can load and store images in PNG,Bitmap, Jpeg, Radiance and read Gif  and Tiff images.
 
 homepage:            https://github.com/Twinside/Juicy.Pixels
 License:             BSD3
@@ -25,7 +24,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v3.0
+    Tag:       v3.1
 
 Library
   Default-Language: Haskell2010
@@ -35,6 +34,7 @@ Library
                     Codec.Picture.Png,
                     Codec.Picture.Jpg,
                     Codec.Picture.HDR,
+                    Codec.Picture.Tiff,
                     Codec.Picture.Saving,
                     Codec.Picture.Types
 
@@ -42,12 +42,13 @@ Library
   Build-depends: base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
                  mtl                 >= 1.1     && < 2.2,
-                 binary              >= 0.6.4.0 && < 0.7,
+                 binary              >= 0.6.4.0 && < 0.7.2,
                  zlib                >= 0.5.3.1 && < 0.6,
                  transformers        >= 0.2.2   && < 0.4,
-                 vector              >= 0.10    && < 0.11,
+                 vector              >= 0.9    && < 0.11,
                  primitive           >= 0.5     && < 0.6,
-                 deepseq             >= 1.1     && < 1.4
+                 deepseq             >= 1.1     && < 1.4,
+                 mmap
 
   -- Modules not exported by this package.
   Other-modules: Codec.Picture.Jpg.DefaultTable,
@@ -58,7 +59,9 @@ Library
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
                  Codec.Picture.BitWriter,
-                 Codec.Picture.InternalHelper
+                 Codec.Picture.InternalHelper,
+                 Codec.Picture.VectorByteConversion
 
   Install-Includes: Codec/Picture/ConvGraph.hs
   Include-Dirs: Codec/Picture
+

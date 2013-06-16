@@ -20,7 +20,7 @@ clean:
 	rm -f tests/gif/*.bmp
 
 prof:
-	dist\build\imageTest\imageTest.exe +RTS -hy -p -sstderr -RTS tests/pngsuite/huge.png
+	dist\build\imageTest\imageTest.exe +RTS -p -sstderr -RTS test
 	hp2ps -c imageTest.hp
 
 test:
@@ -32,7 +32,7 @@ lint:
 sdist:
 	runhaskell Setup.hs sdist
 
-JUICYPIXEL_VERSION:=3.0
+JUICYPIXEL_VERSION:=3.1
 
 pack:
 	mkdir JuicyPixels-$(JUICYPIXEL_VERSION)

@@ -1,5 +1,7 @@
 ![Juicy logo](http://twinside.github.com/Juicy.Pixels/juicy.png)
 
+[![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
+
 Juicy.Pixels
 ============
 
@@ -33,6 +35,9 @@ Status
         - 8bits RGB (non interleaved)
         - 8bits RGBA (non interleaved)
         - 8bits greyscale (non interleaved)
+        - 16bits greyscale (non interleaved)
+        - 16bits RGB (non interleaved)
+        - 16bits RGBA (non interleaved)
 
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
@@ -44,7 +49,7 @@ Status
         - 8 bits greyscale (with palette)
 
  - Jpeg   (.jpg, .jpeg) 
-    * Reading non-interlaced baseline DCT image, seems to be OK
+    * Reading non-interlaced baseline DCT image
     * Writing
 
  - Gif (.gif)
@@ -53,6 +58,12 @@ Status
  - Radiance (.pic, .hdr)
     * Reading
     * Writing
+
+ - Tiff
+    * Reading
+        - 2, 4, 8, 16 bit depth reading (planar and contiguous for each)
+        - CMYK, YCbCr, RGB, Paletted, Greyscale
+        - Uncompressed, PackBits, LZW
 
 _I love juicy pixels_
 

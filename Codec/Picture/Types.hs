@@ -5,6 +5,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE CPP #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
@@ -20,11 +21,17 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Pixel types
                           , Pixel8
+                          , Pixel16
                           , PixelF
                           , PixelYA8( .. )
+                          , PixelYA16( .. )
                           , PixelRGB8( .. )
+                          , PixelRGB16( .. )
                           , PixelRGBF( .. )
                           , PixelRGBA8( .. )
+                          , PixelRGBA16( .. )
+                          , PixelCMYK8( .. )
+                          , PixelCMYK16( .. )
                           , PixelYCbCr8( .. )
 
                           -- * Type classes
@@ -36,9 +43,11 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
+                          , dynamicMap
                           , pixelMap
                           , pixelFold
                           , dropAlphaLayer
+                          , withImage
                           , generateImage
                           , generateFoldImage
                           , gammaCorrection
@@ -54,18 +63,22 @@ module Codec.Picture.Types( -- * Types
                           , PlaneLuma( .. )
                           , PlaneCr( .. )
                           , PlaneCb( .. )
+                          , PlaneCyan( .. )
+                          , PlaneMagenta( .. )
+                          , PlaneYellow( .. )
+                          , PlaneBlack( .. )
 
                           , extractComponent
                           , unsafeExtractComponent
                           ) where
 
-import Control.Monad( forM_, foldM )
-import Control.Applicative( (<$>) )
+import Control.Monad( forM_, foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
-import Control.Monad.ST( ST, runST )
+import Control.Monad.ST( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
-import Data.Word( Word8 )
+import Data.Bits( unsafeShiftL, unsafeShiftR )
+import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
@@ -120,50 +133,21 @@ data PlaneCr = PlaneCr
 -- | Define the plane for the Cb component
 data PlaneCb = PlaneCb
 
-instance ColorPlane PixelYCbCr8 PlaneLuma where
-    toComponentIndex _ _ = 0
+-- | Define plane for the cyan component of the 
+-- CMYK color space.
+data PlaneCyan = PlaneCyan
 
-instance ColorPlane PixelYCbCr8 PlaneCb where
-    toComponentIndex _ _ = 1
+-- | Define plane for the magenta component of the 
+-- CMYK color space.
+data PlaneMagenta = PlaneMagenta
 
-instance ColorPlane PixelYCbCr8 PlaneCr where
-    toComponentIndex _ _ = 2
+-- | Define plane for the yellow component of the 
+-- CMYK color space.
+data PlaneYellow = PlaneYellow
 
-instance ColorPlane PixelYA8 PlaneLuma where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelYA8 PlaneAlpha where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGB8 PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGB8 PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGB8 PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBF PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGBF PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGBF PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBA8 PlaneRed where
-    toComponentIndex _ _ = 0
-
-instance ColorPlane PixelRGBA8 PlaneGreen where
-    toComponentIndex _ _ = 1
-
-instance ColorPlane PixelRGBA8 PlaneBlue where
-    toComponentIndex _ _ = 2
-
-instance ColorPlane PixelRGBA8 PlaneAlpha where
-    toComponentIndex _ _ = 3
+-- | Define plane for the black component of
+-- the CMYK color space.
+data PlaneBlack = PlaneBlack
 
 -- | Extract a color plane from an image given a present plane in the image
 -- examples :
@@ -212,10 +196,6 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
     -- | Just return the opaque pixel value
     dropTransparency :: a -> b
 
-instance TransparentPixel PixelYA8 Pixel8 where
-    {-# INLINE dropTransparency #-}
-    dropTransparency (PixelYA8 y _) = y
-
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
@@ -258,15 +238,15 @@ data MutableImage s a = MutableImage
     }
 
 -- | `O(n)` Yield an immutable copy of an image by making a copy of it
-freezeImage :: (Storable (PixelBaseComponent a))
-            => MutableImage s a -> ST s (Image a)
-freezeImage (MutableImage w h d) = Image w h <$> V.freeze d
+freezeImage :: (Storable (PixelBaseComponent a), PrimMonad m)
+            => MutableImage (PrimState m) a -> m (Image a)
+freezeImage (MutableImage w h d) = Image w h `liftM` V.freeze d
 
 -- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
 -- The mutable image may not be used after this operation.
-unsafeFreezeImage ::  (Storable (PixelBaseComponent a))
-                  => MutableImage s a -> ST s (Image a)
-unsafeFreezeImage (MutableImage w h d) = Image w h <$> V.unsafeFreeze d
+unsafeFreezeImage ::  (Storable (PixelBaseComponent a), PrimMonad m)
+                  => MutableImage (PrimState m) a -> m (Image a)
+unsafeFreezeImage (MutableImage w h d) = Image w h `liftM` V.unsafeFreeze d
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
@@ -278,31 +258,75 @@ instance NFData (MutableImage s a) where
 -- structures
 data DynamicImage =
        -- | A greyscale image.
-       ImageY8   (Image Pixel8)
+       ImageY8    (Image Pixel8)
+       -- | A greyscale image with 16bit components
+     | ImageY16   (Image Pixel16)
        -- | A greyscale HDR image 
-     | ImageYF   (Image PixelF)
+     | ImageYF    (Image PixelF)
        -- | An image in greyscale with an alpha channel.
-     | ImageYA8  (Image PixelYA8)
+     | ImageYA8   (Image PixelYA8)
+      -- | An image in greyscale with alpha channel on 16 bits.
+     | ImageYA16  (Image PixelYA16)
        -- | An image in true color.
-     | ImageRGB8 (Image PixelRGB8)
+     | ImageRGB8  (Image PixelRGB8)
+       -- | An image in true color with 16bit depth.
+     | ImageRGB16 (Image PixelRGB16)
        -- | An image with HDR pixels
-     | ImageRGBF (Image PixelRGBF)
+     | ImageRGBF  (Image PixelRGBF)
        -- | An image in true color and an alpha channel.
      | ImageRGBA8 (Image PixelRGBA8)
+       -- | A true color image with alpha on 16 bits.
+     | ImageRGBA16 (Image PixelRGBA16)
        -- | An image in the colorspace used by Jpeg images.
      | ImageYCbCr8 (Image PixelYCbCr8)
+       -- | An image in the colorspace CMYK
+     | ImageCMYK8  (Image PixelCMYK8)
+       -- | An image in the colorspace CMYK and 16 bots precision
+     | ImageCMYK16 (Image PixelCMYK16)
+
+-- | Helper function to help extract information from dynamic
+-- image. To get the width of an dynamic image, you can use
+-- the following snippet :
+--
+-- > dynWidth :: DynamicImage -> Int
+-- > dynWidth img = dynamicMap imageWidth img
+--
+dynamicMap :: (forall pixel . (Pixel pixel) => Image pixel -> a)
+           -> DynamicImage -> a
+dynamicMap f (ImageY8    i) = f i
+dynamicMap f (ImageY16   i) = f i
+dynamicMap f (ImageYF    i) = f i
+dynamicMap f (ImageYA8   i) = f i
+dynamicMap f (ImageYA16  i) = f i
+dynamicMap f (ImageRGB8  i) = f i
+dynamicMap f (ImageRGB16 i) = f i
+dynamicMap f (ImageRGBF  i) = f i
+dynamicMap f (ImageRGBA8 i) = f i
+dynamicMap f (ImageRGBA16 i) = f i
+dynamicMap f (ImageYCbCr8 i) = f i
+dynamicMap f (ImageCMYK8 i) = f i
+dynamicMap f (ImageCMYK16 i) = f i
 
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
+    rnf (ImageY16 img)    = rnf img
     rnf (ImageYF img)     = rnf img
     rnf (ImageYA8 img)    = rnf img
+    rnf (ImageYA16 img)   = rnf img
     rnf (ImageRGB8 img)   = rnf img
+    rnf (ImageRGB16 img)  = rnf img
     rnf (ImageRGBF img)   = rnf img
     rnf (ImageRGBA8 img)  = rnf img
+    rnf (ImageRGBA16 img) = rnf img
     rnf (ImageYCbCr8 img) = rnf img
+    rnf (ImageCMYK8 img)  = rnf img
+    rnf (ImageCMYK16 img)  = rnf img
 
 -- | Simple alias for greyscale value in 8 bits.
 type Pixel8 = Word8
+
+-- | Simple alias for greyscale value in 16 bits.
+type Pixel16 = Word16
 
 -- | Floating greyscale value, the 0 to 255 8 bit range maps
 -- to 0 to 1 in this floating version
@@ -316,8 +340,21 @@ type PixelF = Float
 --
 --  * Alpha
 --
-data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
-                         {-# UNPACK #-} !Word8  -- Alpha value
+data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
+                         {-# UNPACK #-} !Pixel8  -- Alpha value
+              deriving (Eq, Show)
+
+-- | Pixel type storing Luminance (Y) and alpha information
+-- on 16 bits.
+-- Value are stored in the following order :
+--
+--  * Luminance
+--
+--  * Alpha
+--
+data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
+                           {-# UNPACK #-} !Pixel16  -- Alpha value
+              deriving (Eq, Show)
 
 -- | Pixel type storing classic pixel on 8 bits
 -- Value are stored in the following order :
@@ -328,9 +365,24 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Word8  -- Luminance
 --
 --  * Blue
 --
-data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
-                           {-# UNPACK #-} !Word8 -- Green
-                           {-# UNPACK #-} !Word8 -- Blue
+data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
+                           {-# UNPACK #-} !Pixel8 -- Green
+                           {-# UNPACK #-} !Pixel8 -- Blue
+               deriving (Eq, Show)
+
+-- | Pixel type storing pixels on 16 bits
+-- Value are stored in the following order :
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
+                             {-# UNPACK #-} !Pixel16 -- Green
+                             {-# UNPACK #-} !Pixel16 -- Blue
+               deriving (Eq, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
 -- Value are stored in the following order :
@@ -344,6 +396,7 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Word8 -- Red
 data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Green
                            {-# UNPACK #-} !PixelF -- Blue
+               deriving (Eq, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in the following order :
@@ -354,9 +407,45 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 --
 --  * Cb
 --
-data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
-                               {-# UNPACK #-} !Word8 -- Cr red difference
-                               {-# UNPACK #-} !Word8 -- Cb blue difference
+data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
+                               {-# UNPACK #-} !Pixel8 -- Cr red difference
+                               {-# UNPACK #-} !Pixel8 -- Cb blue difference
+                 deriving (Eq, Show)
+
+-- | Pixel storing data in the CMYK colorspace. value
+-- are stored in the following order :
+--
+--   * Cyan
+--
+--   * Magenta
+--
+--   * Yellow
+--
+--   * Black
+--
+data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
+                             {-# UNPACK #-} !Pixel8 -- Magenta
+                             {-# UNPACK #-} !Pixel8 -- Yellow
+                             {-# UNPACK #-} !Pixel8 -- Black
+                 deriving (Eq, Show)
+
+-- | Pixel storing data in the CMYK colorspace. value
+-- are stored in the following order :
+--
+--   * Cyan
+--
+--   * Magenta
+--
+--   * Yellow
+--
+--   * Black
+--
+data PixelCMYK16 = PixelCMYK16 {-# UNPACK #-} !Pixel16 -- Cyan
+                               {-# UNPACK #-} !Pixel16 -- Magenta
+                               {-# UNPACK #-} !Pixel16 -- Yellow
+                               {-# UNPACK #-} !Pixel16 -- Black
+                 deriving (Eq, Show)
+
 
 -- | Pixel type storing a classic pixel, with an alpha component.
 -- Values are stored in the following order
@@ -369,14 +458,34 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Word8 -- Y luminance
 --
 --  * Alpha
 --
-data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Word8 -- Red
-                             {-# UNPACK #-} !Word8 -- Green
-                             {-# UNPACK #-} !Word8 -- Blue
-                             {-# UNPACK #-} !Word8 -- Alpha
+data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Pixel8 -- Red
+                             {-# UNPACK #-} !Pixel8 -- Green
+                             {-# UNPACK #-} !Pixel8 -- Blue
+                             {-# UNPACK #-} !Pixel8 -- Alpha
+                deriving (Eq, Show)
+
+-- | Pixel type storing a RGB information with an alpha
+-- channel on 16 bits.
+-- Values are stored in the following order
+--
+--  * Red
+--
+--  * Green
+--
+--  * Blue
+--
+--  * Alpha
+--
+data PixelRGBA16 = PixelRGBA16 {-# UNPACK #-} !Pixel16 -- Red
+                               {-# UNPACK #-} !Pixel16 -- Green
+                               {-# UNPACK #-} !Pixel16 -- Blue
+                               {-# UNPACK #-} !Pixel16 -- Alpha
+                deriving (Eq, Show)
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).
-class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a where
+class ( Storable (PixelBaseComponent a)
+      , Num (PixelBaseComponent a), Eq a ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
@@ -404,10 +513,26 @@ class ( Storable (PixelBaseComponent a), Num (PixelBaseComponent a) ) => Pixel a
     pixelAt :: Image a -> Int -> Int -> a
 
     -- | Same as pixelAt but for mutable images.
-    readPixel :: MutableImage s a -> Int -> Int -> ST s a
+    readPixel :: PrimMonad m => MutableImage (PrimState m) a -> Int -> Int -> m a
 
     -- | Write a pixel in a mutable image at position x y
-    writePixel :: MutableImage s a -> Int -> Int -> a -> ST s ()
+    writePixel :: PrimMonad m => MutableImage (PrimState m) a -> Int -> Int -> a -> m ()
+
+    -- | Unsafe version of pixelAt, read a pixel at the given
+    -- index without bound checking (if possible).
+    -- The index is expressed in number (PixelBaseComponent a)
+    unsafePixelAt :: V.Vector (PixelBaseComponent a) -> Int -> a
+
+    -- | Unsafe version of readPixel,  read a pixel at the given
+    -- position without bound checking (if possible). The index
+    -- is expressed in number (PixelBaseComponent a)
+    unsafeReadPixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> m a
+
+    -- | Unsafe version of writePixel, write a pixel at the
+    -- given position without bound checking. This can be _really_ unsafe.
+    -- The index is expressed in number (PixelBaseComponent a)
+    unsafeWritePixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> a -> m ()
+
 
 -- | Implement upcasting for pixel types
 -- Minimal declaration declaration `promotePixel`
@@ -455,13 +580,41 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
   where compCount = componentCount (undefined :: a)
         generated = runST $ do
             arr <- M.new (w * h * compCount)
-            let mutImage = MutableImage {
-                                mutableImageWidth = w,
-                                mutableImageHeight = h,
-                                mutableImageData = arr }
-            forM_ [(x,y) | y <- [0 .. h-1], x <- [0 .. w-1]] $ \(x,y) ->
-                writePixel mutImage x y $ f x y
+            let lineGenerator _ y | y >= h = return ()
+                lineGenerator lineIdx y = column lineIdx 0
+                  where column idx x | x >= w = lineGenerator idx $ y + 1
+                        column idx x = do
+                            unsafeWritePixel arr idx $ f x y
+                            column (idx + compCount) $ x + 1
+
+            lineGenerator 0 0
             V.unsafeFreeze arr
+
+-- | Create an image using a monadic initializer function.
+-- The function will receive value from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- left corner of the image, and (width-1, height-1) the lower right corner.
+--
+-- The function is called for each pixel in the line from left to right (0 to width - 1)
+-- and for each line (0 to height - 1).
+withImage :: forall m pixel. (Pixel pixel, PrimMonad m)
+          => Int                     -- ^ Image width
+          -> Int                     -- ^ Image height
+          -> (Int -> Int -> m pixel) -- ^ Generating functions
+          -> m (Image pixel)
+withImage width height pixelGenerator = do
+  let pixelComponentCount = componentCount (undefined :: pixel)
+  arr <- M.new (width * height * pixelComponentCount)
+  let mutImage = MutableImage
+        { mutableImageWidth = width
+        , mutableImageHeight = height
+        , mutableImageData = arr
+        }
+
+  let pixelPositions = [(x, y) | y <- [0 .. height-1], x <- [0..width-1]]
+  sequence_ [pixelGenerator x y >>= unsafeWritePixel arr idx
+                        | ((x,y), idx) <- zip pixelPositions [0, pixelComponentCount ..]]
+  unsafeFreezeImage mutImage
 
 -- | Create an image given a function to generate pixels.
 -- The function will receive value from 0 to width-1 for the x parameter
@@ -506,8 +659,6 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
           columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
           lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
           
-{-# INLINE pixelMap #-}
-{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
 --
@@ -519,15 +670,31 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
 --
 pixelMap :: forall a b. (Pixel a, Pixel b)
          => (a -> b) -> Image a -> Image b
-pixelMap f image@(Image { imageWidth = w, imageHeight = h }) =
+{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
   Image w h pixels
-    where pixels = runST $ do
-            newArr <- M.replicate (w * h * componentCount (undefined :: b)) 0
-            let wrapped = MutableImage w h newArr
-                promotedPixel :: Int -> Int -> b
-                promotedPixel x y = f $ pixelAt image x y
-            sequence_ [writePixel wrapped x y $ promotedPixel x y
-                                | y <- [0 .. h - 1], x <- [0 .. w - 1] ]
+    where sourceComponentCount = componentCount (undefined :: a)
+          destComponentCount = componentCount (undefined :: b)
+
+          pixels = runST $ do
+            newArr <- M.new (w * h * destComponentCount)
+            let lineMapper _ _ y | y >= h = return ()
+                lineMapper readIdxLine writeIdxLine y = colMapper readIdxLine writeIdxLine 0
+                  where colMapper readIdx writeIdx x
+                            | x >= w = lineMapper readIdx writeIdx $ y + 1
+                            | otherwise = do
+                                unsafeWritePixel newArr writeIdx . f $ unsafePixelAt vec readIdx
+                                colMapper (readIdx + sourceComponentCount)
+                                          (writeIdx + destComponentCount)
+                                          (x + 1)
+            lineMapper 0 0 0
+
             -- unsafeFreeze avoids making a second copy and it will be
             -- safe because newArray can't be referenced as a mutable array
             -- outside of this where block
@@ -542,6 +709,9 @@ class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- | Extract a luma plane out of an image. This
     -- method is in the typeclass to help performant
     -- implementation.
+    --
+    -- > jpegToGrayScale :: FilePath -> FilePath -> IO ()
+    -- > jpegToGrayScale source dest 
     extractLumaPlane :: Image a -> Image (PixelBaseComponent a)
     extractLumaPlane = pixelMap computeLuma
 
@@ -550,16 +720,15 @@ instance LumaPlaneExtractable Pixel8 where
     computeLuma = id
     extractLumaPlane = id
 
-instance LumaPlaneExtractable PixelF where
+instance LumaPlaneExtractable Pixel16 where
     {-# INLINE computeLuma #-}
     computeLuma = id
     extractLumaPlane = id
 
-instance LumaPlaneExtractable PixelRGB8 where
+instance LumaPlaneExtractable PixelF where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
-                                            0.59 * toRational g +
-                                            0.11 * toRational b
+    computeLuma = id
+    extractLumaPlane = id
 
 instance LumaPlaneExtractable PixelRGBF where
     {-# INLINE computeLuma #-}
@@ -571,11 +740,6 @@ instance LumaPlaneExtractable PixelRGBA8 where
     computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r +
                                              0.59 * toRational g +
                                              0.11 * toRational b
-
-instance LumaPlaneExtractable PixelYA8 where
-    {-# INLINE computeLuma #-}
-    computeLuma (PixelYA8 y _) = y
-    extractLumaPlane = extractComponent PlaneLuma
 
 instance LumaPlaneExtractable PixelYCbCr8 where
     {-# INLINE computeLuma #-}
@@ -611,24 +775,14 @@ instance Pixel Pixel8 where
     pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
 
     readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. mutablePixelBaseIndex image x y
+        arr `M.read` mutablePixelBaseIndex image x y
 
     writePixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .<-. mutablePixelBaseIndex image x y
+        arr `M.write` mutablePixelBaseIndex image x y
 
-instance Pixel PixelF where
-    type PixelBaseComponent PixelF = Float
-
-    {-# INLINE colorMap #-}
-    colorMap f = f
-    componentCount _ = 1
-    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
-
-    readPixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .!!!. mutablePixelBaseIndex image x y
-
-    writePixel image@(MutableImage { mutableImageData = arr }) x y =
-        arr .<-. mutablePixelBaseIndex image x y
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
 
 instance ColorConvertible Pixel8 PixelYA8 where
     {-# INLINE promotePixel #-}
@@ -638,6 +792,10 @@ instance ColorConvertible Pixel8 PixelF where
     {-# INLINE promotePixel #-}
     promotePixel c = fromIntegral c / 255.0
 
+instance ColorConvertible Pixel8 Pixel16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = fromIntegral c `unsafeShiftL` 8
+
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
@@ -645,6 +803,61 @@ instance ColorConvertible Pixel8 PixelRGB8 where
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGBA8 c c c 255
+
+--------------------------------------------------
+----            Pixel16 instances
+--------------------------------------------------
+instance Pixel Pixel16 where
+    type PixelBaseComponent Pixel16 = Word16
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
+
+instance ColorConvertible Pixel16 PixelYA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelYA16 c maxBound
+
+instance ColorConvertible Pixel16 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGB16 c c c
+
+instance ColorConvertible Pixel16 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGBA16 c c c maxBound
+
+--------------------------------------------------
+----            PixelF instances
+--------------------------------------------------
+instance Pixel PixelF where
+    type PixelBaseComponent PixelF = Float
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
 
 instance ColorConvertible PixelF PixelRGBF where
     {-# INLINE promotePixel #-}
@@ -674,6 +887,12 @@ instance Pixel PixelYA8 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
+    unsafePixelAt v idx = 
+        PixelYA8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
+    unsafeReadPixel vec idx =
+        PixelYA8 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
+    unsafeWritePixel v idx (PixelYA8 y a) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
 
 instance ColorConvertible PixelYA8 PixelRGB8 where
     {-# INLINE promotePixel #-}
@@ -683,6 +902,65 @@ instance ColorConvertible PixelYA8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
 
+instance ColorPlane PixelYA8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYA8 PlaneAlpha where
+    toComponentIndex _ _ = 1
+
+instance TransparentPixel PixelYA8 Pixel8 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelYA8 y _) = y
+
+instance LumaPlaneExtractable PixelYA8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelYA8 y _) = y
+    extractLumaPlane = extractComponent PlaneLuma
+
+--------------------------------------------------
+----            PixelYA16 instances
+--------------------------------------------------
+instance Pixel PixelYA16 where
+    type PixelBaseComponent PixelYA16 = Word16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelYA16 y a) = PixelYA16 (f y) (f a)
+    componentCount _ = 2
+    pixelAt image@(Image { imageData = arr }) x y = PixelYA16 (arr ! (baseIdx + 0))
+                                                              (arr ! (baseIdx + 1))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        yv <- arr .!!!. baseIdx
+        av <- arr .!!!. (baseIdx + 1)
+        return $ PixelYA16 yv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYA16 yv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) yv
+        (arr .<-. (baseIdx + 1)) av
+
+    unsafePixelAt v idx = 
+        PixelYA16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
+    unsafeReadPixel vec idx =
+        PixelYA16 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
+    unsafeWritePixel v idx (PixelYA16 y a) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
+
+instance ColorConvertible PixelYA16 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA16 y a) = PixelRGBA16 y y y a
+
+instance ColorPlane PixelYA16 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYA16 PlaneAlpha where
+    toComponentIndex _ _ = 1
+
+instance TransparentPixel PixelYA16 Pixel16 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelYA16 y _) = y
 --------------------------------------------------
 ----            PixelRGBF instances
 --------------------------------------------------
@@ -712,6 +990,86 @@ instance Pixel PixelRGBF where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
+    unsafePixelAt v idx = 
+        PixelRGBF (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGBF `liftM` M.unsafeRead vec idx
+                  `ap` M.unsafeRead vec (idx + 1)
+                  `ap` M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGBF r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
+instance ColorPlane PixelRGBF PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBF PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBF PlaneBlue where
+    toComponentIndex _ _ = 2
+
+--------------------------------------------------
+----            PixelRGB16 instances
+--------------------------------------------------
+instance Pixel PixelRGB16 where
+    type PixelBaseComponent PixelRGB16 = Pixel16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGB16 r g b) = PixelRGB16 (f r) (f g) (f b)
+
+    componentCount _ = 3
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelRGB16 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        return $ PixelRGB16 rv gv bv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGB16 rv gv bv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+
+    unsafePixelAt v idx = 
+        PixelRGB16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGB16 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGB16 r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
+instance ColorPlane PixelRGB16 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGB16 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGB16 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorSpaceConvertible PixelRGB16 PixelCMYK16 where
+    {-# INLINE convertPixel #-}
+    convertPixel (PixelRGB16 r g b) = integralRGBToCMYK PixelCMYK16 (r, g, b)
+
+instance ColorConvertible PixelRGB16 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB16 r g b) = PixelRGBA16 r g b maxBound
+
+instance LumaPlaneExtractable PixelRGB16 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGB16 r g b) = floor $ 0.3 * toRational r +
+                                             0.59 * toRational g +
+                                             0.11 * toRational b
 --------------------------------------------------
 ----            PixelRGB8 instances
 --------------------------------------------------
@@ -741,14 +1099,39 @@ instance Pixel PixelRGB8 where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
+    unsafePixelAt v idx = 
+        PixelRGB8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelRGB8 `liftM` M.unsafeRead vec idx
+                  `ap` M.unsafeRead vec (idx + 1)
+                  `ap` M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelRGB8 r g b) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+
 instance ColorConvertible PixelRGB8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
-    promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b 255
+    promotePixel (PixelRGB8 r g b) = PixelRGBA8 r g b maxBound
 
 instance ColorConvertible PixelRGB8 PixelRGBF where
     {-# INLINE promotePixel #-}
     promotePixel (PixelRGB8 r g b) = PixelRGBF (toF r) (toF g) (toF b)
-        where toF v = fromIntegral v / 255
+        where toF v = fromIntegral v / 255.0
+
+instance ColorPlane PixelRGB8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGB8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGB8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance LumaPlaneExtractable PixelRGB8 where
+    {-# INLINE computeLuma #-}
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
+                                            0.59 * toRational g +
+                                            0.11 * toRational b
 
 --------------------------------------------------
 ----            PixelRGBA8 instances
@@ -782,6 +1165,96 @@ instance Pixel PixelRGBA8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
+    unsafePixelAt v idx = 
+        PixelRGBA8 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelRGBA8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelRGBA8 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+instance ColorPlane PixelRGBA8 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBA8 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBA8 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA8 PlaneAlpha where
+    toComponentIndex _ _ = 3
+
+--------------------------------------------------
+----            PixelRGBA16 instances
+--------------------------------------------------
+instance Pixel PixelRGBA16 where
+    type PixelBaseComponent PixelRGBA16 = Pixel16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelRGBA16 r g b a) = PixelRGBA16 (f r) (f g) (f b) (f a)
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y =
+                PixelRGBA16 (arr ! (baseIdx + 0)) (arr ! (baseIdx + 1))
+                            (arr ! (baseIdx + 2)) (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelRGBA16 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelRGBA16 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+    unsafePixelAt v idx = 
+        PixelRGBA16 (V.unsafeIndex v idx)
+                    (V.unsafeIndex v $ idx + 1)
+                    (V.unsafeIndex v $ idx + 2)
+                    (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelRGBA16 `liftM` M.unsafeRead vec idx
+                    `ap` M.unsafeRead vec (idx + 1)
+                    `ap` M.unsafeRead vec (idx + 2)
+                    `ap` M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelRGBA16 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+
+instance TransparentPixel PixelRGBA16 PixelRGB16 where
+    {-# INLINE dropTransparency #-}
+    dropTransparency (PixelRGBA16 r g b _) = PixelRGB16 r g b
+
+instance ColorPlane PixelRGBA16 PlaneRed where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelRGBA16 PlaneGreen where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelRGBA16 PlaneBlue where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelRGBA16 PlaneAlpha where
+    toComponentIndex _ _ = 3
+
 --------------------------------------------------
 ----            PixelYCbCr8 instances
 --------------------------------------------------
@@ -809,41 +1282,303 @@ instance Pixel PixelYCbCr8 where
         (arr .<-. (baseIdx + 1)) cbv
         (arr .<-. (baseIdx + 2)) crv
 
+    unsafePixelAt v idx = 
+        PixelYCbCr8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
+    unsafeReadPixel vec idx =
+        PixelYCbCr8 `liftM` M.unsafeRead vec idx
+                    `ap` M.unsafeRead vec (idx + 1)
+                    `ap` M.unsafeRead vec (idx + 2)
+    unsafeWritePixel v idx (PixelYCbCr8 y cb cr) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) cb
+                              >> M.unsafeWrite v (idx + 2) cr
+
 instance (Pixel a) => ColorSpaceConvertible a a where
     convertPixel = id
     convertImage = id
 
+scaleBits, oneHalf :: Int
+scaleBits = 16
+oneHalf = 1 `unsafeShiftL` (scaleBits - 1)
+
+fix :: Float -> Int
+fix x = floor $ x * fromIntegral ((1 :: Int) `unsafeShiftL` scaleBits) + 0.5
+
+
+rYTab, gYTab, bYTab, rCbTab, gCbTab, bCbTab, gCrTab, bCrTab :: V.Vector Int
+rYTab = V.fromListN 256 [fix 0.29900 * i | i <- [0..255] ]
+gYTab = V.fromListN 256 [fix 0.58700 * i | i <- [0..255] ]
+bYTab = V.fromListN 256 [fix 0.11400 * i + oneHalf | i <- [0..255] ]
+rCbTab = V.fromListN 256 [(- fix 0.16874) * i | i <- [0..255] ]
+gCbTab = V.fromListN 256 [(- fix 0.33126) * i | i <- [0..255] ]
+bCbTab = V.fromListN 256 [fix 0.5 * i + (128 `unsafeShiftL` scaleBits) + oneHalf - 1| i <- [0..255] ]
+gCrTab = V.fromListN 256 [(- fix 0.41869) * i | i <- [0..255] ]
+bCrTab = V.fromListN 256 [(- fix 0.08131) * i | i <- [0..255] ]
+
+
 instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
     {-# INLINE convertPixel #-}
-    convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (truncate y)
-                                                 (truncate cb)
-                                                 (truncate cr)
-      where rf = fromIntegral r :: Float
-            gf = fromIntegral g
-            bf = fromIntegral b
+    convertPixel (PixelRGB8 r g b) = PixelYCbCr8 (fromIntegral y) (fromIntegral cb) (fromIntegral cr)
+      where ri = fromIntegral r
+            gi = fromIntegral g
+            bi = fromIntegral b
 
+            y  = (rYTab `V.unsafeIndex` ri + gYTab `V.unsafeIndex` gi + bYTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+            cb = (rCbTab `V.unsafeIndex` ri + gCbTab `V.unsafeIndex` gi + bCbTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
+            cr = (bCbTab `V.unsafeIndex` ri + gCrTab `V.unsafeIndex` gi + bCrTab `V.unsafeIndex` bi) `unsafeShiftR` scaleBits
 
-            y  =  0.29900 * rf + 0.58700 * gf + 0.11400 * bf
-            cb = -0.16874 * rf - 0.33126 * gf + 0.50000 * bf + 128
-            cr =  0.50000 * rf - 0.41869 * gf - 0.08131 * bf + 128
+    convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
+        where maxi = w * h
+
+              rY  = fix 0.29900
+              gY  = fix 0.58700
+              bY  = fix 0.11400
+              rCb = (- fix 0.16874)
+              gCb = (- fix 0.33126)
+              bCb = fix 0.5
+              gCr = (- fix 0.41869)
+              bCr = (- fix 0.08131)
+
+              newData = runST $ do
+                block <- M.new $ maxi * 3
+                let traductor _ idx | idx >= maxi = return block
+                    traductor readIdx idx = do
+                        let ri = fromIntegral $ d `V.unsafeIndex` readIdx
+                            gi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
+                            bi = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
+
+                            y  = (rY * ri + gY * gi + bY * bi + oneHalf) `unsafeShiftR` scaleBits
+                            cb = (rCb * ri + gCb * gi + bCb * bi + (128 `unsafeShiftL` scaleBits) + oneHalf - 1) `unsafeShiftR` scaleBits
+                            cr = (bCb * ri + (128 `unsafeShiftL` scaleBits) + oneHalf - 1+ gCr * gi + bCr * bi) `unsafeShiftR` scaleBits
+
+                        (block `M.unsafeWrite` (readIdx + 0)) $ fromIntegral y
+                        (block `M.unsafeWrite` (readIdx + 1)) $ fromIntegral cb
+                        (block `M.unsafeWrite` (readIdx + 2)) $ fromIntegral cr
+                        traductor (readIdx + 3) (idx + 1)
+
+                traductor 0 0 >>= V.freeze
+
+crRTab, cbBTab, crGTab, cbGTab :: V.Vector Int
+crRTab = V.fromListN 256 [(fix 1.40200 * x + oneHalf) `unsafeShiftR` scaleBits | x <- [-128 .. 127]]
+cbBTab = V.fromListN 256 [(fix 1.77200 * x + oneHalf) `unsafeShiftR` scaleBits | x <- [-128 .. 127]]
+crGTab = V.fromListN 256 [negate (fix 0.71414) * x | x <- [-128 .. 127]]
+cbGTab = V.fromListN 256 [negate (fix 0.34414) * x + oneHalf | x <- [-128 .. 127]]
 
 instance ColorSpaceConvertible PixelYCbCr8 PixelRGB8 where
     {-# INLINE convertPixel #-}
-    convertPixel (PixelYCbCr8 y_w8 cb_w8 cr_w8) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
-        where y :: Float
-              y  = fromIntegral y_w8 - 128.0
-              cb = fromIntegral cb_w8 - 128.0
-              cr = fromIntegral cr_w8 - 128.0
+    convertPixel (PixelYCbCr8 y cb cr) = PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
+        where clampWord8 = fromIntegral . max 0 . min 255
+              yi = fromIntegral y
+              cbi = fromIntegral cb
+              cri = fromIntegral cr
 
-              clampWord8 = truncate . max 0.0 . min 255.0 . (128 +)
+              r = yi +  crRTab `V.unsafeIndex` cri
+              g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `unsafeShiftR` scaleBits
+              b = yi +  cbBTab `V.unsafeIndex` cbi
 
-              cred = 0.299
-              cgreen = 0.587
-              cblue = 0.114
+    convertImage Image { imageWidth = w, imageHeight = h, imageData = d } = Image w h newData
+        where maxi = w * h
+              clampWord8 v | v < 0 = 0
+                           | v > 255 = 255
+                           | otherwise = fromIntegral v
 
-              r = cr * (2 - 2 * cred) + y
-              b = cb * (2 - 2 * cblue) + y
-              g = (y - cblue * b - cred * r) / cgreen
+              newData = runST $ do
+                block <- M.new $ maxi * 3
+                let traductor _ idx | idx >= maxi = return block
+                    traductor readIdx idx = do
+                        let yi =  fromIntegral $ d `V.unsafeIndex` readIdx
+                            cbi = fromIntegral $ d `V.unsafeIndex` (readIdx + 1)
+                            cri = fromIntegral $ d `V.unsafeIndex` (readIdx + 2)
+
+                            r = yi +  crRTab `V.unsafeIndex` cri
+                            g = yi + (cbGTab `V.unsafeIndex` cbi + crGTab `V.unsafeIndex` cri) `unsafeShiftR` scaleBits
+                            b = yi +  cbBTab `V.unsafeIndex` cbi
+
+                        (block `M.unsafeWrite` (readIdx + 0)) $ clampWord8 r
+                        (block `M.unsafeWrite` (readIdx + 1)) $ clampWord8 g
+                        (block `M.unsafeWrite` (readIdx + 2)) $ clampWord8 b
+                        traductor (readIdx + 3) (idx + 1)
+
+                traductor 0 0 >>= V.freeze
+
+instance ColorPlane PixelYCbCr8 PlaneLuma where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelYCbCr8 PlaneCb where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelYCbCr8 PlaneCr where
+    toComponentIndex _ _ = 2
+
+--------------------------------------------------
+----            PixelCMYK8 instances
+--------------------------------------------------
+instance Pixel PixelCMYK8 where
+    type PixelBaseComponent PixelCMYK8 = Word8
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelCMYK8 c m y k) = PixelCMYK8 (f c) (f m) (f y) (f k)
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelCMYK8 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+                                                               (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelCMYK8 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelCMYK8 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+    unsafePixelAt v idx = 
+        PixelCMYK8 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelCMYK8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelCMYK8 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
+  convertPixel (PixelCMYK8 c m y k) =
+      PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
+    where 
+          clampWord8 = fromIntegral . (`unsafeShiftR` 8)
+          ik :: Int
+          ik = 255 - fromIntegral k
+
+          r = (255 - fromIntegral c) * ik
+          g = (255 - fromIntegral m) * ik
+          b = (255 - fromIntegral y) * ik
+
+
+{-# SPECIALIZE integralRGBToCMYK :: (Word8 -> Word8 -> Word8 -> Word8 -> b)
+                                 -> (Word8, Word8, Word8) -> b #-}
+{-# SPECIALIZE integralRGBToCMYK :: (Word16 -> Word16 -> Word16 -> Word16 -> b)
+                                 -> (Word16, Word16, Word16) -> b #-}
+integralRGBToCMYK :: (Bounded a, Integral a)
+                  => (a -> a -> a -> a -> b)    -- ^ Pixel building function
+                  -> (a, a, a)                  -- ^ RGB sample
+                  -> b                          -- ^ Resulting sample
+integralRGBToCMYK build (r, g, b) =
+  build (clamp c) (clamp m) (clamp y) (fromIntegral kInt)
+    where maxi = maxBound
+
+          ir = fromIntegral $ maxi - r :: Int
+          ig = fromIntegral $ maxi - g
+          ib = fromIntegral $ maxi - b
+
+          kInt = minimum [ir, ig, ib]
+          ik = fromIntegral maxi - kInt
+
+          c = (ir - kInt) `div` ik
+          m = (ig - kInt) `div` ik
+          y = (ib - kInt) `div` ik
+
+          clamp = fromIntegral . (max 0)
+
+instance ColorSpaceConvertible PixelRGB8 PixelCMYK8 where
+  convertPixel (PixelRGB8 r g b) = integralRGBToCMYK PixelCMYK8 (r, g, b)
+
+instance ColorPlane PixelCMYK8 PlaneCyan where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelCMYK8 PlaneMagenta where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelCMYK8 PlaneYellow where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelCMYK8 PlaneBlack where
+    toComponentIndex _ _ = 3
+
+--------------------------------------------------
+----            PixelCMYK16 instances
+--------------------------------------------------
+instance Pixel PixelCMYK16 where
+    type PixelBaseComponent PixelCMYK16 = Word16
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelCMYK16 c m y k) = PixelCMYK16 (f c) (f m) (f y) (f k)
+
+    componentCount _ = 4
+
+    pixelAt image@(Image { imageData = arr }) x y = PixelCMYK16 (arr ! (baseIdx + 0))
+                                                               (arr ! (baseIdx + 1))
+                                                               (arr ! (baseIdx + 2))
+                                                               (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        rv <- arr .!!!. baseIdx
+        gv <- arr .!!!. (baseIdx + 1)
+        bv <- arr .!!!. (baseIdx + 2)
+        av <- arr .!!!. (baseIdx + 3)
+        return $ PixelCMYK16 rv gv bv av
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelCMYK16 rv gv bv av) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr .<-. (baseIdx + 0)) rv
+        (arr .<-. (baseIdx + 1)) gv
+        (arr .<-. (baseIdx + 2)) bv
+        (arr .<-. (baseIdx + 3)) av
+
+    unsafePixelAt v idx = 
+        PixelCMYK16 (V.unsafeIndex v idx)
+                   (V.unsafeIndex v $ idx + 1)
+                   (V.unsafeIndex v $ idx + 2)
+                   (V.unsafeIndex v $ idx + 3)
+    unsafeReadPixel vec idx =
+        PixelCMYK16 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
+    unsafeWritePixel v idx (PixelCMYK16 r g b a) =
+        M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
+                              >> M.unsafeWrite v (idx + 2) b
+                              >> M.unsafeWrite v (idx + 3) a
+
+instance ColorSpaceConvertible PixelCMYK16 PixelRGB16 where
+  convertPixel (PixelCMYK16 c m y k) =
+      PixelRGB16 (clampWord16 r) (clampWord16 g) (clampWord16 b)
+    where 
+          clampWord16 = fromIntegral . (`unsafeShiftR` 16)
+          ik :: Int
+          ik = 65535 - fromIntegral k
+
+          r = (65535 - fromIntegral c) * ik
+          g = (65535 - fromIntegral m) * ik
+          b = (65535 - fromIntegral y) * ik
+
+instance ColorPlane PixelCMYK16 PlaneCyan where
+    toComponentIndex _ _ = 0
+
+instance ColorPlane PixelCMYK16 PlaneMagenta where
+    toComponentIndex _ _ = 1
+
+instance ColorPlane PixelCMYK16 PlaneYellow where
+    toComponentIndex _ _ = 2
+
+instance ColorPlane PixelCMYK16 PlaneBlack where
+    toComponentIndex _ _ = 3
 
 -- | Perform a gamma correction for an image with HDR pixels.
 gammaCorrection :: PixelF          -- ^ Gamma value, should be between 0.5 and 3.0

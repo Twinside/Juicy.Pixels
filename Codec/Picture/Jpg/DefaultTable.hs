@@ -5,6 +5,7 @@
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , HuffmanTree( .. )
 									 , HuffmanTable
+									 , HuffmanPackedTree
 									 , MacroBlock
 									 , QuantificationTable
 									 , HuffmanWriterCode 
@@ -12,6 +13,7 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , makeMacroBlock
 									 , makeInverseTable
 									 , buildHuffmanTree
+									 , packHuffmanTree
 
 									 , defaultChromaQuantizationTable
 
@@ -30,13 +32,15 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , defaultDcLumaHuffmanTable
 									 ) where
 
+import Data.Int( Int16 )
 import Foreign.Storable ( Storable )
+import Control.Monad.ST( runST )
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
-import Data.Bits( shiftL, (.|.) )
-import Data.Int( Int16 )
+import Data.Bits( unsafeShiftL, (.|.) )
 import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
+import qualified Data.Vector.Storable.Mutable as M
 
 -- | Tree storing the code used for huffman encoding.
 data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the first subtree, if 1, the right.
@@ -44,7 +48,41 @@ data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the firs
                  | Empty            -- ^ no value present
                  deriving (Eq, Show)
 
+type HuffmanPackedTree = SV.Vector Word16
+
 type HuffmanWriterCode = V.Vector (Word8, Word16)
+
+packHuffmanTree :: HuffmanTree -> HuffmanPackedTree
+packHuffmanTree tree = runST $ do
+    table <- M.replicate 512 0x8000
+    let aux (Empty) idx = return $ idx + 1
+        aux (Leaf v) idx = do
+            (table `M.unsafeWrite` idx) $ (fromIntegral v .|. 0x4000)
+            return $ idx + 1
+
+        aux (Branch i1@(Leaf _) i2@(Leaf _)) idx =
+            aux i1 idx >>= aux i2
+
+        aux (Branch i1@(Leaf _) i2) idx = do
+            _ <- aux i1 idx
+            ix2 <- aux i2 $ idx + 2
+            (table `M.unsafeWrite` (idx + 1)) $ fromIntegral $ idx + 2
+            return ix2
+
+        aux (Branch i1 i2@(Leaf _)) idx = do
+            ix1 <- aux i1 (idx + 2)
+            _ <- aux i2 (idx + 1)
+            (table `M.unsafeWrite` idx) (fromIntegral ix1)
+            return ix1
+
+        aux (Branch i1 i2) idx = do
+            ix1 <- aux i1 (idx + 2)
+            ix2 <- aux i2 ix1
+            (table `M.unsafeWrite` idx) (fromIntegral $ idx + 2)
+            (table `M.unsafeWrite` (idx + 1)) (fromIntegral ix1)
+            return ix2
+    _ <- aux tree 0
+    SV.unsafeFreeze table
 
 makeInverseTable :: HuffmanTree -> HuffmanWriterCode
 makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
@@ -52,7 +90,7 @@ makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
         inner depth code (Leaf v) = [(fromIntegral v, (depth, code))]
         inner depth code (Branch l r) =
           inner (depth + 1) shifted l ++ inner (depth + 1) (shifted .|. 1) r
-            where shifted = code `shiftL` 1
+            where shifted = code `unsafeShiftL` 1
 
 -- | Represent a compact array of 8 * 8 values. The size
 -- is not guarenteed by type system, but if makeMacroBlock is
@@ -88,6 +126,10 @@ buildHuffmanTree table = foldl' insertHuffmanVal Empty
 
 scaleQuantisationMatrix :: Int -> QuantificationTable -> QuantificationTable 
 scaleQuantisationMatrix quality
+    | quality < 0 = scaleQuantisationMatrix 0
+        -- shouldn't show much difference than with 1,
+        -- but hey, at least we're complete
+    | quality == 0 = SV.map (scale (10000 :: Int))
     | quality < 50 = let qq = 5000 `div` quality
                      in SV.map (scale qq)
     | otherwise    = SV.map (scale q)

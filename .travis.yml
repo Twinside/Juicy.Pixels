@@ -1,0 +1,16 @@
+language: haskell
+
+script:
+  - cabal install --only-dependencies && cabal configure && cabal build
+
+before_install:
+  # Uncomment whenever hackage is down.
+  # - mkdir -p ~/.cabal && cp travis/config ~/.cabal/config && cabal update
+  - cabal update
+install:
+  - cabal install --force-reinstalls
+
+notifications:
+  email:
+      - twinside@gmail.com
+

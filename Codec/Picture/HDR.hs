@@ -2,12 +2,12 @@
 -- Radiance file format is used for High dynamic range imaging.
 module Codec.Picture.HDR( decodeHDR, encodeHDR, writeHDR ) where
 
-import Data.Bits( Bits, (.&.), (.|.), shiftL, shiftR )
+import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
 import Data.Monoid( (<>) )
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( when, foldM, foldM_, forM_ )
+import Control.Monad( when, foldM, foldM_, forM, forM_ )
 import Control.Monad.Trans.Class( lift )
 import Control.Monad.Trans.Error( ErrorT, throwError, runErrorT )
 import qualified Data.ByteString as B
@@ -17,30 +17,22 @@ import qualified Data.ByteString.Char8 as BC
 import Data.List( partition )
 import Data.Binary( Binary( .. ), encode )
 import Data.Binary.Get( Get, getByteString, getWord8 )
-import Data.Binary.Put( putByteString )
+import Data.Binary.Put( putByteString, putLazyByteString )
 
 import Control.Monad.ST( ST, runST )
 import Foreign.Storable ( Storable )
 import Control.Monad.Primitive ( PrimState, PrimMonad )
+import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.BitWriter
 import Codec.Picture.Types
-
-import Debug.Trace
-import Text.Printf( printf )
+import Codec.Picture.VectorByteConversion
 
 {-# INLINE (.<<.) #-}
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
-(.<<.) = shiftL
-(.>>.) = shiftR
-
-{-# INLINE (.!!!.) #-}
-(.!!!.) :: (PrimMonad m, Storable a)
-        => M.STVector (PrimState m) a -> Int -> m a
-(.!!!.) = M.read
-          {-M.unsafeRead-}
+(.<<.) = unsafeShiftL
+(.>>.) = unsafeShiftR
 
 {-# INLINE (.<-.) #-}
 (.<-.) :: (PrimMonad m, Storable a)
@@ -107,15 +99,15 @@ data RadianceHeader = RadianceHeader
   , radianceFormat :: RadianceFormat
   , radianceHeight :: !Int
   , radianceWidth  :: !Int
-  , radianceData   :: B.ByteString
+  , radianceData   :: L.ByteString
   }
 
 radianceFileSignature :: B.ByteString
 radianceFileSignature = BC.pack "#?RADIANCE\n"
 
-unpackColor :: B.ByteString -> Int -> RGBE
+unpackColor :: L.ByteString -> Int -> RGBE
 unpackColor str idx = RGBE (at 0) (at 1) (at 2) (at 3)
-  where at n = B.index str $ idx + n
+  where at n = L.index str . fromIntegral $ idx + n
 
 storeColor :: M.STVector s Word8 -> Int -> RGBE -> ST s ()
 storeColor vec idx (RGBE r g b e) = do
@@ -186,25 +178,25 @@ decodeNum = do
 
 copyPrevColor :: M.STVector s Word8 -> Int -> ST s ()
 copyPrevColor scanLine idx = do
-    r <- scanLine .!!!. (idx - 4)
-    g <- scanLine .!!!. (idx - 3)
-    b <- scanLine .!!!. (idx - 2)
-    e <- scanLine .!!!. (idx - 1)
+    r <- scanLine `M.unsafeRead` (idx - 4)
+    g <- scanLine `M.unsafeRead` (idx - 3)
+    b <- scanLine `M.unsafeRead` (idx - 2)
+    e <- scanLine `M.unsafeRead` (idx - 1)
 
-    (scanLine .<-. (idx + 0)) r
-    (scanLine .<-. (idx + 1)) g
-    (scanLine .<-. (idx + 2)) b
-    (scanLine .<-. (idx + 3)) e
+    (scanLine `M.unsafeWrite` (idx + 0)) r
+    (scanLine `M.unsafeWrite` (idx + 1)) g
+    (scanLine `M.unsafeWrite` (idx + 2)) b
+    (scanLine `M.unsafeWrite` (idx + 3)) e
 
-oldStyleRLE :: B.ByteString -> Int -> M.STVector s Word8
+oldStyleRLE :: L.ByteString -> Int -> M.STVector s Word8
             -> HDRReader s Int
-oldStyleRLE inputData initialIdx scanLine = trace "oldStyleRLE" $ inner initialIdx 0 0
+oldStyleRLE inputData initialIdx scanLine = inner initialIdx 0 0
   where maxOutput = M.length scanLine
-        maxInput = B.length inputData
+        maxInput = fromIntegral $ L.length inputData
 
         inner readIdx writeIdx _
             | readIdx >= maxInput || writeIdx >= maxOutput = pure readIdx
-        inner readIdx writeIdx shift = trace (printf "r:%d w:%d (mi:%d mo:%d)" readIdx writeIdx maxInput maxOutput) $ do
+        inner readIdx writeIdx shift = do
           let color@(RGBE r g b e) = unpackColor inputData readIdx
               isRun = r == 1 && g == 1 && b == 1
 
@@ -218,15 +210,15 @@ oldStyleRLE inputData initialIdx scanLine = trace "oldStyleRLE" $ inner initialI
               lift $ forM_ [0 .. count] $ \i -> copyPrevColor scanLine (writeIdx + 4 * i)
               inner (readIdx + 4) (writeIdx + 4 * count) (shift + 8)
 
-newStyleRLE :: B.ByteString -> Int -> M.STVector s Word8
+newStyleRLE :: L.ByteString -> Int -> M.STVector s Word8
             -> HDRReader s Int
 newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
   where dataAt idx
-            | idx >= maxInput = throwError $ "Read index out of bound (" ++ show idx ++ ")"
-            | otherwise = pure $ B.index inputData idx
+            | fromIntegral idx >= maxInput = throwError $ "Read index out of bound (" ++ show idx ++ ")"
+            | otherwise = pure $ L.index inputData (fromIntegral idx)
 
         maxOutput = M.length scanline
-        maxInput = B.length inputData
+        maxInput = fromIntegral $ L.length inputData
         stride = 4
 
 
@@ -276,7 +268,7 @@ instance Binary RadianceHeader where
               BC.pack $ "\n\n-Y " ++ show (radianceHeight hdr)
                         ++ " +X " ++ show (radianceWidth hdr) ++ "\n"
         putByteString sizeString
-        putByteString $ radianceData hdr
+        putLazyByteString $ radianceData hdr
 
 
 decodeHeader :: Get RadianceHeader
@@ -292,10 +284,11 @@ decodeHeader = do
       (info, [(_, formatString)]) ->
         case runGet get $ L.fromChunks [formatString] of
           Left err -> fail err
-          Right format ->
-              RadianceHeader info format <$> decodeNum
-                                         <*> decodeNum
-                                         <*> getRemainingBytes
+          Right format -> do
+              (n1, n2, b) <- (,,) <$> decodeNum
+                                  <*> decodeNum
+                                  <*> getRemainingBytes
+              return . RadianceHeader info format n1 n2 $ L.fromChunks [b]
 
       _ -> fail "Multiple radiance format specified"
 
@@ -306,59 +299,69 @@ toFloat (RGBE r g b e) = PixelRGBF rf gf bf
         gf = (fromIntegral g + 0.0) * f
         bf = (fromIntegral b + 0.0) * f
 
-encodeScanlineColor :: M.MVector s Word8 -> BoolWriter s ()
-encodeScanlineColor vec = do
-    val <- lift $ vec .!!!. 0
-    runLength 1 0 val 1
+encodeScanlineColor :: M.STVector s Word8
+                    -> M.STVector s Word8
+                    -> Int
+                    -> ST s Int
+encodeScanlineColor vec outVec outIdx = do
+    val <- vec `M.unsafeRead` 0
+    runLength 1 0 val 1 outIdx
   where maxIndex = M.length vec
 
-        pushRun len val = do
-            pushByte . fromIntegral $ len .|. 0x80
-            pushByte val
+        pushRun len val at = do
+            (outVec `M.unsafeWrite` at) $ fromIntegral $ len .|. 0x80
+            (outVec `M.unsafeWrite` (at + 1)) val
+            return $ at + 2
 
-        pushData start len = do
-            pushByte $ fromIntegral len
-            forM_ [start - len .. start - 1] $ \i ->
-                lift (vec .!!!. i) >>= pushByte
+        pushData start len at = do
+            (outVec `M.unsafeWrite` at) $ fromIntegral len
+            let first = start - len
+                end = start - 1
+                offset = at - first + 1
+            forM_ [first .. end] $ \i -> do
+                v <- vec `M.unsafeRead` i
+                (outVec `M.unsafeWrite` (offset + i)) v
+
+            return $ at + len + 1
 
         -- End of scanline, empty the thing
-        runLength run cpy prev idx | idx >= maxIndex =
+        runLength run cpy prev idx at | idx >= maxIndex =
             case (run, cpy) of
-                (0, 0) -> pure ()
-                (0, n) -> pushData idx n
-                (n, 0) -> pushRun n prev
+                (0, 0) -> pure at
+                (0, n) -> pushData idx n at
+                (n, 0) -> pushRun n prev at
                 (_, _) -> error "HDR - Run length algorithm is wrong"
 
         -- full runlength, we must write the packet
-        runLength r@127   _ prev idx = do
-            pushRun r prev
-            val <- lift $ vec .!!!. idx
-            runLength 1 0 val $ idx + 1
+        runLength r@127   _ prev idx at = do
+            val <- vec `M.unsafeRead` idx
+            pushRun r prev at >>=
+                runLength 1 0 val (idx + 1)
 
         -- full copy, we must write the packet
-        runLength   _ c@127    _ idx = do
-            pushData idx c
-            val <- lift $ vec .!!!. idx
-            runLength 1 0 val $ idx + 1
+        runLength   _ c@127    _ idx at = do
+            val <- vec `M.unsafeRead` idx
+            pushData idx c at >>=
+                runLength 1 0 val (idx + 1)
 
-        runLength n 0 prev idx = do
-            val <- lift $ vec .!!!. idx
+        runLength n 0 prev idx at = do
+            val <- vec `M.unsafeRead` idx
             case val == prev of
-               True -> runLength (n + 1) 0 prev $ idx + 1
-               False | n < 4 -> runLength 0 (n + 1) val $ idx + 1
+               True -> runLength (n + 1) 0 prev (idx + 1) at
+               False | n < 4 -> runLength 0 (n + 1) val (idx + 1) at
                False -> do
-                    pushRun n prev
-                    runLength 1 0 val $ idx + 1
+                    pushRun n prev at >>=
+                        runLength 1 0 val (idx + 1)
 
-        runLength 0 n prev idx = do
-            val <- lift $ vec .!!!. idx
+        runLength 0 n prev idx at = do
+            val <- vec `M.unsafeRead` idx
             if val /= prev
-               then runLength 0 (n + 1) val $ idx + 1
+               then runLength 0 (n + 1) val (idx + 1) at
                else do
-                pushData (idx - 1) $ n - 1
-                runLength (2 :: Int) 0 val $ idx + 1
+                pushData (idx - 1) (n - 1) at >>=
+                    runLength (2 :: Int) 0 val (idx + 1)
 
-        runLength _ _ _ _ =
+        runLength _ _ _ _ _ =
             error "HDR RLE inconsistent state"
 
 -- | Write an High dynamic range image into a radiance
@@ -373,34 +376,44 @@ encodeHDR pic = encode $ runST $ do
     let w = imageWidth pic
         h = imageHeight pic
 
-    scanLineR <- M.new w
+    scanLineR <- M.new w :: ST s (M.STVector s Word8)
     scanLineG <- M.new w
     scanLineB <- M.new w
     scanLineE <- M.new w
 
-    encoded <- runBoolWriter $ do
-        forM_ [0 .. h - 1] $ \line -> do
-            forM_ [0 .. w - 1] $ \i -> do
-                let RGBE r g b e = toRGBE $ pixelAt pic i line
-                lift $ (scanLineR .<-. i) r
-                lift $ (scanLineG .<-. i) g
-                lift $ (scanLineB .<-. i) b
-                lift $ (scanLineE .<-. i) e
+    encoded <-
+        forM [0 .. h - 1] $ \line -> do
+            buff <- M.new $ w * 4 + w `div` 127 + 2
+            let columner col | col >= w = return ()
+                columner col = do
+                      let RGBE r g b e = toRGBE $ pixelAt pic col line
+                      (scanLineR `M.unsafeWrite` col) r
+                      (scanLineG `M.unsafeWrite` col) g
+                      (scanLineB `M.unsafeWrite` col) b
+                      (scanLineE `M.unsafeWrite` col) e
 
-            mapM_ pushByte [2, 2
-                           , fromIntegral ((w .>>. 8) .&. 0xFF)
-                           , fromIntegral (w .&. 0xFF)]
-            encodeScanlineColor scanLineR
-            encodeScanlineColor scanLineG
-            encodeScanlineColor scanLineB
-            encodeScanlineColor scanLineE
+                      columner (col + 1)
+
+            columner 0
+
+            (buff `M.unsafeWrite` 0) 2
+            (buff `M.unsafeWrite` 1) 2
+            (buff `M.unsafeWrite` 2) $ fromIntegral ((w .>>. 8) .&. 0xFF)
+            (buff `M.unsafeWrite` 3) $ fromIntegral (w .&. 0xFF)
+
+            i1 <- encodeScanlineColor scanLineR buff 4        
+            i2 <- encodeScanlineColor scanLineG buff i1
+            i3 <- encodeScanlineColor scanLineB buff i2
+            endIndex <- encodeScanlineColor scanLineE buff i3
+
+            (\v -> blitVector v 0 endIndex) <$> V.unsafeFreeze buff
 
     pure $ RadianceHeader
         { radianceInfos = []
         , radianceFormat = FormatRGBE
         , radianceHeight = h
         , radianceWidth  = w
-        , radianceData = encoded 
+        , radianceData = L.fromChunks encoded 
         }
     
 

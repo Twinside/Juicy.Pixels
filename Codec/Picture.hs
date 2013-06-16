@@ -17,6 +17,7 @@ module Codec.Picture (
                      , pixelMap
                      , generateImage
                      , generateFoldImage
+                     , withImage
 
                      -- * Generic image writing
                      , saveBmpImage
@@ -54,6 +55,9 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** Tiff handling
+                     , decodeTiff
+
                      -- ** HDR (Radiance/RGBE) handling
                      , readHDR
                      , decodeHDR
@@ -68,10 +72,19 @@ module Codec.Picture (
                      , Pixel( .. )
                      -- $graph
                      , Pixel8
+                     , Pixel16
+                     , PixelF
+
                      , PixelYA8( .. )
+                     , PixelYA16( .. )
                      , PixelRGB8( .. )
+                     , PixelRGB16( .. )
+                     , PixelRGBF( .. )
                      , PixelRGBA8( .. )
+                     , PixelRGBA16( .. )
                      , PixelYCbCr8( .. )
+                     , PixelCMYK8( .. )
+                     , PixelCMYK16( .. )
                      ) where
 
 import Control.Applicative( (<$>) )
@@ -88,10 +101,11 @@ import Codec.Picture.HDR( decodeHDR
                         , encodeHDR
                         , writeHDR
                         )
+import Codec.Picture.Tiff( decodeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
-import System.IO ( withFile, IOMode(ReadMode) )
-
+-- import System.IO ( withFile, IOMode(ReadMode) )
+import System.IO.MMap ( mmapFileByteString )
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -111,8 +125,7 @@ withImageDecoder :: (NFData a)
                  -> IO (Either String a)
 withImageDecoder decoder path = Exc.catch doit
                     (\e -> return . Left $ show (e :: Exc.IOException))
-    where doit = withFile path ReadMode $ \h ->
-                    force . decoder <$> B.hGetContents h
+    where doit = force . decoder <$> mmapFileByteString path Nothing
           -- force appeared in deepseq 1.3, Haskell Platform
           -- provide 1.1
           force x = x `deepseq` x
@@ -132,6 +145,7 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("Bitmap", decodeBitmap)
                                  ,("GIF", decodeGif)
                                  ,("HDR", decodeHDR)
+                                 ,("Tiff", decodeTiff)
                                  ]
     
 -- | Helper function trying to load a png file from a file on disk.
@@ -178,7 +192,7 @@ saveRadianceImage path = L.writeFile path . imageToRadiance
 -- >    eitherImg <- decodeImage pathIn
 -- >    case eitherImg of
 -- >        Left _ -> return ()
--- >        Right img -> savePngImage img
+-- >        Right img -> savePngImage pathOut img
 --
 savePngImage :: String -> DynamicImage -> IO ()
 savePngImage path img = L.writeFile path $ imageToPng img

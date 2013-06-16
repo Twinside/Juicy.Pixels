@@ -12,10 +12,8 @@ module Codec.Picture.Bitmap( -- * Functions
                              -- * Accepted formt in output
                            , BmpEncodable( )
                            ) where
-import Foreign.Storable ( Storable )
 import Control.Monad( when, forM_ )
-import Control.Monad.ST ( runST )
-import Control.Monad.Primitive ( PrimMonad, PrimState )
+import Control.Monad.ST ( ST, runST )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Binary( Binary( .. ) )
@@ -36,8 +34,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.BitWriter
 import Codec.Picture.Types
+import Codec.Picture.VectorByteConversion
 
 data BmpHeader = BmpHeader
     { magicIdentifier :: !Word16
@@ -146,77 +144,93 @@ class BmpEncodable pixel where
     defaultPalette :: pixel -> BmpPalette
     defaultPalette _ = BmpPalette []
 
-{-# INLINE (!!!) #-}
-(!!!) :: (Storable e) => V.Vector e -> Int -> e
-(!!!) = V.unsafeIndex
-
+stridePut :: M.STVector s Word8 -> Int -> Int -> ST s ()
 {-# INLINE stridePut #-}
-stridePut :: Int -> BoolWriter s ()
-stridePut 0 = return ()
-stridePut 1 = pushByte 0
-stridePut n = pushByte 0 >> stridePut (n - 1)
+stridePut vec = inner
+ where inner  _ 0 = return ()
+       inner ix n = do
+           (vec `M.unsafeWrite` ix) 0
+           inner (ix + 1) (n - 1)
 
 instance BmpEncodable Pixel8 where
     defaultPalette _ = BmpPalette [(x,x,x, 255) | x <- [0 .. 255]]
     bitsPerPixel _ = 8
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
-      putByteString $ runST $ runBoolWriter . putLine $ h - 1
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
+      forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ encodeLine l
         where stride = fromIntegral $ linePadding 8 w
+              putVector vec = putByteString $ blitVector vec 0 lineWidth
+              lineWidth = w + stride
 
-              putLine line | line < 0 = return ()
-              putLine line = do
+              encodeLine line = do
+                  buff <- M.new lineWidth
+
                   let lineIdx = line * w
                       inner col | col >= w = return ()
-                                | otherwise = pushByte (arr !!! (lineIdx + col)) >> inner (col + 1)
+                      inner col = do
+                          let v = (arr `V.unsafeIndex` (lineIdx + col))
+                          (buff `M.unsafeWrite` col) v
+                          inner (col + 1)
+
                   inner 0
-                  stridePut stride
-                  putLine (line - 1)
+
+                  stridePut buff w stride
+                  V.unsafeFreeze buff
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
     bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
-        putByteString $ runST $ runBoolWriter . putLine $ h - 1
-      where putLine line | line < 0 = return ()
+      forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
+      where putVector vec = putByteString . blitVector vec 0 $ w * 4
             putLine line = do
+                buff <- M.new $ 4 * w
                 let initialIndex = line * w * 4
-                    inner col _ | col >= w = return ()
-                    inner col readIdx = do
-                        pushByte (arr !!! (readIdx + 2))
-                        pushByte (arr !!! (readIdx + 1))
-                        pushByte (arr !!! readIdx)
-                        pushByte (arr !!! (readIdx + 3))
-                        inner (col + 1) (readIdx + 4)
-                inner 0 initialIndex
-                putLine (line - 1)
+                    inner col _ _ | col >= w = return ()
+                    inner col writeIdx readIdx = do
+                        let r = arr `V.unsafeIndex` readIdx
+                            g = arr `V.unsafeIndex` (readIdx + 1)
+                            b = arr `V.unsafeIndex` (readIdx + 2)
+                            a = arr `V.unsafeIndex` (readIdx + 3)
+
+                        (buff `M.unsafeWrite` writeIdx) b
+                        (buff `M.unsafeWrite` (writeIdx + 1)) g
+                        (buff `M.unsafeWrite` (writeIdx + 2)) r
+                        (buff `M.unsafeWrite` (writeIdx + 3)) a
+
+                        inner (col + 1) (writeIdx + 4) (readIdx + 4)
+
+                inner 0 0 initialIndex
+                V.unsafeFreeze buff
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
     bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
-       putByteString $ runST $ runBoolWriter . putLine $ h - 1
+       forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
         where stride = fromIntegral . linePadding 24 $ w
-              putLine line | line < 0 = return ()
+              putVector vec = putByteString $ blitVector vec 0 (w * 3 + stride)
               putLine line = do
+                  buff <- M.new $ w * 3 + stride
                   let initialIndex = line * w * 3
-                      inner col _ | col >= w = return ()
-                      inner col readIdx = do
-                          pushByte (arr !!! (readIdx + 2))
-                          pushByte (arr !!! (readIdx + 1))
-                          pushByte (arr !!! readIdx)
-                          inner (col + 1) (readIdx + 3)
-                  inner 0 initialIndex
-                  stridePut stride
-                  putLine (line - 1)
+                      inner col _ _ | col >= w = return ()
+                      inner col writeIdx readIdx = do
+                          let r = (arr `V.unsafeIndex` readIdx)
+                              g = (arr `V.unsafeIndex` (readIdx + 1))
+                              b = (arr `V.unsafeIndex` (readIdx + 2))
+                          
+                          (buff `M.unsafeWrite` writeIdx) b
+                          (buff `M.unsafeWrite` (writeIdx + 1)) g
+                          (buff `M.unsafeWrite` (writeIdx + 2)) r
 
-{-# INLINE (.<-.) #-}
-(.<-.) :: (PrimMonad m, Storable a) => M.STVector (PrimState m) a -> Int -> a -> m ()
-(.<-.) = M.unsafeWrite
+                          inner (col + 1) (writeIdx + 3) (readIdx + 3)
+
+                  inner 0 0 initialIndex
+                  V.unsafeFreeze buff
 
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
   where wi = fromIntegral w
         hi = fromIntegral h
         stArray = runST $ do
-            arr <- M.replicate (fromIntegral $ w * h * 3) 128
+            arr <- M.new (fromIntegral $ w * h * 3)
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
             V.unsafeFreeze arr
 
@@ -228,9 +242,9 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
 
                 inner _ writeIdx | writeIdx >= lastIndex = return ()
                 inner readIdx writeIdx = do
-                    (arr .<-.  writeIdx     ) (str `B.index` (readIdx + 2))
-                    (arr .<-. (writeIdx + 1)) (str `B.index` (readIdx + 1))
-                    (arr .<-. (writeIdx + 2)) (str `B.index`  readIdx)
+                    (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
+                    (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
+                    (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
                     inner (readIdx + 3) (writeIdx + 3)
 
             in inner readIndex writeIndex

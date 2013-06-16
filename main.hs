@@ -4,18 +4,24 @@
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
+import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
+import Data.Monoid
 import Data.Word( Word8 )
 import Control.Monad( forM_ )
-import System.Environment
 import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
 import qualified Data.Vector.Storable as V
+
+import Control.Applicative( (<$>) )
+import qualified Criterion.Config as C
+import Criterion.Main
+import Control.DeepSeq
 
 validTests :: [FilePath]
 validTests = 
@@ -83,6 +89,38 @@ jpegValidTests = [ "explore_jpeg.jpg"
 bmpValidTests :: [FilePath]
 bmpValidTests = ["simple_bitmap_24bits.bmp"]
 
+-- "caspian.tif"
+tiffValidTests :: [FilePath]
+tiffValidTests =
+    ["depth/flower-rgb-planar-02.tif"
+    ,"depth/flower-rgb-planar-04.tif"
+    ,"depth/flower-rgb-planar-08.tif"
+    ,"depth/flower-rgb-planar-16.tif"
+    ,"depth/flower-rgb-contig-02.tif"
+    ,"depth/flower-rgb-contig-04.tif"
+    ,"depth/flower-rgb-contig-08.tif"
+    ,"depth/flower-rgb-contig-16.tif"
+    ,"depth/flower-palette-02.tif"
+    ,"depth/flower-palette-04.tif"
+    ,"depth/flower-palette-08.tif"
+    ,"depth/flower-minisblack-02.tif"
+    ,"depth/flower-minisblack-08.tif"
+    ,"depth/flower-minisblack-04.tif"
+    ,"depth/flower-minisblack-16.tif"
+    ,"depth/flower-separated-contig-08.tif"
+    ,"depth/flower-separated-contig-16.tif"
+    ,"depth/flower-separated-planar-08.tif"
+    ,"depth/flower-separated-planar-16.tif"
+    ,"depth/flower-minisblack-12.tif"
+    ,"quad-lzw.tif"
+    ,"pc260001.tif"
+    ,"cramps.tif"
+    ,"strike.tif"
+    {-,"ycbcr-cat.tif"-}
+    {-,"zackthecat.tif"-}
+    {-"smallliz.tif"-}
+    ]
+
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
 
@@ -124,6 +162,19 @@ imgToImg path = do
 
         Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageCMYK16 img) -> do
+            let rgbimg :: Image PixelRGB16
+                rgbimg = convertImage img
+                png = encodePng rgbimg
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromCMYK16.png") png
+
+        Right (ImageCMYK8 img) -> do
+            let rgbimg :: Image PixelRGB8
+                rgbimg = convertImage img
+                png = encodePng rgbimg
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromCMYK8.png") png
 
         Right (ImageRGB8 img) -> do
             let jpg = validationJpegEncode (convertImage img)
@@ -136,6 +187,30 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGB8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
+
+        Right (ImageY16 img) -> do
+            let pngFile = imageToPng $ ImageY16 img
+            putStrLn $ "Y16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromY16.png") pngFile
+
+        Right (ImageYA16 img) -> do
+            let pngFile = imageToPng $ ImageYA16 img
+            putStrLn $ "YA16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromYA16.png") pngFile
+
+        Right (ImageRGB16 img) -> do
+            let pngFile = imageToPng $ ImageRGB16 img
+            putStrLn $ "RGB16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromRGB16.png") pngFile
+
+        Right (ImageRGBA16 img) -> do
+            let pngFile = imageToPng $ ImageRGBA16 img
+            putStrLn $ "RGBA16 : " ++ path
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "._fromRGBA16.png") pngFile
 
         Right (ImageRGBA8 img) -> do
             let bmp = encodeBitmap img
@@ -175,7 +250,7 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYA8.png") png
 
         Left err ->
-            putStrLn $ "Error loading " ++ path ++ " " ++ show err
+            putStrLn $ "Error loading " ++ path ++ " " ++ err
 
 toStandardDef :: Image PixelRGBF -> Image PixelRGB8
 toStandardDef img = pixelMap pixelConverter img
@@ -237,38 +312,117 @@ planeSeparationYA8Test = do
     L.writeFile ("tests" </> "ya8_combined.png") $ encodePng img
 
 gifTest :: [FilePath]
-gifTest = ["delta.gif"
-          ,"delta2.gif"
+gifTest = ["Gif_pixel_cube.gif"
           ,"animated.gif"
-          ,"Gif_pixel_cube.gif"
-          ,"magceit.gif"
-          ,"huge.gif"
-          ,"2k.gif"
           ,"interleaved.gif"
+          ,"delta.gif"
+          ,"delta2.gif"
+          ,"magceit.gif"
+          ,"2k.gif"
+          ,"huge.gif"
           ]
 
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
-main :: IO ()
-main = do 
+testSuite :: IO ()
+testSuite = do
     putStrLn ">>>> Valid instances"
     {-toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16-}
     {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
     {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
                                         {-128 128-}
-
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
-
     planeSeparationRGB8Test 
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
-    {-putStrLn "\n>>>> invalid instances"-}
-    {-mapM_ (convertPngToBmpBad . (("tests" </> "pngsuite") </>)) invalidTests-}
-    return ()
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
 
+jpegToPng :: IO ()
+jpegToPng = do
+ img <- readImage "tests/jpeg/huge.jpg"
+ case img of
+   Left err -> do
+       putStrLn err
+       {-error "Can't decompress img"-}
+   Right i -> savePngImage "huge.png" i
+
+pngToJpeg :: IO ()
+pngToJpeg = do
+  img <- readImage "tests/pngsuite/huge.png"
+  case img of
+    Left err -> do
+        putStrLn err
+        {-error "Can't decompress img"-}
+    Right i -> saveJpgImage 95 "huge.jpg" i
+
+pngToBmp :: IO ()
+pngToBmp = do
+  img <- readImage "tests/pngsuite/huge.png"
+  case img of
+    Right (ImageRGB8 i) -> writeBitmap "huge.bmp" i
+    Left err -> do
+        putStrLn err
+        {-error "Can't decompress img"-}
+    _ -> return ()
+
+gifToPng :: IO ()
+gifToPng = do
+  img <- readImage "tests/gif/2k.gif"
+  case img of
+    Right (ImageRGB8 i) -> writeBitmap "huge.png" i
+    Left err -> do
+        putStrLn err
+        {-error "Can't decompress img"-}
+    _ -> return ()
+
+benchMark :: IO ()
+benchMark = do
+    putStrLn "Benchmarking"
+
+    hugeJpeg <- B.readFile "tests/jpeg/huge.jpg"
+    hugePng <- B.readFile "tests/pngsuite/huge.png"
+    hugeGif <- B.readFile "tests/gif/huge.gif"
+
+    let Right decodedImage = decodeImage hugePng
+
+    jpegToPng >> pngToJpeg
+
+    let myConfig = C.defaultConfig { C.cfgSamples = C.ljust 12 }
+    defaultMainWith myConfig (return ()) [
+        bgroup "trad"
+            [ bench "JPG -> PNG" $ whnfIO jpegToPng
+            , bench "PNG -> JPG" $ whnfIO pngToJpeg
+            , bench "GIF -> PNG" $ whnfIO gifToPng
+            , bench "PNG -> BMP" $ whnfIO pngToBmp
+            ],
+
+        bgroup "reading"
+            [ bench "Huge jpeg" $ nf decodeImage hugeJpeg
+            , bench "Huge png" $ nf decodeImage hugePng
+            , bench "Huge gif" $ nf decodeImage hugeGif
+            ],
+
+        bgroup "writing"
+            [ bench "Huge jpeg" $ whnfIO $ saveJpgImage 50 "s.jpg" decodedImage
+            , bench "Huge png" $ whnfIO $ savePngImage "p.png" decodedImage
+            ]
+        ]
+    putStrLn "END"
+
+main :: IO ()
+main = do
+    args <- getArgs
+    case args of
+        ("test":_) -> testSuite
+        ("jpegtopng":_) -> jpegToPng
+        ("pngtojpeg":_) -> pngToJpeg
+        ("pngtobmp":_) -> pngToBmp
+        _ -> do
+            putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
+            benchMark
