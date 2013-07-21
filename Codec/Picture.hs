@@ -189,7 +189,7 @@ saveRadianceImage path = L.writeFile path . imageToRadiance
 --
 -- > transcodeToPng :: FilePath -> FilePath -> IO ()
 -- > transcodeToPng pathIn pathOut = do
--- >    eitherImg <- decodeImage pathIn
+-- >    eitherImg <- readImage pathIn
 -- >    case eitherImg of
 -- >        Left _ -> return ()
 -- >        Right img -> savePngImage pathOut img
