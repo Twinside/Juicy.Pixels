@@ -23,7 +23,7 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
-import Codec.Picture.VectorByteConversion
+import Codec.Picture.VectorByteConversion( blitVector )
 
 -- | Encode an image into a png if possible.
 class PngSavable a where

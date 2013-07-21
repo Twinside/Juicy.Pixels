@@ -180,6 +180,7 @@ imgToImg path = do
             let jpg = validationJpegEncode (convertImage img)
                 png = encodePng img
                 bmp = encodeBitmap img
+                tiff = encodeTiff img
             putStrLn $ "RGB8 : " ++ path
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromRGB8.bmp") bmp
@@ -187,6 +188,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGB8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromRGB8.tiff") tiff
 
         Right (ImageY16 img) -> do
             let pngFile = imageToPng $ ImageY16 img
@@ -420,6 +423,13 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
+        ("debug":_) -> do
+
+            rez <- B.readFile "tests/tiff/quad-lzw.tif._fromRGB8.tiff"
+            case decodeTiff rez of
+                Left err -> putStrLn $ show err
+                Right i -> L.writeFile "debug.png" $ imageToPng i
+
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
