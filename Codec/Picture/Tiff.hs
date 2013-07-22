@@ -24,7 +24,7 @@
 --
 --   * 16 bits
 --
-module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff ) where
+module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM, foldM_ )
@@ -1172,7 +1172,7 @@ decodeTiff file = runGetStrict (getP file) file >>= unpack file
 
 -- | Class defining which pixel types can be serialized in a
 -- Tiff file.
-class TiffSaveable px where
+class (Pixel px) => TiffSaveable px where
   colorSpaceOfPixel :: px -> TiffColorspace
 
   subSamplingInfo   :: px -> V.Vector Word32
@@ -1206,7 +1206,9 @@ instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 
-encodeTiff :: forall px. (TiffSaveable px, Pixel px) => Image px -> Lb.ByteString
+-- | Transform an image into a Tiff encoded bytestring, reade to be
+-- written as a file.
+encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
 encodeTiff img = runPut $ putP rawPixelData hdr
   where intSampleCount = componentCount (undefined :: px)
         sampleCount = fromIntegral intSampleCount 
@@ -1242,4 +1244,8 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
             }
+
+-- | Helper function to directly write an image as a tiff on disk.
+writeTiff :: (TiffSaveable pixel) => FilePath -> Image pixel -> IO ()
+writeTiff path img = Lb.writeFile path $ encodeTiff img
 

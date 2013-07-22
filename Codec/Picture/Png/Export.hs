@@ -28,7 +28,7 @@ import Codec.Picture.VectorByteConversion( blitVector )
 -- | Encode an image into a png if possible.
 class PngSavable a where
     -- | Transform an image into a png encoded bytestring, ready
-    -- to be writte as a file.
+    -- to be written as a file.
     encodePng :: Image a -> Lb.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr

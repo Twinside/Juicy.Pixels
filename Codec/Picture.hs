@@ -23,6 +23,7 @@ module Codec.Picture (
                      , saveBmpImage
                      , saveJpgImage
                      , savePngImage
+                     , saveTiffImage
                      , saveRadianceImage
 
                      -- * Specific image format functions
@@ -56,7 +57,11 @@ module Codec.Picture (
                      , writeDynamicPng
 
                      -- ** Tiff handling
+                     , readTiff
+                     , TiffSaveable
                      , decodeTiff
+                     , encodeTiff
+                     , writeTiff
 
                      -- ** HDR (Radiance/RGBE) handling
                      , readHDR
@@ -101,7 +106,10 @@ import Codec.Picture.HDR( decodeHDR
                         , encodeHDR
                         , writeHDR
                         )
-import Codec.Picture.Tiff( decodeTiff )
+import Codec.Picture.Tiff( decodeTiff
+                         , TiffSaveable
+                         , encodeTiff
+                         , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 -- import System.IO ( withFile, IOMode(ReadMode) )
@@ -156,6 +164,10 @@ readPng = withImageDecoder decodePng
 readGif :: FilePath -> IO (Either String DynamicImage)
 readGif = withImageDecoder decodeGif
 
+-- | Helper function trying to load tiff file from a file on disk.
+readTiff :: FilePath -> IO (Either String DynamicImage)
+readTiff = withImageDecoder decodeTiff
+
 -- | Helper function trying to load all the images of an animated
 -- gif file.
 readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
@@ -177,11 +189,15 @@ readHDR :: FilePath -> IO (Either String DynamicImage)
 readHDR = withImageDecoder decodeHDR
 
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
-saveJpgImage :: Int -> String -> DynamicImage -> IO ()
+saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()
 saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
 
+-- | Save an image to a '.tiff' file, will do everything it can to save an image.
+saveTiffImage :: FilePath -> DynamicImage -> IO ()
+saveTiffImage path img = L.writeFile path $ imageToTiff img
+
 -- | Save an image to a '.hdr' file, will do everything it can to save an image.
-saveRadianceImage :: String -> DynamicImage -> IO ()
+saveRadianceImage :: FilePath -> DynamicImage -> IO ()
 saveRadianceImage path = L.writeFile path . imageToRadiance
 
 -- | Save an image to a '.png' file, will do everything it can to save an image.
