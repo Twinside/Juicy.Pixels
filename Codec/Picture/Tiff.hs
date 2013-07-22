@@ -58,10 +58,6 @@ import qualified Data.ByteString.Unsafe as BU
 
 import Foreign.Storable( sizeOf )
 
-import Debug.Trace
-import Text.Printf
-import Text.Groom
-
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
@@ -129,7 +125,6 @@ instance Binary TiffHeader where
 data TiffPlanarConfiguration =
       PlanarConfigContig    -- = 1
     | PlanarConfigSeparate  -- = 2
-    deriving (Eq, Show)
 
 planarConfgOfConstant :: Word32 -> Get TiffPlanarConfiguration
 planarConfgOfConstant 0 = pure PlanarConfigContig
@@ -147,7 +142,6 @@ data TiffCompression =
     | CompressionLZW            -- 5
     | CompressionJPEG           -- 6
     | CompressionPackBit        -- 32273
-    deriving (Eq, Show)
 
 data IfdType = TypeByte
              | TypeAscii
@@ -161,7 +155,6 @@ data IfdType = TypeByte
              | TypeSignedRational
              | TypeFloat
              | TypeDouble
-             deriving (Eq, Show)
 
 instance BinaryParam Endianness IfdType where
     getP endianness = getP endianness >>= conv
@@ -372,10 +365,12 @@ instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData wher
       fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
           align ifd >> (ExtendedDataAscii <$> getByteString (fromIntegral count))
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
-          pure . ExtendedDataShort $ V.fromListN 2 [high, low]
-                  -- was unsafeShiftL, TODO : test
+          pure . ExtendedDataShort $ V.fromListN 2 valList
             where high = fromIntegral $ ofs `unsafeShiftR` 16
                   low = fromIntegral $ ofs .&. 0xFFFF
+                  valList = case endianness of
+                    EndianLittle -> [low, high]
+                    EndianBig -> [high, low]
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
           align ifd >> (ExtendedDataShort <$> getVec count getE)
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
@@ -387,7 +382,7 @@ data TiffSampleFormat =
     | TiffSampleInt
     | TiffSampleDouble
     | TiffSampleUnknown
-    deriving (Eq, Show)
+    deriving Eq
 
 unpackSampleFormat :: Word32 -> Get TiffSampleFormat
 unpackSampleFormat = aux
@@ -398,14 +393,6 @@ unpackSampleFormat = aux
     aux 4 = pure TiffSampleUnknown
     aux v = fail $ "Undefined data format (" ++ show v ++ ")"
 
-packSampleFormat :: [TiffSampleFormat] -> V.Vector Word32
-packSampleFormat = V.fromList . map aux
-  where 
-    aux TiffSampleUint = 1
-    aux TiffSampleInt = 2
-    aux TiffSampleDouble = 3
-    aux TiffSampleUnknown = 4
-
 data ImageFileDirectory = ImageFileDirectory
     { ifdIdentifier :: !TiffTag
     , ifdType       :: !IfdType
@@ -413,7 +400,6 @@ data ImageFileDirectory = ImageFileDirectory
     , ifdOffset     :: !Word32
     , ifdExtended   :: !ExtendedDirectoryData
     }
-    deriving (Eq, Show)
 
 unLong :: String -> ExtendedDirectoryData -> Get (V.Vector Word32)
 unLong _ (ExtendedDataShort v) = pure $ V.map fromIntegral v
@@ -428,24 +414,15 @@ cleanImageFileDirectory ifd = ifd
 
 instance BinaryParam Endianness ImageFileDirectory where
   getP endianness =
-    (\ifd -> trace (printf " << %s offset:%d type:%s count:%d"
-            (show $ ifdIdentifier ifd)
-            (ifdOffset ifd)
-            (show $ ifdType ifd)
-            (ifdCount ifd)) ifd) <$> (
     ImageFileDirectory <$> getE <*> getE <*> getE <*> getE
-                       <*> pure ExtendedDataNone)
+                       <*> pure ExtendedDataNone
         where getE :: (BinaryParam Endianness a) => Get a
               getE = getP endianness
 
   putP endianness ifd =do
     let putE :: (BinaryParam Endianness a) => a -> Put
         putE = putP endianness
-    trace (printf " >> %s offset:%d type:%s count:%d"
-            (show $ ifdIdentifier ifd)
-            (ifdOffset ifd)
-            (show $ ifdType ifd)
-            (ifdCount ifd)) $ putE $ ifdIdentifier ifd
+    putE $ ifdIdentifier ifd
     putE $ ifdType ifd
     putE $ ifdCount ifd
     putE $ ifdOffset ifd
@@ -459,7 +436,7 @@ instance BinaryParam Endianness [ImageFileDirectory] where
   
   putP endianness lst = do
     let count = fromIntegral $ length lst :: Word16
-    trace (printf ">> storing %d IFD" count) $ putP endianness count
+    putP endianness count
     mapM_ (putP endianness) lst
     putP endianness (0 :: Word32)
 
@@ -514,12 +491,14 @@ findIFDExtDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
         (x:_) -> V.toList <$>
-                    unLong (printf "Can't unlong %s offs:%d count:%d" (show tag) (ifdOffset x) (ifdCount x)) (ifdExtended x)
+                    unLong ("Can't unlong " ++ (show tag)) (ifdExtended x)
 
 -- It's temporary, remove once tiff decoding is better
 -- handled.
+{-  
 instance Show (Image PixelRGB16) where
     show _ = "Image PixelRGB16"
+-}
 
 data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
@@ -537,7 +516,6 @@ data TiffInfo = TiffInfo
     , tiffPalette            :: Maybe (Image PixelRGB16)
     , tiffYCbCrSubsampling   :: V.Vector Word32
     }
-    deriving Show
 
 data TiffColorspace =
       TiffMonochromeWhite0 -- ^ 0
@@ -548,7 +526,6 @@ data TiffColorspace =
     | TiffCMYK             -- ^ 5
     | TiffYCbCr            -- ^ 6
     | TiffCIELab           -- ^ 8
-    deriving (Eq, Show)
 
 packPhotometricInterpretation :: TiffColorspace -> Word16
 packPhotometricInterpretation = aux
@@ -1036,7 +1013,7 @@ instance BinaryParam B.ByteString TiffInfo where
         extFind str tag = findIFDExt str tag cleaned
         extDefault def tag = findIFDExtDefaultData def tag cleaned
 
-    (\a -> trace (groom a) a) <$> (TiffInfo hdr
+    TiffInfo hdr
         <$> dataFind "Can't find width" TagImageWidth
         <*> dataFind "Can't find height" TagImageLength
         <*> (dataFind "Can't find color space" TagPhotometricInterpretation
@@ -1057,8 +1034,6 @@ instance BinaryParam B.ByteString TiffInfo where
                      >>= unLong "Can't find strip offsets")
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
-        )
-            
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
@@ -1248,14 +1223,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
         imageSize = width * height * sampleCount * sampleSize
         headerSize = 8
 
-        hdr = (\a -> trace (printf "bpp:%d imageSize:%d w:%d h:%d sampleCount:%d offset:%d rawSize:%d\n=========================\n%s\n=========================="
-                            bitPerSample
-                            imageSize
-                            width
-                            height
-                            sampleCount
-                            (headerSize + imageSize)
-                            (B.length rawPixelData) (groom a)) a) $ TiffInfo
+        hdr = TiffInfo
             { tiffHeader             = TiffHeader 
                                             { hdrEndianness = EndianLittle
                                             , hdrOffset = headerSize + imageSize

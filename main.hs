@@ -451,13 +451,7 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
-        ("debug":_) -> do
-
-            rez <- B.readFile "tests/tiff/quad-lzw.tif._fromRGB8.tiff"
-            case decodeTiff rez of
-                Left err -> putStrLn $ show err
-                Right i -> L.writeFile "debug.png" $ imageToPng i
-
+        ("debug":_) -> return ()
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
