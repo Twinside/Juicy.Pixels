@@ -227,10 +227,10 @@ instance NFData (Image a) where
 -- position first, then the vertical one. The image can be transformed in place.
 data MutableImage s a = MutableImage
     { -- | Width of the image in pixels
-	  mutableImageWidth  :: {-# UNPACK #-} !Int
+      mutableImageWidth  :: {-# UNPACK #-} !Int
 
       -- | Height of the image in pixels.
-	, mutableImageHeight :: {-# UNPACK #-} !Int
+    , mutableImageHeight :: {-# UNPACK #-} !Int
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
@@ -490,6 +490,15 @@ class ( Storable (PixelBaseComponent a)
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
     type PixelBaseComponent a :: *
+
+    -- | Call the function for every component of the pixels.
+    -- For example for RGB pixels mixWith is declared like this :
+    --
+    -- > mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
+    -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
+    --
+    mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
+            -> a -> a -> a
 
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
@@ -768,6 +777,9 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
 
@@ -810,6 +822,9 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 instance Pixel Pixel16 where
     type PixelBaseComponent Pixel16 = Word16
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
 
@@ -844,6 +859,9 @@ instance ColorConvertible Pixel16 PixelRGBA16 where
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
     componentCount _ = 1
@@ -868,6 +886,11 @@ instance ColorConvertible PixelF PixelRGBF where
 --------------------------------------------------
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYA8 ya aa) (PixelYA8 yb ab) =
+        PixelYA8 (f 0 ya yb) (f 1 aa ab)
+
 
     {-# INLINE colorMap #-}
     colorMap f (PixelYA8 y a) = PixelYA8 (f y) (f a)
@@ -923,6 +946,10 @@ instance LumaPlaneExtractable PixelYA8 where
 instance Pixel PixelYA16 where
     type PixelBaseComponent PixelYA16 = Word16
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
+        PixelYA16 (f 0 ya yb) (f 1 aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYA16 y a) = PixelYA16 (f y) (f a)
     componentCount _ = 2
@@ -966,6 +993,10 @@ instance TransparentPixel PixelYA16 Pixel16 where
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBF ra ga ba) (PixelRGBF rb gb bb) =
+        PixelRGBF (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBF r g b) = PixelRGBF (f r) (f g) (f b)
@@ -1014,6 +1045,10 @@ instance ColorPlane PixelRGBF PlaneBlue where
 --------------------------------------------------
 instance Pixel PixelRGB16 where
     type PixelBaseComponent PixelRGB16 = Pixel16
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGB16 ra ga ba) (PixelRGB16 rb gb bb) =
+        PixelRGB16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGB16 r g b) = PixelRGB16 (f r) (f g) (f b)
@@ -1075,6 +1110,10 @@ instance LumaPlaneExtractable PixelRGB16 where
 --------------------------------------------------
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
+        PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGB8 r g b) = PixelRGB8 (f r) (f g) (f b)
@@ -1139,6 +1178,10 @@ instance LumaPlaneExtractable PixelRGB8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
+        PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
@@ -1197,6 +1240,10 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelRGBA16 where
     type PixelBaseComponent PixelRGBA16 = Pixel16
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
+        PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA16 r g b a) = PixelRGBA16 (f r) (f g) (f b) (f a)
@@ -1260,6 +1307,10 @@ instance ColorPlane PixelRGBA16 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYCbCr8 ya cba cra) (PixelYCbCr8 yb cbb crb) =
+        PixelYCbCr8 (f 0 ya yb) (f 1 cba cbb) (f 2 cra crb)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelYCbCr8 y cb cr) = PixelYCbCr8 (f y) (f cb) (f cr)
@@ -1415,6 +1466,10 @@ instance ColorPlane PixelYCbCr8 PlaneCr where
 instance Pixel PixelCMYK8 where
     type PixelBaseComponent PixelCMYK8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelCMYK8 ca ma ya ka) (PixelCMYK8 cb mb yb kb) =
+        PixelCMYK8 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelCMYK8 c m y k) = PixelCMYK8 (f c) (f m) (f y) (f k)
 
@@ -1514,6 +1569,10 @@ instance ColorPlane PixelCMYK8 PlaneBlack where
 --------------------------------------------------
 instance Pixel PixelCMYK16 where
     type PixelBaseComponent PixelCMYK16 = Word16
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelCMYK16 ca ma ya ka) (PixelCMYK16 cb mb yb kb) =
+        PixelCMYK16 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelCMYK16 c m y k) = PixelCMYK16 (f c) (f m) (f y) (f k)
