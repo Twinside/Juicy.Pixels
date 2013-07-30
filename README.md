@@ -62,8 +62,13 @@ Status
  - Tiff
     * Reading
         - 2, 4, 8, 16 bit depth reading (planar and contiguous for each)
-        - CMYK, YCbCr, RGB, Paletted, Greyscale
+        - CMYK, YCbCr, RGB, RGBA, Paletted, Greyscale
         - Uncompressed, PackBits, LZW
+
+    * Writing
+        - 8 and 16 bits
+        - CMYK, YCbCr, RGB, RGBA, Greyscale
+        - Uncompressed
 
 _I love juicy pixels_
 
