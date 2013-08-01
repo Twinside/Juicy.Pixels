@@ -43,9 +43,10 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
-                          , dynamicMap
                           , pixelMap
                           , pixelFold
+                          , dynamicMap
+                          , dynamicPixelMap
                           , dropAlphaLayer
                           , withImage
                           , generateImage
@@ -306,6 +307,38 @@ dynamicMap f (ImageRGBA16 i) = f i
 dynamicMap f (ImageYCbCr8 i) = f i
 dynamicMap f (ImageCMYK8 i) = f i
 dynamicMap f (ImageCMYK16 i) = f i
+
+-- | Equivalent of the `pixelMap` function for the dynamic images.
+-- You can perform pixel colorspace independant operations with this
+-- function.
+--
+-- For instance, if you wan't to extract a square crop of any image,
+-- without caring about colorspace, you can use the following snippet.
+--
+-- > dynSquare :: DynamicImage -> DynamicImage
+-- > dynSquare = dynMap squareImage
+-- >
+-- > squareImage :: Pixel a => Image a -> Image a
+-- > squareImage img = generateImage (\x y -> pixelAt img x y) edge edge
+-- >    where edge = min (imageWidth img) (imageHeight img)
+--
+dynamicPixelMap :: (forall pixel . (Pixel pixel) => Image pixel -> Image pixel)
+                -> DynamicImage -> DynamicImage
+dynamicPixelMap f = aux
+  where
+    aux (ImageY8    i) = ImageY8 (f i)
+    aux (ImageY16   i) = ImageY16 (f i)
+    aux (ImageYF    i) = ImageYF (f i)
+    aux (ImageYA8   i) = ImageYA8 (f i)
+    aux (ImageYA16  i) = ImageYA16 (f i)
+    aux (ImageRGB8  i) = ImageRGB8 (f i)
+    aux (ImageRGB16 i) = ImageRGB16 (f i)
+    aux (ImageRGBF  i) = ImageRGBF (f i)
+    aux (ImageRGBA8 i) = ImageRGBA8 (f i)
+    aux (ImageRGBA16 i) = ImageRGBA16 (f i)
+    aux (ImageYCbCr8 i) = ImageYCbCr8 (f i)
+    aux (ImageCMYK8 i) = ImageCMYK8 (f i)
+    aux (ImageCMYK16 i) = ImageCMYK16 (f i)
 
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
