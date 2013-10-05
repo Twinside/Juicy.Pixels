@@ -54,6 +54,9 @@ import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
 
+import Debug.Trace
+import Text.Printf
+
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -74,10 +77,12 @@ data JpgFrameKind =
     | JpgQuantizationTable
     | JpgHuffmanTableMarker
     | JpgStartOfScan
+    | JpgEndOfImage
     | JpgAppSegment Word8
     | JpgExtensionSegment Word8
 
     | JpgRestartInterval
+    | JpgRestartIntervalEnd Word8
     deriving (Eq, Show)
 
 type HuffmanTreeInfo = HuffmanPackedTree
@@ -315,6 +320,17 @@ putFrame (JpgScanBlob hdr blob) =
 putFrame (JpgScans kind hdr) =
     put kind >> put hdr
 
+extractScanContent :: L.ByteString -> (L.ByteString, L.ByteString)
+extractScanContent str = aux 0
+  where maxi = fromIntegral $ L.length str - 1
+
+        aux n | n >= maxi = (str, L.empty)
+              | v == 0xFF && vNext /= 0 && not isReset = L.splitAt n str
+              | otherwise = aux (n + 1)
+            where v = str `L.index` n
+                  vNext = str `L.index` (n + 1)
+                  isReset = 0xD0 <= vNext && vNext <= 0xD7
+                 
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -327,44 +343,60 @@ parseFrames = do
             parseFrames
 
     case kind of
+        JpgEndOfImage -> return []
         JpgAppSegment c ->
+            trace "AppSegment" $
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgExtensionSegment c ->
+            trace "ExtSegment" $
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgQuantizationTable ->
+            trace "QuantTable" $
             (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
         JpgRestartInterval ->
+            trace "RestartInterval" $
             (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
         JpgHuffmanTableMarker ->
+            trace "HuffmanTable" $
             (\(TableList huffTables) lst ->
                     JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
-            (\frm imgData -> [JpgScanBlob frm imgData])
-                            <$> get <*> getRemainingLazyBytes
+            trace "StartOfScan" $
+            (\frm imgData -> 
+                let (d, other) = extractScanContent imgData
+                in
+                case runGet parseFrames (L.drop 1 other) of
+                  Left _ -> [JpgScanBlob frm d]
+                  Right lst -> JpgScanBlob frm d : lst
+            ) <$> get <*> getRemainingLazyBytes
 
-        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
+        _ -> trace (show kind) $ (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
-secondStartOfFrameByteOfKind JpgBaselineDCTHuffman = 0xC0
-secondStartOfFrameByteOfKind JpgExtendedSequentialDCTHuffman = 0xC1
-secondStartOfFrameByteOfKind JpgProgressiveDCTHuffman = 0xC2
-secondStartOfFrameByteOfKind JpgLosslessHuffman = 0xC3
-secondStartOfFrameByteOfKind JpgDifferentialSequentialDCTHuffman = 0xC5
-secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCTHuffman = 0xC6
-secondStartOfFrameByteOfKind JpgDifferentialLosslessHuffman = 0xC7
-secondStartOfFrameByteOfKind JpgExtendedSequentialArithmetic = 0xC9
-secondStartOfFrameByteOfKind JpgProgressiveDCTArithmetic = 0xCA
-secondStartOfFrameByteOfKind JpgLosslessArithmetic = 0xCB
-secondStartOfFrameByteOfKind JpgHuffmanTableMarker = 0xC4
-secondStartOfFrameByteOfKind JpgDifferentialSequentialDCTArithmetic = 0xCD
-secondStartOfFrameByteOfKind JpgDifferentialProgressiveDCTArithmetic = 0xCE
-secondStartOfFrameByteOfKind JpgDifferentialLosslessArithmetic = 0xCF
-secondStartOfFrameByteOfKind JpgQuantizationTable = 0xDB
-secondStartOfFrameByteOfKind JpgStartOfScan = 0xDA
-secondStartOfFrameByteOfKind JpgRestartInterval = 0xDD
-secondStartOfFrameByteOfKind (JpgAppSegment a) = a
-secondStartOfFrameByteOfKind (JpgExtensionSegment a) = a
+secondStartOfFrameByteOfKind = aux
+  where
+    aux JpgBaselineDCTHuffman = 0xC0
+    aux JpgExtendedSequentialDCTHuffman = 0xC1
+    aux JpgProgressiveDCTHuffman = 0xC2
+    aux JpgLosslessHuffman = 0xC3
+    aux JpgDifferentialSequentialDCTHuffman = 0xC5
+    aux JpgDifferentialProgressiveDCTHuffman = 0xC6
+    aux JpgDifferentialLosslessHuffman = 0xC7
+    aux JpgExtendedSequentialArithmetic = 0xC9
+    aux JpgProgressiveDCTArithmetic = 0xCA
+    aux JpgLosslessArithmetic = 0xCB
+    aux JpgHuffmanTableMarker = 0xC4
+    aux JpgDifferentialSequentialDCTArithmetic = 0xCD
+    aux JpgDifferentialProgressiveDCTArithmetic = 0xCE
+    aux JpgDifferentialLosslessArithmetic = 0xCF
+    aux JpgEndOfImage = 0xD9
+    aux JpgQuantizationTable = 0xDB
+    aux JpgStartOfScan = 0xDA
+    aux JpgRestartInterval = 0xDD
+    aux (JpgRestartIntervalEnd v) = v
+    aux (JpgAppSegment a) = a
+    aux (JpgExtensionSegment a) = a
 
 data JpgImageKind = BaseLineDCT | ProgressiveDCT
 
@@ -374,7 +406,7 @@ instance Binary JpgFrameKind where
         -- no lookahead :(
         {-word <- getWord8-}
         word2 <- getWord8
-        return $ case word2 of
+        return . (\a -> trace ("frameKind: " ++ show a) a) $ case word2 of
             0xC0 -> JpgBaselineDCTHuffman
             0xC1 -> JpgExtendedSequentialDCTHuffman
             0xC2 -> JpgProgressiveDCTHuffman
@@ -389,11 +421,13 @@ instance Binary JpgFrameKind where
             0xCD -> JpgDifferentialSequentialDCTArithmetic
             0xCE -> JpgDifferentialProgressiveDCTArithmetic
             0xCF -> JpgDifferentialLosslessArithmetic
+            0xD9 -> JpgEndOfImage
             0xDA -> JpgStartOfScan
             0xDB -> JpgQuantizationTable
             0xDD -> JpgRestartInterval
             a | a >= 0xF0 -> JpgExtensionSegment a
               | a >= 0xE0 -> JpgAppSegment a
+              | a >= 0xD0 && a <= 0xD7 -> JpgRestartIntervalEnd a
               | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
 
 put4BitsOfEach :: Word8 -> Word8 -> Put
@@ -475,12 +509,14 @@ instance Binary JpgScanSpecification where
 instance Binary JpgScanHeader where
     get = do
         thisScanLength <- getWord16be
-        compCount <- getWord8
+        compCount <- trace ("sos size:" ++ show thisScanLength) $ getWord8
         comp <- replicateM (fromIntegral compCount) get
         specBeg <- get
         specEnd <- get
         (approxHigh, approxLow) <- get4BitOfEach
-        return JpgScanHeader {
+
+        trace (printf "spectralSelection:(%d,%d) approx:(low:%d, high:%d)"
+                    specBeg specEnd approxLow approxHigh) $ return JpgScanHeader {
             scanLength = thisScanLength,
             scanComponentCount = compCount,
             scans = comp,
@@ -652,6 +688,12 @@ acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutabl
                     decoded <- fromIntegral <$> decodeInt (fromIntegral ssss)
                     lift $ (mutableBlock `M.unsafeWrite` (n + rrrr)) decoded
                     parseAcCoefficient (n + rrrr + 1)
+
+{-
+decodeEOB :: HuffmanTreeInfo -> BoolReader s Int32
+decodeEOB tree = do
+    rrrrssss <- huffmanPackedDecode tree
+    -}
 
 -- | Decompress a macroblock from a bitstream given the current configuration
 -- from the frame.

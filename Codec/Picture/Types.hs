@@ -17,7 +17,7 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Image functions
                           , freezeImage
-                          , unsafeFreezeImage 
+                          , unsafeFreezeImage
 
                             -- ** Pixel types
                           , Pixel8
@@ -134,15 +134,15 @@ data PlaneCr = PlaneCr
 -- | Define the plane for the Cb component
 data PlaneCb = PlaneCb
 
--- | Define plane for the cyan component of the 
+-- | Define plane for the cyan component of the
 -- CMYK color space.
 data PlaneCyan = PlaneCyan
 
--- | Define plane for the magenta component of the 
+-- | Define plane for the magenta component of the
 -- CMYK color space.
 data PlaneMagenta = PlaneMagenta
 
--- | Define plane for the yellow component of the 
+-- | Define plane for the yellow component of the
 -- CMYK color space.
 data PlaneYellow = PlaneYellow
 
@@ -262,7 +262,7 @@ data DynamicImage =
        ImageY8    (Image Pixel8)
        -- | A greyscale image with 16bit components
      | ImageY16   (Image Pixel16)
-       -- | A greyscale HDR image 
+       -- | A greyscale HDR image
      | ImageYF    (Image PixelF)
        -- | An image in greyscale with an alpha channel.
      | ImageYA8   (Image PixelYA8)
@@ -693,14 +693,14 @@ generateFoldImage f intialAcc w h =
 -- | Fold over the pixel of an image with a raster scan order :
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
-pixelFold :: (Pixel pixel) 
+pixelFold :: (Pixel pixel)
           => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
 pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
-  lineFold 
+  lineFold
     where pixelFolder y acc x = f acc x y $ pixelAt img x y
           columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
           lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
-          
+
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
 --
@@ -753,7 +753,7 @@ class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- implementation.
     --
     -- > jpegToGrayScale :: FilePath -> FilePath -> IO ()
-    -- > jpegToGrayScale source dest 
+    -- > jpegToGrayScale source dest
     extractLumaPlane :: Image a -> Image (PixelBaseComponent a)
     extractLumaPlane = pixelMap computeLuma
 
@@ -943,7 +943,7 @@ instance Pixel PixelYA8 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYA8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
         PixelYA8 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
@@ -1001,7 +1001,7 @@ instance Pixel PixelYA16 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYA16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
         PixelYA16 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
@@ -1054,7 +1054,7 @@ instance Pixel PixelRGBF where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBF (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGBF `liftM` M.unsafeRead vec idx
@@ -1106,7 +1106,7 @@ instance Pixel PixelRGB16 where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGB16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGB16 `liftM` M.unsafeRead vec idx
@@ -1171,7 +1171,7 @@ instance Pixel PixelRGB8 where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGB8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGB8 `liftM` M.unsafeRead vec idx
@@ -1241,7 +1241,7 @@ instance Pixel PixelRGBA8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBA8 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1303,7 +1303,7 @@ instance Pixel PixelRGBA16 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBA16 (V.unsafeIndex v idx)
                     (V.unsafeIndex v $ idx + 1)
                     (V.unsafeIndex v $ idx + 2)
@@ -1366,7 +1366,7 @@ instance Pixel PixelYCbCr8 where
         (arr .<-. (baseIdx + 1)) cbv
         (arr .<-. (baseIdx + 2)) crv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYCbCr8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelYCbCr8 `liftM` M.unsafeRead vec idx
@@ -1529,7 +1529,7 @@ instance Pixel PixelCMYK8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelCMYK8 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1547,7 +1547,7 @@ instance Pixel PixelCMYK8 where
 instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
   convertPixel (PixelCMYK8 c m y k) =
       PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
-    where 
+    where
           clampWord8 = fromIntegral . (`unsafeShiftR` 8)
           ik :: Int
           ik = 255 - fromIntegral k
@@ -1633,7 +1633,7 @@ instance Pixel PixelCMYK16 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelCMYK16 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1651,7 +1651,7 @@ instance Pixel PixelCMYK16 where
 instance ColorSpaceConvertible PixelCMYK16 PixelRGB16 where
   convertPixel (PixelCMYK16 c m y k) =
       PixelRGB16 (clampWord16 r) (clampWord16 g) (clampWord16 b)
-    where 
+    where
           clampWord16 = fromIntegral . (`unsafeShiftR` 16)
           ik :: Int
           ik = 65535 - fromIntegral k
