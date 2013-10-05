@@ -28,4 +28,5 @@ tags
 *._fromYA8.bmp
 
 cabal-dev
+.cabal-sandbox
 magick
