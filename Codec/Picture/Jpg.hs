@@ -54,9 +54,6 @@ import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
 
-import Debug.Trace
-import Text.Printf
-
 --------------------------------------------------
 ----            Types
 --------------------------------------------------
@@ -345,24 +342,18 @@ parseFrames = do
     case kind of
         JpgEndOfImage -> return []
         JpgAppSegment c ->
-            trace "AppSegment" $
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgExtensionSegment c ->
-            trace "ExtSegment" $
             (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgQuantizationTable ->
-            trace "QuantTable" $
             (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
         JpgRestartInterval ->
-            trace "RestartInterval" $
             (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
         JpgHuffmanTableMarker ->
-            trace "HuffmanTable" $
             (\(TableList huffTables) lst ->
                     JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
-            trace "StartOfScan" $
             (\frm imgData -> 
                 let (d, other) = extractScanContent imgData
                 in
@@ -371,7 +362,7 @@ parseFrames = do
                   Right lst -> JpgScanBlob frm d : lst
             ) <$> get <*> getRemainingLazyBytes
 
-        _ -> trace (show kind) $ (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
+        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
 
 secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
 secondStartOfFrameByteOfKind = aux
@@ -406,7 +397,7 @@ instance Binary JpgFrameKind where
         -- no lookahead :(
         {-word <- getWord8-}
         word2 <- getWord8
-        return . (\a -> trace ("frameKind: " ++ show a) a) $ case word2 of
+        return $ case word2 of
             0xC0 -> JpgBaselineDCTHuffman
             0xC1 -> JpgExtendedSequentialDCTHuffman
             0xC2 -> JpgProgressiveDCTHuffman
@@ -509,14 +500,13 @@ instance Binary JpgScanSpecification where
 instance Binary JpgScanHeader where
     get = do
         thisScanLength <- getWord16be
-        compCount <- trace ("sos size:" ++ show thisScanLength) $ getWord8
+        compCount <- getWord8
         comp <- replicateM (fromIntegral compCount) get
         specBeg <- get
         specEnd <- get
         (approxHigh, approxLow) <- get4BitOfEach
 
-        trace (printf "spectralSelection:(%d,%d) approx:(low:%d, high:%d)"
-                    specBeg specEnd approxLow approxHigh) $ return JpgScanHeader {
+        return JpgScanHeader {
             scanLength = thisScanLength,
             scanComponentCount = compCount,
             scans = comp,
