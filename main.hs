@@ -367,12 +367,12 @@ testSuite = do
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
-    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
+    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
+    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    {-mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests-}
 
 jpegToPng :: IO ()
 jpegToPng = do
@@ -451,7 +451,13 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
-        ("debug":_) -> return ()
+        ("debug":_) -> do
+            Right rez <- readImage "tests/jpeg/sheep.jpg"
+            putStrLn "============"
+            rez <- readImage "tests/jpeg/mand_prgrsv.jpg"
+            case rez of
+              Left err -> putStrLn err
+              Right v -> saveJpgImage 90 "test.jpg" v
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp

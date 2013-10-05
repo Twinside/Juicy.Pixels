@@ -26,12 +26,16 @@ Source-Repository this
     Location:  git://github.com/Twinside/Juicy.Pixels.git
     Tag:       v3.1
 
+Flag Mmap
+    Description: Enable the file loading via mmap (memory map)
+    Default: False
+
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -O3 -Wall
+  Ghc-options: -Wall -rtsopts -prof -fprof-auto-top
   -- -ddump-simpl
-  -- -rtsopts -prof -fprof-auto-top
+  -- 
   Include-Dirs: Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base                >= 4       && < 5,
@@ -46,8 +50,11 @@ Executable imageTest
                  filepath            >= 1.3     && < 1.4,
                  criterion           >= 0.6.2   && < 0.7,
                  hastache            >= 0.4     && < 0.5,
-                 mmap,
                  groom
+
+  if flag(Mmap)
+    Build-depends: mmap
+    CC-Options: "-DWITH_MMAP_BYTESTRING"
 
 Library
   Default-Language: Haskell2010
@@ -71,8 +78,11 @@ Library
                  vector              >= 0.9    && < 0.11,
                  primitive           >= 0.5     && < 0.6,
                  deepseq             >= 1.1     && < 1.4,
-                 mmap,
                  groom
+
+  if flag(Mmap)
+    Build-depends: mmap
+    CC-Options: "-DWITH_MMAP_BYTESTRING"
 
   -- Modules not exported by this package.
   Other-modules: Codec.Picture.Jpg.DefaultTable,

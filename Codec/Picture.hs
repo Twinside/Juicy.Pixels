@@ -113,7 +113,9 @@ import Codec.Picture.Tiff( decodeTiff
 import Codec.Picture.Saving
 import Codec.Picture.Types
 -- import System.IO ( withFile, IOMode(ReadMode) )
+#ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
+#endif
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -133,7 +135,12 @@ withImageDecoder :: (NFData a)
                  -> IO (Either String a)
 withImageDecoder decoder path = Exc.catch doit
                     (\e -> return . Left $ show (e :: Exc.IOException))
-    where doit = force . decoder <$> mmapFileByteString path Nothing
+    where doit = force . decoder <$> get
+#ifdef WITH_MMAP_BYTESTRING
+          get = mmapFileByteString path Nothing
+#else
+          get = B.readFile path
+#endif
           -- force appeared in deepseq 1.3, Haskell Platform
           -- provide 1.1
           force x = x `deepseq` x
