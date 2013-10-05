@@ -2,6 +2,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing TIFF decoding.
 --
 -- Supported compression schemes :
@@ -22,11 +24,12 @@
 --
 --   * 16 bits
 --
-module Codec.Picture.Tiff( decodeTiff ) where
+module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
 import Control.Monad( when, replicateM, foldM_ )
 import Control.Monad.ST( ST, runST )
+import Control.Monad.Writer.Strict( execWriter, tell, Writer )
 import Data.Int( Int8 )
 import Data.Word( Word8, Word16 )
 import Data.Bits( (.&.), (.|.), unsafeShiftL, unsafeShiftR )
@@ -38,24 +41,28 @@ import Data.Binary.Get( Get
                       , skip
                       , getByteString
                       )
-import Data.Binary.Put( Put
+import Data.Binary.Put( Put, runPut
                       , putWord16le, putWord16be
-                      , putWord32le, putWord32be )
+                      , putWord32le, putWord32be
+                      , putByteString
+                      )
 
+import Data.List( sortBy, mapAccumL )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Word( Word32 )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as Lb
 import qualified Data.ByteString.Unsafe as BU
 
-{-import Debug.Trace-}
-{-import Text.Groom-}
+import Foreign.Storable( sizeOf )
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
+import Codec.Picture.VectorByteConversion( toByteString )
 
 data Endianness = EndianLittle
                 | EndianBig
@@ -72,46 +79,52 @@ instance Binary Endianness where
             0x4D4D -> return EndianBig
             _ -> fail "Invalid endian tag value"
 
+-- | Because having a polymorphic get with endianness is to nice
+-- to pass on, introducing this helper type class, which is just
+-- a superset of Binary, but formalising a parameter passing
+-- into it.
+class BinaryParam a b where
+    getP :: a -> Get b
+    putP :: a -> b -> Put
+
 data TiffHeader = TiffHeader
     { hdrEndianness :: !Endianness
     , hdrOffset     :: {-# UNPACK #-} !Word32
     }
     deriving (Eq, Show)
 
-putWord16Endian :: Endianness -> Word16 -> Put
-putWord16Endian EndianLittle = putWord16le
-putWord16Endian EndianBig = putWord16be
+instance BinaryParam Endianness Word16 where
+    putP EndianLittle = putWord16le
+    putP EndianBig = putWord16be
 
-getWord16Endian :: Endianness -> Get Word16
-getWord16Endian EndianLittle = getWord16le
-getWord16Endian EndianBig = getWord16be
+    getP EndianLittle = getWord16le
+    getP EndianBig = getWord16be
 
-putWord32Endian :: Endianness -> Word32 -> Put
-putWord32Endian EndianLittle = putWord32le
-putWord32Endian EndianBig = putWord32be
+instance BinaryParam Endianness Word32 where
+    putP EndianLittle = putWord32le
+    putP EndianBig = putWord32be
 
-getWord32Endian :: Endianness -> Get Word32
-getWord32Endian EndianLittle = getWord32le
-getWord32Endian EndianBig = getWord32be
+    getP EndianLittle = getWord32le
+    getP EndianBig = getWord32be
 
 instance Binary TiffHeader where
     put hdr = do
         let endian = hdrEndianness hdr
         put endian
-        putWord16Endian endian 42
-        putWord32Endian endian $ hdrOffset hdr
+        putP endian (42 :: Word16)
+        putP endian $ hdrOffset hdr
 
     get = do
         endian <- get
-        magic <- getWord16Endian endian
-        when (magic /= 42)
+        magic <- getP endian
+        let magicValue = 42 :: Word16
+        when (magic /= magicValue)
              (fail "Invalid TIFF magic number")
-        TiffHeader endian <$> getWord32Endian endian
+        TiffHeader endian <$> getP endian
 
 data TiffPlanarConfiguration =
       PlanarConfigContig    -- = 1
     | PlanarConfigSeparate  -- = 2
-    deriving (Eq, Show)
 
 planarConfgOfConstant :: Word32 -> Get TiffPlanarConfiguration
 planarConfgOfConstant 0 = pure PlanarConfigContig
@@ -119,13 +132,16 @@ planarConfgOfConstant 1 = pure PlanarConfigContig
 planarConfgOfConstant 2 = pure PlanarConfigSeparate
 planarConfgOfConstant v = fail $ "Unknown planar constant (" ++ show v ++ ")"
 
+constantToPlaneConfiguration :: TiffPlanarConfiguration -> Word16
+constantToPlaneConfiguration PlanarConfigContig = 1
+constantToPlaneConfiguration PlanarConfigSeparate = 2
+
 data TiffCompression =
       CompressionNone           -- 1
     | CompressionModifiedRLE    -- 2
     | CompressionLZW            -- 5
     | CompressionJPEG           -- 6
     | CompressionPackBit        -- 32273
-    deriving (Eq, Show)
 
 data IfdType = TypeByte
              | TypeAscii
@@ -139,62 +155,64 @@ data IfdType = TypeByte
              | TypeSignedRational
              | TypeFloat
              | TypeDouble
-             deriving (Eq, Show)
 
-{-
-wordOfType :: IfdType -> Word16
-wordOfType TypeByte           = 1
-wordOfType TypeAscii          = 2
-wordOfType TypeShort          = 3
-wordOfType TypeLong           = 4
-wordOfType TypeRational       = 5
-wordOfType TypeSByte          = 6
-wordOfType TypeUndefined      = 7
-wordOfType TypeSignedShort    = 8
-wordOfType TypeSignedLong     = 9
-wordOfType TypeSignedRational = 10
-wordOfType TypeFloat          = 11
-wordOfType TypeDouble         = 12
- -- -}
+instance BinaryParam Endianness IfdType where
+    getP endianness = getP endianness >>= conv
+      where
+        conv :: Word16 -> Get IfdType
+        conv 1  = return TypeByte
+        conv 2  = return TypeAscii
+        conv 3  = return TypeShort
+        conv 4  = return TypeLong
+        conv 5  = return TypeRational
+        conv 6  = return TypeSByte
+        conv 7  = return TypeUndefined
+        conv 8  = return TypeSignedShort
+        conv 9  = return TypeSignedLong
+        conv 10 = return TypeSignedRational
+        conv 11 = return TypeFloat
+        conv 12 = return TypeDouble
+        conv _  = fail "Invalid TIF directory type"
 
-typeOfWord :: Word16 -> Get IfdType
-typeOfWord 1  = return TypeByte
-typeOfWord 2  = return TypeAscii
-typeOfWord 3  = return TypeShort
-typeOfWord 4  = return TypeLong
-typeOfWord 5  = return TypeRational
-typeOfWord 6  = return TypeSByte
-typeOfWord 7  = return TypeUndefined
-typeOfWord 8  = return TypeSignedShort
-typeOfWord 9  = return TypeSignedLong
-typeOfWord 10 = return TypeSignedRational
-typeOfWord 11 = return TypeFloat
-typeOfWord 12 = return TypeDouble
-typeOfWord _  = fail "Invalid TIF directory type"
+    putP endianness = putP endianness . conv
+      where
+        conv :: IfdType -> Word16
+        conv TypeByte = 1
+        conv TypeAscii = 2
+        conv TypeShort = 3
+        conv TypeLong = 4
+        conv TypeRational = 5
+        conv TypeSByte = 6
+        conv TypeUndefined = 7
+        conv TypeSignedShort = 8
+        conv TypeSignedLong = 9
+        conv TypeSignedRational = 10
+        conv TypeFloat = 11
+        conv TypeDouble = 12
 
 data TiffTag = TagPhotometricInterpretation
-             | TagCompression
-             | TagImageWidth
-             | TagImageLength
-             | TagXResolution
-             | TagYResolution
-             | TagResolutionUnit
-             | TagRowPerStrip
-             | TagStripByteCounts
-             | TagStripOffsets
-             | TagBitsPerSample
-             | TagColorMap
+             | TagCompression -- ^ Short type
+             | TagImageWidth  -- ^ Short or long type
+             | TagImageLength -- ^ Short or long type
+             | TagXResolution -- ^ Rational type
+             | TagYResolution -- ^ Rational type
+             | TagResolutionUnit --  ^ Short type
+             | TagRowPerStrip -- ^ Short or long type
+             | TagStripByteCounts -- ^ Short or long
+             | TagStripOffsets -- ^ Short or long
+             | TagBitsPerSample --  ^ Short
+             | TagColorMap -- ^ Short
              | TagTileWidth
              | TagTileLength
              | TagTileOffset
              | TagTileByteCount
-             | TagSamplesPerPixel
+             | TagSamplesPerPixel -- ^ Short
              | TagArtist
              | TagDocumentName
              | TagSoftware
-             | TagPlanarConfiguration
+             | TagPlanarConfiguration -- ^ Short
              | TagOrientation
-             | TagSampleFormat
+             | TagSampleFormat -- ^ Short
              | TagInkSet
              | TagSubfileType
              | TagFillOrder
@@ -267,6 +285,57 @@ tagOfWord16 = aux
         aux 532 = TagReferenceBlackWhite
         aux v = TagUnknown v
 
+word16OfTag :: TiffTag -> Word16
+word16OfTag = aux
+  where aux TagSubfileType = 255
+        aux TagImageWidth = 256
+        aux TagImageLength = 257
+        aux TagBitsPerSample = 258
+        aux TagCompression = 259
+        aux TagPhotometricInterpretation = 262
+        aux TagFillOrder = 266
+        aux TagDocumentName = 269
+        aux TagImageDescription = 270
+        aux TagStripOffsets = 273
+        aux TagOrientation = 274
+        aux TagSamplesPerPixel = 277
+        aux TagRowPerStrip = 278
+        aux TagStripByteCounts = 279
+        aux TagXResolution = 282
+        aux TagYResolution = 283
+        aux TagPlanarConfiguration = 284
+        aux TagXPosition = 286
+        aux TagYPosition = 287
+        aux TagResolutionUnit = 296
+        aux TagSoftware = 305
+        aux TagArtist = 315
+        aux TagColorMap = 320
+        aux TagTileWidth = 322
+        aux TagTileLength = 323
+        aux TagTileOffset = 324
+        aux TagTileByteCount = 325
+        aux TagInkSet = 332
+        aux TagExtraSample = 338
+        aux TagSampleFormat = 339
+        aux TagYCbCrCoeff = 529
+        aux TagJpegProc = 512
+        aux TagJPEGInterchangeFormat = 513
+        aux TagJPEGInterchangeFormatLength = 514
+        aux TagJPEGRestartInterval = 515
+        aux TagJPEGLosslessPredictors = 517
+        aux TagJPEGPointTransforms = 518
+        aux TagJPEGQTables = 519
+        aux TagJPEGDCTables = 520
+        aux TagJPEGACTables = 521
+        aux TagYCbCrSubsampling = 530
+        aux TagYCbCrPositioning = 531
+        aux TagReferenceBlackWhite = 532
+        aux (TagUnknown v) = v
+
+instance BinaryParam Endianness TiffTag where
+  getP endianness = tagOfWord16 <$> getP endianness
+  putP endianness = putP endianness . word16OfTag 
+
 data ExtendedDirectoryData =
       ExtendedDataNone
     | ExtendedDataAscii !B.ByteString
@@ -274,20 +343,55 @@ data ExtendedDirectoryData =
     | ExtendedDataLong  !(V.Vector Word32)
     deriving (Eq, Show)
 
+instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData where
+  putP (endianness, _) = dump
+    where
+      dump ExtendedDataNone = pure ()
+      dump (ExtendedDataAscii bstr) = putByteString bstr
+      dump (ExtendedDataShort shorts) = V.mapM_ (putP endianness) shorts
+      dump (ExtendedDataLong longs) = V.mapM_ (putP endianness) longs
+
+  getP (endianness, ifd) = fetcher ifd
+    where
+      align ImageFileDirectory { ifdOffset = offset } = do
+        readed <- bytesRead
+        skip . fromIntegral $ fromIntegral offset - readed
+
+      getE :: (BinaryParam Endianness a) => Get a
+      getE = getP endianness
+
+      getVec count = V.replicateM (fromIntegral count)
+
+      fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
+          align ifd >> (ExtendedDataAscii <$> getByteString (fromIntegral count))
+      fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
+          pure . ExtendedDataShort $ V.fromListN 2 valList
+            where high = fromIntegral $ ofs `unsafeShiftR` 16
+                  low = fromIntegral $ ofs .&. 0xFFFF
+                  valList = case endianness of
+                    EndianLittle -> [low, high]
+                    EndianBig -> [high, low]
+      fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
+          align ifd >> (ExtendedDataShort <$> getVec count getE)
+      fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
+          align ifd >> (ExtendedDataLong <$> getVec count getE)
+      fetcher _ = pure ExtendedDataNone
+
 data TiffSampleFormat =
       TiffSampleUint
     | TiffSampleInt
     | TiffSampleDouble
     | TiffSampleUnknown
-    deriving (Eq, Show)
+    deriving Eq
 
 unpackSampleFormat :: Word32 -> Get TiffSampleFormat
 unpackSampleFormat = aux
-  where aux 1 = pure TiffSampleUint
-        aux 2 = pure TiffSampleInt
-        aux 3 = pure TiffSampleDouble
-        aux 4 = pure TiffSampleUnknown
-        aux v = fail $ "Undefined data format (" ++ show v ++ ")"
+  where
+    aux 1 = pure TiffSampleUint
+    aux 2 = pure TiffSampleInt
+    aux 3 = pure TiffSampleDouble
+    aux 4 = pure TiffSampleUnknown
+    aux v = fail $ "Undefined data format (" ++ show v ++ ")"
 
 data ImageFileDirectory = ImageFileDirectory
     { ifdIdentifier :: !TiffTag
@@ -296,7 +400,6 @@ data ImageFileDirectory = ImageFileDirectory
     , ifdOffset     :: !Word32
     , ifdExtended   :: !ExtendedDirectoryData
     }
-    deriving (Eq, Show)
 
 unLong :: String -> ExtendedDirectoryData -> Get (V.Vector Word32)
 unLong _ (ExtendedDataShort v) = pure $ V.map fromIntegral v
@@ -309,46 +412,38 @@ cleanImageFileDirectory ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdTyp
           aux _ = ifd
 cleanImageFileDirectory ifd = ifd
 
-getImageFileDirectory :: Endianness -> Get ImageFileDirectory
-getImageFileDirectory endianness =
-  ImageFileDirectory <$> (tagOfWord16 <$> getWord16)
-                     <*> (getWord16 >>= typeOfWord)
-                     <*> getWord32
-                     <*> getWord32
-                     <*> pure ExtendedDataNone
-    where getWord16 = getWord16Endian endianness
-          getWord32 = getWord32Endian endianness
+instance BinaryParam Endianness ImageFileDirectory where
+  getP endianness =
+    ImageFileDirectory <$> getE <*> getE <*> getE <*> getE
+                       <*> pure ExtendedDataNone
+        where getE :: (BinaryParam Endianness a) => Get a
+              getE = getP endianness
 
-getImageFileDirectories :: Endianness -> Get [ImageFileDirectory]
-getImageFileDirectories endianness = do
-    count <- getWord16Endian endianness
-    replicateM (fromIntegral count) $ getImageFileDirectory endianness
+  putP endianness ifd =do
+    let putE :: (BinaryParam Endianness a) => a -> Put
+        putE = putP endianness
+    putE $ ifdIdentifier ifd
+    putE $ ifdType ifd
+    putE $ ifdCount ifd
+    putE $ ifdOffset ifd
+
+instance BinaryParam Endianness [ImageFileDirectory] where
+  getP endianness = do
+    count <- getP endianness :: Get Word16
+    rez <- replicateM (fromIntegral count) $ getP endianness
+    _ <- getP endianness :: Get Word32
+    pure rez
+  
+  putP endianness lst = do
+    let count = fromIntegral $ length lst :: Word16
+    putP endianness count
+    mapM_ (putP endianness) lst
+    putP endianness (0 :: Word32)
 
 fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
-fetchExtended endian = mapM fetcher
-  where align ImageFileDirectory { ifdOffset = offset } = do
-            readed <- bytesRead
-            skip . fromIntegral $ fromIntegral offset - readed
-
-        getWord16 = getWord16Endian endian
-        getWord32 = getWord32Endian endian
-
-        update ifd v = ifd { ifdExtended = v }
-        getVec count = V.replicateM (fromIntegral count)
-
-        fetcher ifd@ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
-            align ifd >> (update ifd . ExtendedDataAscii <$> getByteString (fromIntegral count))
-        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
-            pure . update ifd . ExtendedDataShort $ V.fromListN 2 [high, low]
-              where high = fromIntegral $ ofs `unsafeShiftL` 16
-                    low = fromIntegral $ ofs .&. 0xFFFF
-
-        fetcher ifd@ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
-            align ifd >> (update ifd . ExtendedDataShort <$> getVec count getWord16)
-        fetcher ifd@ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
-            align ifd >> (update ifd . ExtendedDataLong <$> getVec count getWord32)
-
-        fetcher ifd = pure ifd
+fetchExtended endian = mapM $ \ifd -> do
+        v <- getP (endian, ifd)
+        pure $ ifd { ifdExtended = v }
 
 findIFD :: String -> TiffTag -> [ImageFileDirectory]
         -> Get ImageFileDirectory
@@ -382,20 +477,26 @@ findIFDExt msg tag lst = do
     val <- findIFD msg tag lst
     case val of
       ImageFileDirectory
-        { ifdCount = 1, ifdOffset = ofs } ->
+        { ifdCount = 1, ifdOffset = ofs, ifdType = TypeShort } ->
                pure . ExtendedDataShort . V.singleton $ fromIntegral ofs
+      ImageFileDirectory
+        { ifdCount = 1, ifdOffset = ofs, ifdType = TypeLong } ->
+               pure . ExtendedDataLong . V.singleton $ fromIntegral ofs
       ImageFileDirectory { ifdExtended = v } -> pure v
 
 
-findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory] -> Get [Word32]
+findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory]
+                      -> Get [Word32]
 findIFDExtDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
-        (x:_) -> V.toList <$> unLong "Can't unlong" (ifdExtended x)
+        (x:_) -> V.toList <$>
+                    unLong ("Can't unlong " ++ (show tag)) (ifdExtended x)
 
 -- It's temporary, remove once tiff decoding is better
 -- handled.
-{-  instance Show (Image PixelRGB16) where
+{-  
+instance Show (Image PixelRGB16) where
     show _ = "Image PixelRGB16"
 -}
 
@@ -425,7 +526,18 @@ data TiffColorspace =
     | TiffCMYK             -- ^ 5
     | TiffYCbCr            -- ^ 6
     | TiffCIELab           -- ^ 8
-    deriving (Eq, Show)
+
+packPhotometricInterpretation :: TiffColorspace -> Word16
+packPhotometricInterpretation = aux
+  where
+    aux TiffMonochromeWhite0 = 0
+    aux TiffMonochrome       = 1
+    aux TiffRGB              = 2
+    aux TiffPaleted          = 3
+    aux TiffTransparencyMask = 4
+    aux TiffCMYK             = 5
+    aux TiffYCbCr            = 6
+    aux TiffCIELab           = 8
 
 unpackPhotometricInterpretation :: Word32 -> Get TiffColorspace
 unpackPhotometricInterpretation = aux
@@ -437,16 +549,27 @@ unpackPhotometricInterpretation = aux
         aux 5 = pure TiffCMYK
         aux 6 = pure TiffYCbCr
         aux 8 = pure TiffCIELab
-        aux _ = fail "Unrecognized color space"
+        aux v = fail $ "Unrecognized color space " ++ show v
 
 unPackCompression :: Word32 -> Get TiffCompression
-unPackCompression 0 = pure CompressionNone
-unPackCompression 1 = pure CompressionNone
-unPackCompression 2 = pure CompressionModifiedRLE
-unPackCompression 5 = pure CompressionLZW
-unPackCompression 6 = pure CompressionJPEG
-unPackCompression 32773 = pure CompressionPackBit
-unPackCompression v = fail $ "Unknown compression scheme " ++ show v
+unPackCompression = aux
+  where
+    aux 0 = pure CompressionNone
+    aux 1 = pure CompressionNone
+    aux 2 = pure CompressionModifiedRLE
+    aux 5 = pure CompressionLZW
+    aux 6 = pure CompressionJPEG
+    aux 32773 = pure CompressionPackBit
+    aux v = fail $ "Unknown compression scheme " ++ show v
+
+packCompression :: TiffCompression -> Word16
+packCompression = aux
+  where
+    aux CompressionNone        = 1
+    aux CompressionModifiedRLE = 2
+    aux CompressionLZW         = 5
+    aux CompressionJPEG        = 6
+    aux CompressionPackBit     = 32773
 
 copyByteString :: B.ByteString -> M.STVector s Word8 -> Int -> Int -> (Word32, Word32)
                -> ST s Int
@@ -768,22 +891,129 @@ gatherStrips comp str nfo = runST $ do
 
   unsafeFreezeImage mutableImage
 
-getTiffInfo :: Get TiffInfo
-getTiffInfo = do
+ifdSingleLong :: TiffTag -> Word32 -> Writer [ImageFileDirectory] ()
+ifdSingleLong tag = ifdMultiLong tag . V.singleton
+
+ifdSingleShort :: Endianness -> TiffTag -> Word16
+               -> Writer [ImageFileDirectory] ()
+ifdSingleShort endian tag = ifdMultiShort endian tag . V.singleton . fromIntegral
+
+ifdMultiLong :: TiffTag -> V.Vector Word32 -> Writer [ImageFileDirectory] ()
+ifdMultiLong tag v = tell . pure $ ImageFileDirectory
+        { ifdIdentifier = tag
+        , ifdType       = TypeLong
+        , ifdCount      = fromIntegral $ V.length v
+        , ifdOffset     = offset
+        , ifdExtended   = extended
+        }
+  where (offset, extended)
+                | V.length v > 1 = (0, ExtendedDataLong v)
+                | otherwise = (V.head v, ExtendedDataNone)
+
+ifdMultiShort :: Endianness -> TiffTag -> V.Vector Word32
+              -> Writer [ImageFileDirectory] ()
+ifdMultiShort endian tag v = tell . pure $ ImageFileDirectory
+        { ifdIdentifier = tag
+        , ifdType       = TypeShort
+        , ifdCount      = size
+        , ifdOffset     = offset
+        , ifdExtended   = extended
+        }
+    where size = fromIntegral $ V.length v
+          (offset, extended)
+                | size > 2 = (0, ExtendedDataShort $ V.map fromIntegral v)
+                | size == 2 =
+                    let v1 = fromIntegral $ V.head v
+                        v2 = fromIntegral $ v `V.unsafeIndex` 1
+                    in
+                    case endian of
+                      EndianLittle -> (v2 `unsafeShiftL` 16 .|. v1, ExtendedDataNone)
+                      EndianBig -> (v1 `unsafeShiftL` 16 .|. v2, ExtendedDataNone)
+
+                | otherwise = case endian of
+                    EndianLittle -> (V.head v, ExtendedDataNone)
+                    EndianBig -> (V.head v `unsafeShiftL` 16, ExtendedDataNone)
+
+-- | All the IFD must be written in order according to the tag
+-- value of the IFD. To avoid getting to much restriction in the
+-- serialization code, just sort it.
+orderIfdByTag :: [ImageFileDirectory] -> [ImageFileDirectory]
+orderIfdByTag = sortBy comparer
+  where comparer a b = compare t1 t2
+           where t1 = word16OfTag $ ifdIdentifier a
+                 t2 = word16OfTag $ ifdIdentifier b
+
+-- | Given an official offset and a list of IFD, update the offset information
+-- of the IFD with extended data.
+setupIfdOffsets :: Word32 -> [ImageFileDirectory] -> [ImageFileDirectory]
+setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
+  where ifdElementCount = fromIntegral $ length lst
+        ifdSize = 12
+        ifdCountSize = 2
+        nextOffsetSize = 4
+        startExtended = initialOffset 
+                     + ifdElementCount * ifdSize 
+                     + ifdCountSize + nextOffsetSize
+
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataAscii b }) =
+            (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataLong v })
+            | V.length v > 1 = ( ix + fromIntegral (V.length v * 4)
+                               , ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataShort v })
+            | V.length v > 2 = ( ix + fromIntegral (V.length v * 2)
+                             , ifd { ifdOffset = ix })
+        updater ix ifd = (ix, ifd)
+
+instance BinaryParam B.ByteString TiffInfo where
+  putP rawData nfo = do
+    put $ tiffHeader nfo
+
+    let ifdStartOffset = hdrOffset $ tiffHeader nfo
+        endianness = hdrEndianness $ tiffHeader nfo
+
+        ifdShort = ifdSingleShort endianness
+        ifdShorts = ifdMultiShort endianness
+        list = setupIfdOffsets ifdStartOffset . orderIfdByTag . execWriter $ do
+            ifdSingleLong TagImageWidth $ tiffWidth nfo
+            ifdSingleLong TagImageLength $ tiffHeight nfo
+            ifdShorts TagBitsPerSample $ tiffBitsPerSample nfo
+            ifdSingleLong TagSamplesPerPixel $ tiffSampleCount nfo
+            ifdSingleLong TagRowPerStrip $ tiffRowPerStrip nfo
+            ifdShort TagPhotometricInterpretation 
+                                        . packPhotometricInterpretation 
+                                        $ tiffColorspace nfo
+            ifdShort TagPlanarConfiguration 
+                    . constantToPlaneConfiguration $ tiffPlaneConfiguration nfo
+            ifdShort TagCompression . packCompression
+                                          $ tiffCompression nfo
+            ifdMultiLong TagStripOffsets $ tiffOffsets nfo
+
+            ifdMultiLong TagStripByteCounts $ tiffStripSize nfo
+
+            let subSampling = tiffYCbCrSubsampling nfo
+            when (not $ V.null subSampling) $
+                 ifdShorts TagYCbCrSubsampling subSampling
+
+    putByteString rawData
+    putP endianness list
+    mapM_ (\ifd -> putP (endianness, ifd) $ ifdExtended ifd) list
+
+  getP _ = do
     hdr <- get
     readed <- bytesRead
     skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
     let endian = hdrEndianness hdr
 
-    ifd <- fmap cleanImageFileDirectory <$> getImageFileDirectories endian
-    cleaned <- {- (\a -> trace (groom a) a) <$> -} fetchExtended endian ifd
+    ifd <- fmap cleanImageFileDirectory <$> getP endian
+    cleaned <- fetchExtended endian ifd
 
     let dataFind str tag = findIFDData str tag cleaned
         dataDefault def tag = findIFDDefaultData def tag cleaned
         extFind str tag = findIFDExt str tag cleaned
         extDefault def tag = findIFDExtDefaultData def tag cleaned
 
-    (\a -> {- trace (groom a) -}a) <$> (TiffInfo hdr
+    TiffInfo hdr
         <$> dataFind "Can't find width" TagImageWidth
         <*> dataFind "Can't find height" TagImageLength
         <*> (dataFind "Can't find color space" TagPhotometricInterpretation
@@ -804,7 +1034,6 @@ getTiffInfo = do
                      >>= unLong "Can't find strip offsets")
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
-            )
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
@@ -939,5 +1168,84 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- * PixelCMYK16
 --
 decodeTiff :: B.ByteString -> Either String DynamicImage
-decodeTiff file = runGetStrict getTiffInfo file >>= unpack file
+decodeTiff file = runGetStrict (getP file) file >>= unpack file
+
+-- | Class defining which pixel types can be serialized in a
+-- Tiff file.
+class (Pixel px) => TiffSaveable px where
+  colorSpaceOfPixel :: px -> TiffColorspace
+
+  subSamplingInfo   :: px -> V.Vector Word32
+  subSamplingInfo _ = V.empty
+
+instance TiffSaveable Pixel8 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable Pixel16 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelCMYK8 where
+  colorSpaceOfPixel _ = TiffCMYK
+
+instance TiffSaveable PixelCMYK16 where
+  colorSpaceOfPixel _ = TiffCMYK
+
+instance TiffSaveable PixelRGB8 where
+  colorSpaceOfPixel  _ = TiffRGB
+
+instance TiffSaveable PixelRGB16 where
+  colorSpaceOfPixel  _ = TiffRGB
+
+instance TiffSaveable PixelRGBA8 where
+  colorSpaceOfPixel _ = TiffRGB
+
+instance TiffSaveable PixelRGBA16 where
+  colorSpaceOfPixel _ = TiffRGB
+
+instance TiffSaveable PixelYCbCr8 where
+  colorSpaceOfPixel _ = TiffYCbCr
+  subSamplingInfo _ = V.fromListN 2 [1, 1]
+
+-- | Transform an image into a Tiff encoded bytestring, reade to be
+-- written as a file.
+encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
+encodeTiff img = runPut $ putP rawPixelData hdr
+  where intSampleCount = componentCount (undefined :: px)
+        sampleCount = fromIntegral intSampleCount 
+
+        sampleType = (undefined :: PixelBaseComponent px)
+        pixelData = imageData img
+
+        rawPixelData = toByteString pixelData
+        width = fromIntegral $ imageWidth img
+        height = fromIntegral $ imageHeight img
+        intSampleSize = sizeOf sampleType
+        sampleSize = fromIntegral intSampleSize
+        bitPerSample = sampleSize * 8
+        imageSize = width * height * sampleCount * sampleSize
+        headerSize = 8
+
+        hdr = TiffInfo
+            { tiffHeader             = TiffHeader 
+                                            { hdrEndianness = EndianLittle
+                                            , hdrOffset = headerSize + imageSize
+                                            }
+            , tiffWidth              = width
+            , tiffHeight             = height
+            , tiffColorspace         = colorSpaceOfPixel (undefined :: px)
+            , tiffSampleCount        = fromIntegral $ sampleCount
+            , tiffRowPerStrip        = fromIntegral $ imageHeight img
+            , tiffPlaneConfiguration = PlanarConfigContig
+            , tiffSampleFormat       = [TiffSampleUint]
+            , tiffBitsPerSample      = V.replicate intSampleCount bitPerSample
+            , tiffCompression        = CompressionNone
+            , tiffStripSize          = V.singleton imageSize
+            , tiffOffsets            = V.singleton headerSize
+            , tiffPalette            = Nothing
+            , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
+            }
+
+-- | Helper function to directly write an image as a tiff on disk.
+writeTiff :: (TiffSaveable pixel) => FilePath -> Image pixel -> IO ()
+writeTiff path img = Lb.writeFile path $ encodeTiff img
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ViewPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files. The API has two layers, the high level, which load the image without
 -- looking deeply about it and the low level, allowing access to data chunks contained
@@ -402,6 +403,13 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
           pixels = concat [[r, g, b] | ipx <- V.toList img
                                      , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
 
+applyPaletteWithTransparency :: PngPalette -> Word8 -> V.Vector Word8 -> V.Vector Word8
+applyPaletteWithTransparency pal transp img = V.fromListN ((initSize + 1) * 4) pixels
+    where (_, initSize) = bounds img
+          pixels = concat [ if ipx == transp then [0, 0, 0, 0] else [r, g, b, 255]
+                                     | ipx <- V.toList img
+                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
+
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
 -- a transformation to RGBA8 is performed. This should change
@@ -442,31 +450,41 @@ decodePng byte = do
         toImage _const1 const2 (Right a) =
             Right . const2 $ Image (fromIntegral w) (fromIntegral h) a
 
-        palette8 palette (Left img) =
+        palette8 palette [(Lb.uncons -> Just (c,_))] (Left img) =
+            Right . ImageRGBA8
+                  . Image (fromIntegral w) (fromIntegral h)
+                  $ applyPaletteWithTransparency palette c img
+
+        palette8 palette _ (Left img) =
             Right . ImageRGB8
                   . Image (fromIntegral w) (fromIntegral h)
                   $ applyPalette palette img
-        palette8 _ (Right _) = Left "Invalid bit depth for paleted image"
 
-        unparse _ PngGreyscale bytes
-            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) PngIndexedColor bytes
-            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) PngIndexedColor bytes
-            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) PngIndexedColor bytes
+        palette8 _ _ (Right _) = Left "Invalid bit depth for paleted image"
+
+        transparencyColor =
+            [ chunkData chunk | chunk <- chunks rawImg
+                              , chunkType chunk == tRNSSignature ]
+
+        unparse _ t PngGreyscale bytes
+            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) t PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) t PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) t PngIndexedColor bytes
             | otherwise = toImage ImageY8 ImageY16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
 
-        unparse Nothing PngIndexedColor  _ = Left "no valid palette found"
-        unparse _ PngTrueColour          bytes =
+        unparse Nothing _ PngIndexedColor  _ = Left "no valid palette found"
+        unparse _ _ PngTrueColour          bytes =
             toImage ImageRGB8 ImageRGB16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
-        unparse _ PngGreyscaleWithAlpha  bytes =
+        unparse _ _ PngGreyscaleWithAlpha  bytes =
             toImage ImageYA8 ImageYA16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
-        unparse _ PngTrueColourWithAlpha bytes =
+        unparse _ _ PngTrueColourWithAlpha bytes =
             toImage ImageRGBA8 ImageRGBA16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
-        unparse (Just plte) PngIndexedColor bytes =
-            palette8 plte $ runST stArray
+        unparse (Just plte) transparency PngIndexedColor bytes =
+            palette8 plte transparency $ runST stArray
                 where stArray = deinterlacer ihdr bytes
 
     if Lb.length compressedImageData <= zlibHeaderSize
@@ -478,5 +496,5 @@ decodePng byte = do
                     Just p -> case parsePalette p of
                             Left _ -> Nothing
                             Right plte -> Just plte
-            in unparse palette (colourType ihdr) parseableData
+            in unparse palette transparencyColor (colourType ihdr) parseableData
 

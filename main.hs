@@ -56,7 +56,7 @@ validTests =
     "s39n3p04.png", "s40i3p04.png", "s40n3p04.png", "tbbn0g04.png", "tbbn2c16.png",
     "tbbn3p08.png", "tbgn2c16.png", "tbgn3p08.png", "tbrn2c08.png", "tbwn0g16.png",
     "tbwn3p08.png", "tbyn3p08.png", "tp0n0g08.png", "tp0n2c08.png", "tp0n3p08.png",
-    "tp1n3p08.png", "z00n2c08.png", "z03n2c08.png", "z06n2c08.png", "z09n2c08.png"]
+    "tp1n3p08.png", "z00n2c08.png", "z03n2c08.png", "z06n2c08.png", "z09n2c08.png", "megaman.png"]
 
 invalidTests :: [FilePath]
 invalidTests = ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", "xd0n2c08.png",
@@ -116,7 +116,7 @@ tiffValidTests =
     ,"pc260001.tif"
     ,"cramps.tif"
     ,"strike.tif"
-    {-,"ycbcr-cat.tif"-}
+    ,"ycbcr-cat.tif"
     {-,"zackthecat.tif"-}
     {-"smallliz.tif"-}
     ]
@@ -134,6 +134,7 @@ gifToImg path = do
                 jpg = validationJpegEncode ycbcr
                 png = encodePng img
                 bmp = encodeBitmap img
+                tiff = encodeTiff img
             putStrLn $ "PixelRGB8 : " ++ path
 
             putStrLn "-> BMP"
@@ -142,6 +143,8 @@ gifToImg path = do
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.png") png
             putStrLn "-> JPG"
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.tiff") tiff
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -152,6 +155,7 @@ imgToImg path = do
                 jpg = validationJpegEncode img
                 png = encodePng rgb
                 bmp = encodeBitmap rgb
+                tiff = encodeTiff img
             putStrLn $ "YCbCr : " ++ path
             putStrLn "-> JPG"
             L.writeFile (path ++ "._fromYCbCr8.jpg") jpg
@@ -159,6 +163,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYCbCr8.bmp") bmp
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYCbCr8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromYCbCr8.tiff") tiff
 
         Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
@@ -166,20 +172,27 @@ imgToImg path = do
             let rgbimg :: Image PixelRGB16
                 rgbimg = convertImage img
                 png = encodePng rgbimg
+                tiff = encodeTiff img
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK16.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromCMYK16.tiff") tiff
 
         Right (ImageCMYK8 img) -> do
             let rgbimg :: Image PixelRGB8
                 rgbimg = convertImage img
                 png = encodePng rgbimg
+                tiff = encodeTiff img
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromCMYK8.tiff") tiff
 
         Right (ImageRGB8 img) -> do
             let jpg = validationJpegEncode (convertImage img)
                 png = encodePng img
                 bmp = encodeBitmap img
+                tiff = encodeTiff img
             putStrLn $ "RGB8 : " ++ path
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromRGB8.bmp") bmp
@@ -187,12 +200,17 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGB8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromRGB8.tiff") tiff
 
         Right (ImageY16 img) -> do
-            let pngFile = imageToPng $ ImageY16 img
+            let pngFile = encodePng img
+                tiffFile = encodeTiff img
             putStrLn $ "Y16 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromY16.png") pngFile
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromY16.tiff") tiffFile
 
         Right (ImageYA16 img) -> do
             let pngFile = imageToPng $ ImageYA16 img
@@ -201,33 +219,44 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYA16.png") pngFile
 
         Right (ImageRGB16 img) -> do
-            let pngFile = imageToPng $ ImageRGB16 img
+            let pngFile = encodePng img
+                tiffFile = encodeTiff img
             putStrLn $ "RGB16 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB16.png") pngFile
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromRGB16.tiff") tiffFile
+
 
         Right (ImageRGBA16 img) -> do
-            let pngFile = imageToPng $ ImageRGBA16 img
+            let pngFile = encodePng img
+                tiffFile = encodeTiff img
             putStrLn $ "RGBA16 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGBA16.png") pngFile
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromRGBA16.tiff") tiffFile
 
         Right (ImageRGBA8 img) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
                 png = encodePng img
+                tiff = encodeTiff img
             putStrLn $ "RGBA8 : " ++ path
             putStrLn "-> BMP"
-            L.writeFile (path ++ ".fromRGBA8.bmp") bmp
+            L.writeFile (path ++ "._fromRGBA8.bmp") bmp
             putStrLn "-> JPG"
-            L.writeFile (path ++ ".fromRGBA8.jpg") jpg
+            L.writeFile (path ++ "._fromRGBA8.jpg") jpg
             putStrLn "-> PNG"
-            L.writeFile (path ++ ".fromRGBA8.png") png
+            L.writeFile (path ++ "._fromRGBA8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromRGBA8.tiff") tiff
 
         Right (ImageY8 img) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng img
+                tiff = encodeTiff img
             putStrLn $ "Y8 : " ++ path
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromY8.bmp") bmp
@@ -235,6 +264,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromY8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromY8.png") png
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "._fromY8.tiff") tiff
 
         Right (ImageYA8 img) -> do
             let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
@@ -336,12 +367,12 @@ testSuite = do
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 
 
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
-    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
+    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
+    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    {-mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests-}
 
 jpegToPng :: IO ()
 jpegToPng = do
@@ -420,6 +451,13 @@ main = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
+        ("debug":_) -> do
+            Right rez <- readImage "tests/jpeg/sheep.jpg"
+            putStrLn "============"
+            rez <- readImage "tests/jpeg/mand_prgrsv.jpg"
+            case rez of
+              Left err -> putStrLn err
+              Right v -> saveJpgImage 90 "test.jpg" v
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp

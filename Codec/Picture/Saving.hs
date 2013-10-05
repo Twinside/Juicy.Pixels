@@ -4,6 +4,7 @@
 module Codec.Picture.Saving( imageToJpg
                            , imageToPng
                            , imageToBitmap
+                           , imageToTiff
                            , imageToRadiance
                            ) where
 
@@ -15,6 +16,7 @@ import Codec.Picture.Jpg
 import Codec.Picture.Png
 import Codec.Picture.HDR
 import Codec.Picture.Types
+import Codec.Picture.Tiff
 
 import qualified Data.Vector.Storable as V
 
@@ -124,6 +126,24 @@ imageToPng (ImageY16    img) = encodePng img
 imageToPng (ImageYA16   img) = encodePng img
 imageToPng (ImageRGB16  img) = encodePng img
 imageToPng (ImageRGBA16 img) = encodePng img
+
+-- | This function will try to do anything to encode an image
+-- as a Tiff, make all color conversion and such. Equivalent
+-- of 'decodeImage' for Tiff encoding
+imageToTiff :: DynamicImage -> L.ByteString
+imageToTiff (ImageYCbCr8 img) = encodeTiff img
+imageToTiff (ImageCMYK8 img)  = encodeTiff img
+imageToTiff (ImageCMYK16 img) = encodeTiff img
+imageToTiff (ImageRGB8   img) = encodeTiff img
+imageToTiff (ImageRGBF   img) = encodeTiff $ toStandardDef img
+imageToTiff (ImageRGBA8  img) = encodeTiff img
+imageToTiff (ImageY8     img) = encodeTiff img
+imageToTiff (ImageYF     img) = encodeTiff $ greyScaleToStandardDef img
+imageToTiff (ImageYA8    img) = encodeTiff $ dropAlphaLayer img
+imageToTiff (ImageY16    img) = encodeTiff img
+imageToTiff (ImageYA16   img) = encodeTiff $ dropAlphaLayer img
+imageToTiff (ImageRGB16  img) = encodeTiff img
+imageToTiff (ImageRGBA16 img) = encodeTiff img
 
 -- | This function will try to do anything to encode an image
 -- as bitmap, make all color conversion and such. Equivalent

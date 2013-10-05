@@ -9,6 +9,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , pLTESignature
                              , iDATSignature
                              , iENDSignature
+                             , tRNSSignature
                              -- * Low level types
                              , ChunkSignature
                              , PngRawImage( .. )
@@ -35,6 +36,7 @@ import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
 import Data.Word( Word32, Word8 )
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Lazy.Char8 as LS
 
 import Codec.Picture.Types
 import Codec.Picture.InternalHelper
@@ -264,29 +266,32 @@ parseRawPngImage = do
 -- | Signature signalling that the following data will be a png image
 -- in the png bit stream
 pngSignature :: ChunkSignature
-pngSignature = signature [137, 80, 78, 71, 13, 10, 26, 10]
+pngSignature = L.pack [137, 80, 78, 71, 13, 10, 26, 10]
 
 -- | Helper function to help pack signatures.
-signature :: [Word8] -> ChunkSignature
-signature = L.pack . map (toEnum . fromEnum)
+signature :: String -> ChunkSignature
+signature = LS.pack 
 
 -- | Signature for the header chunk of png (must be the first)
 iHDRSignature :: ChunkSignature 
-iHDRSignature = signature [73, 72, 68, 82]
+iHDRSignature = signature "IHDR"
 
 -- | Signature for a palette chunk in the pgn file. Must
 -- occure before iDAT.
 pLTESignature :: ChunkSignature
-pLTESignature = signature [80, 76, 84, 69]
+pLTESignature = signature "PLTE"
 
 -- | Signature for a data chuck (with image parts in it)
 iDATSignature :: ChunkSignature
-iDATSignature = signature [73, 68, 65, 84]
+iDATSignature = signature "IDAT"
 
 -- | Signature for the last chunk of a png image, telling
 -- the end.
 iENDSignature :: ChunkSignature
-iENDSignature = signature [73, 69, 78, 68]
+iENDSignature = signature "IEND"
+
+tRNSSignature :: ChunkSignature
+tRNSSignature = signature "tRNS"
 
 instance Binary PngImageType where
     put PngGreyscale = putWord8 0

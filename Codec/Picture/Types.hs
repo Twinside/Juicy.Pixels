@@ -17,7 +17,7 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Image functions
                           , freezeImage
-                          , unsafeFreezeImage 
+                          , unsafeFreezeImage
 
                             -- ** Pixel types
                           , Pixel8
@@ -43,9 +43,10 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
-                          , dynamicMap
                           , pixelMap
                           , pixelFold
+                          , dynamicMap
+                          , dynamicPixelMap
                           , dropAlphaLayer
                           , withImage
                           , generateImage
@@ -133,15 +134,15 @@ data PlaneCr = PlaneCr
 -- | Define the plane for the Cb component
 data PlaneCb = PlaneCb
 
--- | Define plane for the cyan component of the 
+-- | Define plane for the cyan component of the
 -- CMYK color space.
 data PlaneCyan = PlaneCyan
 
--- | Define plane for the magenta component of the 
+-- | Define plane for the magenta component of the
 -- CMYK color space.
 data PlaneMagenta = PlaneMagenta
 
--- | Define plane for the yellow component of the 
+-- | Define plane for the yellow component of the
 -- CMYK color space.
 data PlaneYellow = PlaneYellow
 
@@ -227,10 +228,10 @@ instance NFData (Image a) where
 -- position first, then the vertical one. The image can be transformed in place.
 data MutableImage s a = MutableImage
     { -- | Width of the image in pixels
-	  mutableImageWidth  :: {-# UNPACK #-} !Int
+      mutableImageWidth  :: {-# UNPACK #-} !Int
 
       -- | Height of the image in pixels.
-	, mutableImageHeight :: {-# UNPACK #-} !Int
+    , mutableImageHeight :: {-# UNPACK #-} !Int
 
       -- | The real image, to extract pixels at some position
       -- you should use the helpers functions.
@@ -261,7 +262,7 @@ data DynamicImage =
        ImageY8    (Image Pixel8)
        -- | A greyscale image with 16bit components
      | ImageY16   (Image Pixel16)
-       -- | A greyscale HDR image 
+       -- | A greyscale HDR image
      | ImageYF    (Image PixelF)
        -- | An image in greyscale with an alpha channel.
      | ImageYA8   (Image PixelYA8)
@@ -306,6 +307,38 @@ dynamicMap f (ImageRGBA16 i) = f i
 dynamicMap f (ImageYCbCr8 i) = f i
 dynamicMap f (ImageCMYK8 i) = f i
 dynamicMap f (ImageCMYK16 i) = f i
+
+-- | Equivalent of the `pixelMap` function for the dynamic images.
+-- You can perform pixel colorspace independant operations with this
+-- function.
+--
+-- For instance, if you wan't to extract a square crop of any image,
+-- without caring about colorspace, you can use the following snippet.
+--
+-- > dynSquare :: DynamicImage -> DynamicImage
+-- > dynSquare = dynMap squareImage
+-- >
+-- > squareImage :: Pixel a => Image a -> Image a
+-- > squareImage img = generateImage (\x y -> pixelAt img x y) edge edge
+-- >    where edge = min (imageWidth img) (imageHeight img)
+--
+dynamicPixelMap :: (forall pixel . (Pixel pixel) => Image pixel -> Image pixel)
+                -> DynamicImage -> DynamicImage
+dynamicPixelMap f = aux
+  where
+    aux (ImageY8    i) = ImageY8 (f i)
+    aux (ImageY16   i) = ImageY16 (f i)
+    aux (ImageYF    i) = ImageYF (f i)
+    aux (ImageYA8   i) = ImageYA8 (f i)
+    aux (ImageYA16  i) = ImageYA16 (f i)
+    aux (ImageRGB8  i) = ImageRGB8 (f i)
+    aux (ImageRGB16 i) = ImageRGB16 (f i)
+    aux (ImageRGBF  i) = ImageRGBF (f i)
+    aux (ImageRGBA8 i) = ImageRGBA8 (f i)
+    aux (ImageRGBA16 i) = ImageRGBA16 (f i)
+    aux (ImageYCbCr8 i) = ImageYCbCr8 (f i)
+    aux (ImageCMYK8 i) = ImageCMYK8 (f i)
+    aux (ImageCMYK16 i) = ImageCMYK16 (f i)
 
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
@@ -491,6 +524,15 @@ class ( Storable (PixelBaseComponent a)
     -- HDR image would have Float for instance
     type PixelBaseComponent a :: *
 
+    -- | Call the function for every component of the pixels.
+    -- For example for RGB pixels mixWith is declared like this :
+    --
+    -- > mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
+    -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
+    --
+    mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
+            -> a -> a -> a
+
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
 
@@ -651,14 +693,14 @@ generateFoldImage f intialAcc w h =
 -- | Fold over the pixel of an image with a raster scan order :
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
-pixelFold :: (Pixel pixel) 
+pixelFold :: (Pixel pixel)
           => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
 pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
-  lineFold 
+  lineFold
     where pixelFolder y acc x = f acc x y $ pixelAt img x y
           columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
           lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
-          
+
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
 --
@@ -711,7 +753,7 @@ class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- implementation.
     --
     -- > jpegToGrayScale :: FilePath -> FilePath -> IO ()
-    -- > jpegToGrayScale source dest 
+    -- > jpegToGrayScale source dest
     extractLumaPlane :: Image a -> Image (PixelBaseComponent a)
     extractLumaPlane = pixelMap computeLuma
 
@@ -768,6 +810,9 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
 
@@ -810,6 +855,9 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 instance Pixel Pixel16 where
     type PixelBaseComponent Pixel16 = Word16
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
 
@@ -844,6 +892,9 @@ instance ColorConvertible Pixel16 PixelRGBA16 where
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
 
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
     {-# INLINE colorMap #-}
     colorMap f = f
     componentCount _ = 1
@@ -869,6 +920,11 @@ instance ColorConvertible PixelF PixelRGBF where
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYA8 ya aa) (PixelYA8 yb ab) =
+        PixelYA8 (f 0 ya yb) (f 1 aa ab)
+
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYA8 y a) = PixelYA8 (f y) (f a)
     componentCount _ = 2
@@ -887,7 +943,7 @@ instance Pixel PixelYA8 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYA8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
         PixelYA8 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
@@ -923,6 +979,10 @@ instance LumaPlaneExtractable PixelYA8 where
 instance Pixel PixelYA16 where
     type PixelBaseComponent PixelYA16 = Word16
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
+        PixelYA16 (f 0 ya yb) (f 1 aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYA16 y a) = PixelYA16 (f y) (f a)
     componentCount _ = 2
@@ -941,7 +1001,7 @@ instance Pixel PixelYA16 where
         (arr .<-. (baseIdx + 0)) yv
         (arr .<-. (baseIdx + 1)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYA16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1)
     unsafeReadPixel vec idx =
         PixelYA16 `liftM` M.unsafeRead vec idx `ap` M.unsafeRead vec (idx + 1)
@@ -967,6 +1027,10 @@ instance TransparentPixel PixelYA16 Pixel16 where
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBF ra ga ba) (PixelRGBF rb gb bb) =
+        PixelRGBF (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBF r g b) = PixelRGBF (f r) (f g) (f b)
 
@@ -990,7 +1054,7 @@ instance Pixel PixelRGBF where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBF (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGBF `liftM` M.unsafeRead vec idx
@@ -1015,6 +1079,10 @@ instance ColorPlane PixelRGBF PlaneBlue where
 instance Pixel PixelRGB16 where
     type PixelBaseComponent PixelRGB16 = Pixel16
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGB16 ra ga ba) (PixelRGB16 rb gb bb) =
+        PixelRGB16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGB16 r g b) = PixelRGB16 (f r) (f g) (f b)
 
@@ -1038,7 +1106,7 @@ instance Pixel PixelRGB16 where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGB16 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGB16 `liftM` M.unsafeRead vec idx
@@ -1076,6 +1144,10 @@ instance LumaPlaneExtractable PixelRGB16 where
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
+        PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGB8 r g b) = PixelRGB8 (f r) (f g) (f b)
 
@@ -1099,7 +1171,7 @@ instance Pixel PixelRGB8 where
         (arr .<-. (baseIdx + 1)) gv
         (arr .<-. (baseIdx + 2)) bv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGB8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelRGB8 `liftM` M.unsafeRead vec idx
@@ -1139,6 +1211,10 @@ instance LumaPlaneExtractable PixelRGB8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
+        PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
@@ -1165,7 +1241,7 @@ instance Pixel PixelRGBA8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBA8 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1198,6 +1274,10 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 instance Pixel PixelRGBA16 where
     type PixelBaseComponent PixelRGBA16 = Pixel16
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
+        PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA16 r g b a) = PixelRGBA16 (f r) (f g) (f b) (f a)
 
@@ -1223,7 +1303,7 @@ instance Pixel PixelRGBA16 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelRGBA16 (V.unsafeIndex v idx)
                     (V.unsafeIndex v $ idx + 1)
                     (V.unsafeIndex v $ idx + 2)
@@ -1261,6 +1341,10 @@ instance ColorPlane PixelRGBA16 PlaneAlpha where
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYCbCr8 ya cba cra) (PixelYCbCr8 yb cbb crb) =
+        PixelYCbCr8 (f 0 ya yb) (f 1 cba cbb) (f 2 cra crb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYCbCr8 y cb cr) = PixelYCbCr8 (f y) (f cb) (f cr)
     componentCount _ = 3
@@ -1282,7 +1366,7 @@ instance Pixel PixelYCbCr8 where
         (arr .<-. (baseIdx + 1)) cbv
         (arr .<-. (baseIdx + 2)) crv
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelYCbCr8 (V.unsafeIndex v idx) (V.unsafeIndex v $ idx + 1) (V.unsafeIndex v $ idx + 2)
     unsafeReadPixel vec idx =
         PixelYCbCr8 `liftM` M.unsafeRead vec idx
@@ -1415,6 +1499,10 @@ instance ColorPlane PixelYCbCr8 PlaneCr where
 instance Pixel PixelCMYK8 where
     type PixelBaseComponent PixelCMYK8 = Word8
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelCMYK8 ca ma ya ka) (PixelCMYK8 cb mb yb kb) =
+        PixelCMYK8 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelCMYK8 c m y k) = PixelCMYK8 (f c) (f m) (f y) (f k)
 
@@ -1441,7 +1529,7 @@ instance Pixel PixelCMYK8 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelCMYK8 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1459,7 +1547,7 @@ instance Pixel PixelCMYK8 where
 instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
   convertPixel (PixelCMYK8 c m y k) =
       PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
-    where 
+    where
           clampWord8 = fromIntegral . (`unsafeShiftR` 8)
           ik :: Int
           ik = 255 - fromIntegral k
@@ -1515,6 +1603,10 @@ instance ColorPlane PixelCMYK8 PlaneBlack where
 instance Pixel PixelCMYK16 where
     type PixelBaseComponent PixelCMYK16 = Word16
 
+    {-# INLINE mixWith #-}
+    mixWith f (PixelCMYK16 ca ma ya ka) (PixelCMYK16 cb mb yb kb) =
+        PixelCMYK16 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelCMYK16 c m y k) = PixelCMYK16 (f c) (f m) (f y) (f k)
 
@@ -1541,7 +1633,7 @@ instance Pixel PixelCMYK16 where
         (arr .<-. (baseIdx + 2)) bv
         (arr .<-. (baseIdx + 3)) av
 
-    unsafePixelAt v idx = 
+    unsafePixelAt v idx =
         PixelCMYK16 (V.unsafeIndex v idx)
                    (V.unsafeIndex v $ idx + 1)
                    (V.unsafeIndex v $ idx + 2)
@@ -1559,7 +1651,7 @@ instance Pixel PixelCMYK16 where
 instance ColorSpaceConvertible PixelCMYK16 PixelRGB16 where
   convertPixel (PixelCMYK16 c m y k) =
       PixelRGB16 (clampWord16 r) (clampWord16 g) (clampWord16 b)
-    where 
+    where
           clampWord16 = fromIntegral . (`unsafeShiftR` 16)
           ik :: Int
           ik = 65535 - fromIntegral k
