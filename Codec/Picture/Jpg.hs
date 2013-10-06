@@ -8,10 +8,11 @@
 module Codec.Picture.Jpg( decodeJpeg, encodeJpegAtQuality, encodeJpeg ) where
 
 import Control.Arrow( (>>>) )
-import Control.Applicative( (<$>), (<*>))
+import Control.Applicative( pure, (<$>), (<*>))
 import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
+import Control.Monad.Trans.RWS( RWS, modify, tell, gets )
 import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.Maybe( fromMaybe )
@@ -37,6 +38,7 @@ import Data.Binary.Put( Put
 
 import Data.Maybe( fromJust )
 import qualified Data.Vector as V
+import Data.Vector( (//) )
 import Data.Vector.Unboxed( (!) )
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
@@ -330,7 +332,7 @@ extractScanContent str = aux 0
             where v = str `L.index` n
                   vNext = str `L.index` (n + 1)
                   isReset = 0xD0 <= vNext && vNext <= 0xD7
-                 
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -363,7 +365,7 @@ parseFrames = do
                     <$> get <*> parseNextFrame
         JpgStartOfScan ->
             trace "StartOfScan" $
-            (\frm imgData -> 
+            (\frm imgData ->
                 let (d, other) = extractScanContent imgData
                 in
                 case runGet parseFrames (L.drop 1 other) of
@@ -515,8 +517,9 @@ instance Binary JpgScanHeader where
         specEnd <- get
         (approxHigh, approxLow) <- get4BitOfEach
 
-        trace (printf "spectralSelection:(%d,%d) approx:(low:%d, high:%d)"
-                    specBeg specEnd approxLow approxHigh) $ return JpgScanHeader {
+        trace (printf "comp:%s\nspectralSelection:(%d,%d) approx:(low:%d, high:%d)"
+                    (show comp) specBeg specEnd
+                    approxLow approxHigh) $ return JpgScanHeader {
             scanLength = thisScanLength,
             scanComponentCount = compCount,
             scans = comp,
@@ -894,6 +897,119 @@ decodeRestartInterval = return (-1) {-  do
          return $ packInt marker
      else return (-1)
         -}
+
+type JpgScripter a =
+    RWS () [([JpgUnpackerParameter], L.ByteString)] JpgDecoderState a
+
+data JpgUnpackerParameter = JpgUnpackerParameter
+    { dcHuffmanTree        :: !HuffmanTreeInfo
+    , acHuffmanTree        :: !HuffmanTreeInfo
+    , quantization         :: !(MacroBlock Int16)
+    , componentIndex       :: !Int
+    , restartInterval      :: !Int
+    , componentWidth       :: !Int
+    , componentHeight      :: !Int
+    , coefficientRange     :: !(Int, Int)
+    , successiveApprox     :: !(Int, Int)
+    , mcuX                 :: !Int
+    , mcuY                 :: !Int
+    }
+
+data JpgDecoderState = JpgDecoderState
+    { dcDecoderTables      :: !(V.Vector HuffmanTreeInfo)
+    , acDecoderTables      :: !(V.Vector HuffmanTreeInfo)
+    , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
+    , currentRestartInterv :: !Word16
+    , currentFrame         :: Maybe JpgFrameHeader
+    , maximumHorizontalResolution :: !Int
+    , minimumVerticalResolution   :: !Int
+    }
+
+-- | This pseudo interpreter interpret the Jpg frame for the huffman,
+-- quant table and restart interval parameters.
+jpgMachineStep :: JpgFrame -> JpgScripter ()
+jpgMachineStep (JpgAppFrame _ _) = pure ()
+jpgMachineStep (JpgExtension _ _) = pure ()
+jpgMachineStep (JpgScanBlob hdr raw_data) = do
+    params <- concat <$> mapM scanSpecifier (scans hdr)
+    tell [(params, raw_data)  ]
+  where (selectionLow, selectionHigh) = spectralSelection hdr
+        approxHigh = fromIntegral $ successiveApproxHigh hdr
+        approxLow = fromIntegral $ successiveApproxLow hdr
+
+        scanSpecifier scanSpec = do
+            let dcIndex = fromIntegral $ dcEntropyCodingTable scanSpec
+                acIndex = fromIntegral $ acEntropyCodingTable scanSpec
+                comp = fromIntegral $ componentSelector scanSpec
+            dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
+            acTree <- gets $ (V.! acIndex) . acDecoderTables
+            maxHoriz <- gets maximumHorizontalResolution
+            maxVert <- gets minimumVerticalResolution
+            restart <- gets currentRestartInterv
+            frameInfo <- gets currentFrame
+            case frameInfo of
+              Nothing -> fail "Jpg decoding error - no previous frame"
+              Just v -> do
+                 let compDesc = jpgComponents v !! comp
+                     xSampling = fromIntegral $ horizontalSamplingFactor compDesc
+                     xSamplingFactor = maxHoriz - xSampling + 1
+
+                     ySampling = fromIntegral $ verticalSamplingFactor compDesc
+                     ySamplingFactor = maxVert - ySampling + 1
+
+                     quantIndex = fromIntegral $ quantizationTableDest compDesc
+
+                 quant <- gets $ (V.! quantIndex) . quantizationMatrices
+
+                 pure [ JpgUnpackerParameter
+                          { dcHuffmanTree = dcTree
+                          , acHuffmanTree = acTree
+                          , quantization = quant
+                          , componentIndex = comp
+                          , restartInterval = fromIntegral restart
+                          , componentWidth = xSamplingFactor
+                          , componentHeight = ySamplingFactor
+                          , successiveApprox = (approxLow, approxHigh)
+                          , coefficientRange =
+                              ( fromIntegral selectionLow
+                              , fromIntegral selectionHigh )
+
+
+                          , mcuX = x
+                          , mcuY = y
+                          }
+                              | y <- [0 .. ySamplingFactor - 1]
+                              , x <- [0 .. xSamplingFactor - 1] ]
+
+jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
+   s { currentFrame = Just hdr
+     , maximumHorizontalResolution =
+         fromIntegral $ maximum horizontalResolutions
+     , minimumVerticalResolution =
+         fromIntegral $ maximum horizontalResolutions
+     }
+    where components = jpgComponents hdr
+          horizontalResolutions = map horizontalSamplingFactor components
+          verticalResolutions = map verticalSamplingFactor components
+jpgMachineStep (JpgIntervalRestart restart) =
+    modify $ \s -> s { currentRestartInterv = restart }
+jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
+  where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
+            DcComponent -> modify $ \s ->
+                s { dcDecoderTables = dcDecoderTables s // [(idx, tree)] }
+                    where idx = fromIntegral $ huffmanTableDest spec
+            AcComponent -> modify $ \s ->
+                s { acDecoderTables = acDecoderTables s // [(idx, tree)] }
+                    where idx = fromIntegral $ huffmanTableDest spec
+
+jpgMachineStep (JpgQuantTable tables) = mapM_ placeQuantizationTables tables
+  where placeQuantizationTables table = do
+            let idx = fromIntegral $ quantDestination table
+                tableData = quantTable table
+            modify $ \s ->
+                s { quantizationMatrices =  quantizationMatrices s // [(idx, tableData)] }
+
+
 
 decodeImage :: JpgImage
             -> Int -- ^ Component count
