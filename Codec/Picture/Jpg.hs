@@ -1113,8 +1113,9 @@ decodeImage img compCount outImage = do
             comp compIdx ((horizCount, vertCount, dcTree, acTree, qTable, unpack):comp_rest) = liner 0
               where liner yd | yd >= vertCount = comp (compIdx + 1) comp_rest
                     liner yd = columner 0
-                      where columner xd | xd >= horizCount = liner (yd + 1)
-                            columner xd | (xd == horizCount - 1 && x == horizontalBlockCount - 1) || yd == horizCount - 1 = do
+                      where verticalLimited = yd == horizCount - 1 || y == verticalBlockCount - 1
+                            columner xd | xd >= horizCount = liner (yd + 1)
+                            columner xd | (xd == horizCount - 1 && x == horizontalBlockCount - 1) || verticalLimited = do
                                 dc <- lift $ dcArray `M.unsafeRead` compIdx
                                 (dcCoeff, block) <-
                                     decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc

@@ -446,8 +446,8 @@ benchMark = do
         ]
     putStrLn "END"
 
-main :: IO ()
-main = do
+myMain :: IO ()
+myMain = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
@@ -464,3 +464,7 @@ main = do
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark
+
+main :: IO ()
+main = myMain
+
