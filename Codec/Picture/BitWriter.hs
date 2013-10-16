@@ -2,7 +2,8 @@
 -- | This module implement helper functions to read & write data
 -- at bits level.
 module Codec.Picture.BitWriter( BoolReader
-                              , BoolState( .. )
+                              , emptyBoolState
+                              , BoolState
                               , byteAlignJpg
                               , getNextBitsLSBFirst
                               , getNextBitsMSBFirst 
@@ -38,6 +39,9 @@ import qualified Data.ByteString.Lazy as L
 data BoolState = BoolState {-# UNPACK #-} !Int
                            {-# UNPACK #-} !Word8
                            !B.ByteString
+
+emptyBoolState :: BoolState
+emptyBoolState = BoolState (-1) 0 B.empty
 
 -- | Type used to read bits
 type BoolReader s a = S.StateT BoolState (ST s) a

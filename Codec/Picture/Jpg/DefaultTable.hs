@@ -14,6 +14,7 @@ module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
 									 , makeInverseTable
 									 , buildHuffmanTree
 									 , packHuffmanTree
+									 , huffmanPackedDecode
 
 									 , defaultChromaQuantizationTable
 
@@ -37,10 +38,12 @@ import Foreign.Storable ( Storable )
 import Control.Monad.ST( runST )
 import qualified Data.Vector.Storable as SV
 import qualified Data.Vector as V
-import Data.Bits( unsafeShiftL, (.|.) )
+import Data.Bits( unsafeShiftL, (.|.), (.&.) )
 import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import qualified Data.Vector.Storable.Mutable as M
+
+import Codec.Picture.BitWriter
 
 -- | Tree storing the code used for huffman encoding.
 data HuffmanTree = Branch HuffmanTree HuffmanTree -- ^ If bit is 0 take the first subtree, if 1, the right.
@@ -137,6 +140,15 @@ scaleQuantisationMatrix quality
                 scale coeff i = fromIntegral . min 255 
                                              . max 1 
                                              $ fromIntegral i * coeff `div` 100
+
+huffmanPackedDecode :: HuffmanPackedTree -> BoolReader s Word8
+huffmanPackedDecode table = getNextBitJpg >>= aux 0
+  where aux idx b | (v .&. 0x8000) /= 0 = return 0
+                  | (v .&. 0x4000) /= 0 = return . fromIntegral $ v .&. 0xFF
+                  | otherwise = getNextBitJpg >>= aux v
+          where tableIndex | b = idx + 1
+                           | otherwise = idx
+                v = table `SV.unsafeIndex` fromIntegral tableIndex
 
 defaultLumaQuantizationTable :: QuantificationTable
 defaultLumaQuantizationTable = makeMacroBlock

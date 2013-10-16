@@ -5,536 +5,47 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
-module Codec.Picture.Jpg( decodeJpeg, encodeJpegAtQuality, encodeJpeg ) where
+module Codec.Picture.Jpg( decodeJpeg
+                        , encodeJpegAtQuality
+                        , encodeJpeg
+
+                        , jpgMachineStep
+                        , JpgDecoderState( JpgDecoderState )
+                        ) where
 
 import Control.Arrow( (>>>) )
-import Control.Applicative( pure, (<$>), (<*>))
-import Control.Monad( when, replicateM, forM, forM_, foldM_, unless )
+import Control.Applicative( pure, (<$>) )
+import Control.Monad( when, forM_, foldM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
 import Control.Monad.Trans.RWS( RWS, modify, tell, gets )
 import qualified Control.Monad.Trans.State.Strict as S
 
-import Data.Maybe( fromMaybe )
-import Data.List( find, foldl' )
+import Data.Maybe( fromJust )
+import Data.List( find )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word16, Word32)
 import Data.Binary( Binary(..), encode )
 
-import Data.Binary.Get( Get
-                      , getWord8
-                      , getWord16be
-                      , getByteString
-                      , skip
-                      , bytesRead
-                      )
-
-import Data.Binary.Put( Put
-                      , putWord8
-                      , putWord16be
-                      , putLazyByteString
-                      )
-
-import Data.Maybe( fromJust )
-import qualified Data.Vector as V
 import Data.Vector( (//) )
 import Data.Vector.Unboxed( (!) )
+import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 -- import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-import Foreign.Storable ( Storable )
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Common
+import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
-import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.FastDct
-
-import Debug.Trace
-import Text.Printf
-
---------------------------------------------------
-----            Types
---------------------------------------------------
-data JpgFrameKind =
-      JpgBaselineDCTHuffman
-    | JpgExtendedSequentialDCTHuffman
-    | JpgProgressiveDCTHuffman
-    | JpgLosslessHuffman
-    | JpgDifferentialSequentialDCTHuffman
-    | JpgDifferentialProgressiveDCTHuffman
-    | JpgDifferentialLosslessHuffman
-    | JpgExtendedSequentialArithmetic
-    | JpgProgressiveDCTArithmetic
-    | JpgLosslessArithmetic
-    | JpgDifferentialSequentialDCTArithmetic
-    | JpgDifferentialProgressiveDCTArithmetic
-    | JpgDifferentialLosslessArithmetic
-    | JpgQuantizationTable
-    | JpgHuffmanTableMarker
-    | JpgStartOfScan
-    | JpgEndOfImage
-    | JpgAppSegment Word8
-    | JpgExtensionSegment Word8
-
-    | JpgRestartInterval
-    | JpgRestartIntervalEnd Word8
-    deriving (Eq, Show)
-
-type HuffmanTreeInfo = HuffmanPackedTree
-
-data JpgFrame =
-      JpgAppFrame        !Word8 B.ByteString
-    | JpgExtension       !Word8 B.ByteString
-    | JpgQuantTable      ![JpgQuantTableSpec]
-    | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanTreeInfo)]
-    | JpgScanBlob        !JpgScanHeader !L.ByteString
-    | JpgScans           !JpgFrameKind !JpgFrameHeader
-    | JpgIntervalRestart !Word16
-    deriving Show
-
-data JpgFrameHeader = JpgFrameHeader
-    { jpgFrameHeaderLength   :: !Word16
-    , jpgSamplePrecision     :: !Word8
-    , jpgHeight              :: !Word16
-    , jpgWidth               :: !Word16
-    , jpgImageComponentCount :: !Word8
-    , jpgComponents          :: ![JpgComponent]
-    }
-    deriving Show
-
-instance SizeCalculable JpgFrameHeader where
-    calculateSize hdr = 2 + 1 + 2 + 2 + 1
-                      + sum [calculateSize c | c <- jpgComponents hdr]
-
-data JpgComponent = JpgComponent
-    { componentIdentifier       :: !Word8
-      -- | Stored with 4 bits
-    , horizontalSamplingFactor  :: !Word8
-      -- | Stored with 4 bits
-    , verticalSamplingFactor    :: !Word8
-    , quantizationTableDest     :: !Word8
-    }
-    deriving Show
-
-instance SizeCalculable JpgComponent where
-    calculateSize _ = 3
-
-data JpgImage = JpgImage { jpgFrame :: [JpgFrame]}
-    deriving Show
-
-data JpgScanSpecification = JpgScanSpecification
-    { componentSelector :: !Word8
-      -- | Encoded as 4 bits
-    , dcEntropyCodingTable :: !Word8
-      -- | Encoded as 4 bits
-    , acEntropyCodingTable :: !Word8
-
-    }
-    deriving Show
-
-instance SizeCalculable JpgScanSpecification where
-    calculateSize _ = 2
-
-data JpgScanHeader = JpgScanHeader
-    { scanLength :: !Word16
-    , scanComponentCount :: !Word8
-    , scans :: [JpgScanSpecification]
-
-      -- | (begin, end)
-    , spectralSelection    :: (Word8, Word8)
-
-      -- | Encoded as 4 bits
-    , successiveApproxHigh :: !Word8
-
-      -- | Encoded as 4 bits
-    , successiveApproxLow :: !Word8
-    }
-    deriving Show
-
-instance SizeCalculable JpgScanHeader where
-    calculateSize hdr = 2 + 1
-                      + sum [calculateSize c | c <- scans hdr]
-                      + 2
-                      + 1
-
-data JpgQuantTableSpec = JpgQuantTableSpec
-    { -- | Stored on 4 bits
-      quantPrecision     :: !Word8
-
-      -- | Stored on 4 bits
-    , quantDestination   :: !Word8
-
-    , quantTable         :: MacroBlock Int16
-    }
-    deriving Show
-
--- | Type introduced only to avoid some typeclass overlapping
--- problem
-newtype TableList a = TableList [a]
-
-class SizeCalculable a where
-    calculateSize :: a -> Int
-
-instance (SizeCalculable a, Binary a) => Binary (TableList a) where
-    put (TableList lst) = do
-        putWord16be . fromIntegral $ sum [calculateSize table | table <- lst] + 2
-        mapM_ put lst
-
-    get = TableList <$> (getWord16be >>= \s -> innerParse (fromIntegral s - 2))
-      where innerParse :: Int -> Get [a]
-            innerParse 0    = return []
-            innerParse size = do
-                onStart <- fromIntegral <$> bytesRead
-                table <- get
-                onEnd <- fromIntegral <$> bytesRead
-                (table :) <$> innerParse (size - (onEnd - onStart))
-
-instance SizeCalculable JpgQuantTableSpec where
-    calculateSize table =
-        1 + (fromIntegral (quantPrecision table) + 1) * 64
-
-instance Binary JpgQuantTableSpec where
-    put table = do
-        let precision = quantPrecision table
-        put4BitsOfEach precision (quantDestination table)
-        forM_ (VS.toList $ quantTable table) $ \coeff ->
-            if precision == 0 then putWord8 $ fromIntegral coeff
-                             else putWord16be $ fromIntegral coeff
-
-    get = do
-        (precision, dest) <- get4BitOfEach
-        coeffs <- replicateM 64 $ if precision == 0
-                then fromIntegral <$> getWord8
-                else fromIntegral <$> getWord16be
-        return JpgQuantTableSpec
-            { quantPrecision = precision
-            , quantDestination = dest
-            , quantTable = VS.fromListN 64 coeffs
-            }
-
-data JpgHuffmanTableSpec = JpgHuffmanTableSpec
-    { -- | 0 : DC, 1 : AC, stored on 4 bits
-      huffmanTableClass       :: !DctComponent
-      -- | Stored on 4 bits
-    , huffmanTableDest        :: !Word8
-
-    , huffSizes :: !(VU.Vector Word8)
-    , huffCodes :: !(V.Vector (VU.Vector Word8))
-    }
-    deriving Show
-
-buildPackedHuffmanTree :: V.Vector (VU.Vector Word8) -> HuffmanTree
-buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
-
-huffmanPackedDecode :: HuffmanPackedTree -> BoolReader s Word8
-huffmanPackedDecode table = getNextBitJpg >>= aux 0
-  where aux idx b | (v .&. 0x8000) /= 0 = return 0
-                  | (v .&. 0x4000) /= 0 = return . fromIntegral $ v .&. 0xFF
-                  | otherwise = getNextBitJpg >>= aux v
-          where tableIndex | b = idx + 1
-                           | otherwise = idx
-                v = table `VS.unsafeIndex` fromIntegral tableIndex
-
---------------------------------------------------
-----            Serialization instances
---------------------------------------------------
-commonMarkerFirstByte :: Word8
-commonMarkerFirstByte = 0xFF
-
-checkMarker :: Word8 -> Word8 -> Get ()
-checkMarker b1 b2 = do
-    rb1 <- getWord8
-    rb2 <- getWord8
-    when (rb1 /= b1 || rb2 /= b2)
-         (fail "Invalid marker used")
-
-eatUntilCode :: Get ()
-eatUntilCode = do
-    code <- getWord8
-    unless (code == 0xFF) eatUntilCode
-
-instance SizeCalculable JpgHuffmanTableSpec where
-    calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]
-
-instance Binary JpgHuffmanTableSpec where
-    put table = do
-        let classVal = if huffmanTableClass table == DcComponent
-                          then 0 else 1
-        put4BitsOfEach classVal $ huffmanTableDest table
-        mapM_ put . VU.toList $ huffSizes table
-        forM_ [0 .. 15] $ \i ->
-            when (huffSizes table ! i /= 0)
-                 (let elements = VU.toList $ huffCodes table V.! i
-                  in mapM_ put elements)
-
-    get = do
-        (huffClass, huffDest) <- get4BitOfEach
-        sizes <- replicateM 16 getWord8
-        codes <- forM sizes $ \s ->
-            VU.replicateM (fromIntegral s) getWord8
-        return JpgHuffmanTableSpec
-            { huffmanTableClass =
-                if huffClass == 0 then DcComponent else AcComponent
-            , huffmanTableDest = huffDest
-            , huffSizes = VU.fromListN 16 sizes
-            , huffCodes = V.fromListN 16 codes
-            }
-
-instance Binary JpgImage where
-    put (JpgImage { jpgFrame = frames }) =
-        putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
-            >> putWord8 0xFF >> putWord8 0xD9
-
-    get = do
-        let startOfImageMarker = 0xD8
-            -- endOfImageMarker = 0xD9
-        checkMarker commonMarkerFirstByte startOfImageMarker
-        eatUntilCode
-        frames <- parseFrames
-        {-checkMarker commonMarkerFirstByte endOfImageMarker-}
-        return JpgImage { jpgFrame = frames }
-
-takeCurrentFrame :: Get B.ByteString
-takeCurrentFrame = do
-    size <- getWord16be
-    getByteString (fromIntegral size - 2)
-
-putFrame :: JpgFrame -> Put
-putFrame (JpgAppFrame appCode str) =
-    put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
-putFrame (JpgExtension appCode str) =
-    put (JpgExtensionSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
-putFrame (JpgQuantTable tables) =
-    put JpgQuantizationTable >> put (TableList tables)
-putFrame (JpgHuffmanTable tables) =
-    put JpgHuffmanTableMarker >> put (TableList $ map fst tables)
-putFrame (JpgIntervalRestart size) =
-    put JpgRestartInterval >> put (RestartInterval size)
-putFrame (JpgScanBlob hdr blob) =
-    put JpgStartOfScan >> put hdr >> putLazyByteString blob
-putFrame (JpgScans kind hdr) =
-    put kind >> put hdr
-
-extractScanContent :: L.ByteString -> (L.ByteString, L.ByteString)
-extractScanContent str = aux 0
-  where maxi = fromIntegral $ L.length str - 1
-
-        aux n | n >= maxi = (str, L.empty)
-              | v == 0xFF && vNext /= 0 && not isReset = L.splitAt n str
-              | otherwise = aux (n + 1)
-            where v = str `L.index` n
-                  vNext = str `L.index` (n + 1)
-                  isReset = 0xD0 <= vNext && vNext <= 0xD7
-
-parseFrames :: Get [JpgFrame]
-parseFrames = do
-    kind <- get
-    let parseNextFrame = do
-            word <- getWord8
-            when (word /= 0xFF) $ do
-                readedData <- bytesRead
-                fail $ "Invalid Frame marker (" ++ show word
-                     ++ ", bytes read : " ++ show readedData ++ ")"
-            parseFrames
-
-    case kind of
-        JpgEndOfImage -> return []
-        JpgAppSegment c ->
-            trace "AppSegment" $
-            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
-        JpgExtensionSegment c ->
-            trace "ExtSegment" $
-            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
-        JpgQuantizationTable ->
-            trace "QuantTable" $
-            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
-        JpgRestartInterval ->
-            trace "RestartInterval" $
-            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
-        JpgHuffmanTableMarker ->
-            trace "HuffmanTable" $
-            (\(TableList huffTables) lst ->
-                    JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
-                    <$> get <*> parseNextFrame
-        JpgStartOfScan ->
-            trace "StartOfScan" $
-            (\frm imgData ->
-                let (d, other) = extractScanContent imgData
-                in
-                case runGet parseFrames (L.drop 1 other) of
-                  Left _ -> [JpgScanBlob frm d]
-                  Right lst -> JpgScanBlob frm d : lst
-            ) <$> get <*> getRemainingLazyBytes
-
-        _ -> trace (show kind) $ (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
-
-secondStartOfFrameByteOfKind :: JpgFrameKind -> Word8
-secondStartOfFrameByteOfKind = aux
-  where
-    aux JpgBaselineDCTHuffman = 0xC0
-    aux JpgExtendedSequentialDCTHuffman = 0xC1
-    aux JpgProgressiveDCTHuffman = 0xC2
-    aux JpgLosslessHuffman = 0xC3
-    aux JpgDifferentialSequentialDCTHuffman = 0xC5
-    aux JpgDifferentialProgressiveDCTHuffman = 0xC6
-    aux JpgDifferentialLosslessHuffman = 0xC7
-    aux JpgExtendedSequentialArithmetic = 0xC9
-    aux JpgProgressiveDCTArithmetic = 0xCA
-    aux JpgLosslessArithmetic = 0xCB
-    aux JpgHuffmanTableMarker = 0xC4
-    aux JpgDifferentialSequentialDCTArithmetic = 0xCD
-    aux JpgDifferentialProgressiveDCTArithmetic = 0xCE
-    aux JpgDifferentialLosslessArithmetic = 0xCF
-    aux JpgEndOfImage = 0xD9
-    aux JpgQuantizationTable = 0xDB
-    aux JpgStartOfScan = 0xDA
-    aux JpgRestartInterval = 0xDD
-    aux (JpgRestartIntervalEnd v) = v
-    aux (JpgAppSegment a) = a
-    aux (JpgExtensionSegment a) = a
-
-data JpgImageKind = BaseLineDCT | ProgressiveDCT
-
-instance Binary JpgFrameKind where
-    put v = putWord8 0xFF >> put (secondStartOfFrameByteOfKind v)
-    get = do
-        -- no lookahead :(
-        {-word <- getWord8-}
-        word2 <- getWord8
-        return . (\a -> trace ("frameKind: " ++ show a) a) $ case word2 of
-            0xC0 -> JpgBaselineDCTHuffman
-            0xC1 -> JpgExtendedSequentialDCTHuffman
-            0xC2 -> JpgProgressiveDCTHuffman
-            0xC3 -> JpgLosslessHuffman
-            0xC4 -> JpgHuffmanTableMarker
-            0xC5 -> JpgDifferentialSequentialDCTHuffman
-            0xC6 -> JpgDifferentialProgressiveDCTHuffman
-            0xC7 -> JpgDifferentialLosslessHuffman
-            0xC9 -> JpgExtendedSequentialArithmetic
-            0xCA -> JpgProgressiveDCTArithmetic
-            0xCB -> JpgLosslessArithmetic
-            0xCD -> JpgDifferentialSequentialDCTArithmetic
-            0xCE -> JpgDifferentialProgressiveDCTArithmetic
-            0xCF -> JpgDifferentialLosslessArithmetic
-            0xD9 -> JpgEndOfImage
-            0xDA -> JpgStartOfScan
-            0xDB -> JpgQuantizationTable
-            0xDD -> JpgRestartInterval
-            a | a >= 0xF0 -> JpgExtensionSegment a
-              | a >= 0xE0 -> JpgAppSegment a
-              | a >= 0xD0 && a <= 0xD7 -> JpgRestartIntervalEnd a
-              | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
-
-put4BitsOfEach :: Word8 -> Word8 -> Put
-put4BitsOfEach a b = put $ (a `unsafeShiftL` 4) .|. b
-
-get4BitOfEach :: Get (Word8, Word8)
-get4BitOfEach = do
-    val <- get
-    return ((val `unsafeShiftR` 4) .&. 0xF, val .&. 0xF)
-
-newtype RestartInterval = RestartInterval Word16
-
-instance Binary RestartInterval where
-    put (RestartInterval i) = putWord16be 4 >> putWord16be i
-    get = do
-        size <- getWord16be
-        when (size /= 4) (fail "Invalid jpeg restart interval size")
-        RestartInterval <$> getWord16be
-
-instance Binary JpgComponent where
-    get = do
-        ident <- getWord8
-        (horiz, vert) <- get4BitOfEach
-        quantTableIndex <- getWord8
-        return JpgComponent
-            { componentIdentifier = ident
-            , horizontalSamplingFactor = horiz
-            , verticalSamplingFactor = vert
-            , quantizationTableDest = quantTableIndex
-            }
-    put v = do
-        put $ componentIdentifier v
-        put4BitsOfEach (horizontalSamplingFactor v) $ verticalSamplingFactor v
-        put $ quantizationTableDest v
-
-instance Binary JpgFrameHeader where
-    get = do
-        beginOffset <- fromIntegral <$> bytesRead
-        frmHLength <- getWord16be
-        samplePrec <- getWord8
-        h <- getWord16be
-        w <- getWord16be
-        compCount <- getWord8
-        components <- replicateM (fromIntegral compCount) get
-        endOffset <- fromIntegral <$> bytesRead
-        when (beginOffset - endOffset < fromIntegral frmHLength)
-             (skip $ fromIntegral frmHLength - (endOffset - beginOffset))
-        return JpgFrameHeader
-            { jpgFrameHeaderLength = frmHLength
-            , jpgSamplePrecision = samplePrec
-            , jpgHeight = h
-            , jpgWidth = w
-            , jpgImageComponentCount = compCount
-            , jpgComponents = components
-            }
-
-    put v = do
-        putWord16be $ jpgFrameHeaderLength v
-        putWord8    $ jpgSamplePrecision v
-        putWord16be $ jpgHeight v
-        putWord16be $ jpgWidth v
-        putWord8    $ jpgImageComponentCount v
-        mapM_ put   $ jpgComponents v
-
-instance Binary JpgScanSpecification where
-    put v = do
-        put $ componentSelector v
-        put4BitsOfEach (dcEntropyCodingTable v) $ acEntropyCodingTable v
-
-    get = do
-        compSel <- get
-        (dc, ac) <- get4BitOfEach
-        return JpgScanSpecification {
-            componentSelector = compSel
-          , dcEntropyCodingTable = dc
-          , acEntropyCodingTable = ac
-          }
-
-instance Binary JpgScanHeader where
-    get = do
-        thisScanLength <- getWord16be
-        compCount <- trace ("sos size:" ++ show thisScanLength) $ getWord8
-        comp <- replicateM (fromIntegral compCount) get
-        specBeg <- get
-        specEnd <- get
-        (approxHigh, approxLow) <- get4BitOfEach
-
-        trace (printf "comp:%s\nspectralSelection:(%d,%d) approx:(low:%d, high:%d)"
-                    (show comp) specBeg specEnd
-                    approxLow approxHigh) $ return JpgScanHeader {
-            scanLength = thisScanLength,
-            scanComponentCount = compCount,
-            scans = comp,
-            spectralSelection = (specBeg, specEnd),
-            successiveApproxHigh = approxHigh,
-            successiveApproxLow = approxLow
-        }
-
-    put v = do
-        putWord16be $ scanLength v
-        putWord8 $ scanComponentCount v
-        mapM_ put $ scans v
-        putWord8 . fst $ spectralSelection v
-        putWord8 . snd $ spectralSelection v
-        put4BitsOfEach (successiveApproxHigh v) $ successiveApproxLow v
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
@@ -546,81 +57,6 @@ quantize table block = update 0
                 finalValue = (val + (q `div` 2)) `quot` q -- rounded integer division
             (block `M.unsafeWrite` idx) finalValue
             update $ idx + 1
-
--- | Apply a quantization matrix to a macroblock
-{-# INLINE deQuantize #-}
-deQuantize :: MacroBlock Int16 -> MutableMacroBlock s Int16
-           -> ST s (MutableMacroBlock s Int16)
-deQuantize table block = update 0
-    where update 64 = return block
-          update i = do
-              val <- block `M.unsafeRead` i
-              let finalValue = val * (table `VS.unsafeIndex` i)
-              (block `M.unsafeWrite` i) finalValue
-              update $ i + 1
-
-inverseDirectCosineTransform :: MutableMacroBlock s Int16
-                             -> ST s (MutableMacroBlock s Int16)
-inverseDirectCosineTransform mBlock =
-    fastIdct mBlock >>= mutableLevelShift
-
-zigZagOrder :: MacroBlock Int
-zigZagOrder = makeMacroBlock $ concat
-    [[ 0, 1, 5, 6,14,15,27,28]
-    ,[ 2, 4, 7,13,16,26,29,42]
-    ,[ 3, 8,12,17,25,30,41,43]
-    ,[ 9,11,18,24,31,40,44,53]
-    ,[10,19,23,32,39,45,52,54]
-    ,[20,22,33,38,46,51,55,60]
-    ,[21,34,37,47,50,56,59,61]
-    ,[35,36,48,49,57,58,62,63]
-    ]
-
-zigZagReorderForwardv :: (Storable a, Num a) => VS.Vector a -> VS.Vector a
-zigZagReorderForwardv vec = runST $ do
-    v <- M.new 64
-    mv <- VS.thaw vec
-    zigZagReorderForward v mv >>= VS.freeze
-
-zigZagOrderForward :: MacroBlock Int
-zigZagOrderForward = VS.generate 64 inv
-  where inv i = fromMaybe 0 $ VS.findIndex (i ==) zigZagOrder
-
-zigZagReorderForward :: (Storable a, Num a)
-                     => MutableMacroBlock s a
-                     -> MutableMacroBlock s a
-                     -> ST s (MutableMacroBlock s a)
-{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Int32
-                                           -> MutableMacroBlock s Int32
-                                           -> ST s (MutableMacroBlock s Int32) #-}
-{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Int16
-                                           -> MutableMacroBlock s Int16
-                                           -> ST s (MutableMacroBlock s Int16) #-}
-{-# SPECIALIZE INLINE zigZagReorderForward :: MutableMacroBlock s Word8
-                                           -> MutableMacroBlock s Word8
-                                           -> ST s (MutableMacroBlock s Word8) #-}
-zigZagReorderForward zigzaged block = ordering zigZagOrderForward >> return zigzaged
-  where ordering !table = reorder (0 :: Int)
-         where reorder !i | i >= 64 = return ()
-               reorder i  = do
-                    let idx = table `VS.unsafeIndex` i
-                    v <- block `M.unsafeRead` idx
-                    (zigzaged `M.unsafeWrite` i) v
-                    reorder (i + 1)
-
-zigZagReorder :: MutableMacroBlock s Int16 -> MutableMacroBlock s Int16
-              -> ST s (MutableMacroBlock s Int16)
-zigZagReorder zigzaged block = do
-    let update i =  do
-            let idx = zigZagOrder `VS.unsafeIndex` i
-            v <- block `M.unsafeRead` idx
-            (zigzaged `M.unsafeWrite` i) v
-
-        reorder 63 = update 63
-        reorder i  = update i >> reorder (i + 1)
-
-    reorder (0 :: Int)
-    return zigzaged
 
 
 -- | This is one of the most important function of the decoding,
@@ -634,15 +70,6 @@ decodeMacroBlock quantizationTable zigZagBlock block =
     deQuantize quantizationTable block >>= zigZagReorder zigZagBlock
                                        >>= inverseDirectCosineTransform
 
-packInt :: [Bool] -> Int32
-packInt = foldl' bitStep 0
-    where bitStep acc True = (acc `unsafeShiftL` 1) + 1
-          bitStep acc False = acc `unsafeShiftL` 1
-
--- | Unpack an int of the given size encoded from MSB to LSB.
-unpackInt :: Int32 -> BoolReader s Int32
-unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBitJpg
-
 powerOf :: Int32 -> Word32
 powerOf 0 = 0
 powerOf n = limit 1 0
@@ -655,28 +82,8 @@ encodeInt :: BoolWriteStateRef s -> Word32 -> Int32 -> ST s ()
 encodeInt st ssss n | n > 0 = writeBits' st (fromIntegral n) (fromIntegral ssss)
 encodeInt st ssss n         = writeBits' st (fromIntegral $ n - 1) (fromIntegral ssss)
 
-{-# INLINE decodeInt #-}
-decodeInt :: Int32 -> BoolReader s Int32
-decodeInt ssss = do
-    signBit <- getNextBitJpg
-    let dataRange = 1 `unsafeShiftL` fromIntegral (ssss - 1)
-        leftBitCount = ssss - 1
-    -- First following bits store the sign of the coefficient, and counted in
-    -- SSSS, so the bit count for the int, is ssss - 1
-    if signBit
-       then (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
-       else (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
-
-dcCoefficientDecode :: HuffmanTreeInfo
-                    -> BoolReader s DcCoefficient
-dcCoefficientDecode dcTree = do
-    ssss <- huffmanPackedDecode dcTree
-    if ssss == 0
-       then return 0
-       else fromIntegral <$> decodeInt (fromIntegral ssss)
-
 -- | Assume the macro block is initialized with zeroes
-acCoefficientsDecode :: HuffmanTreeInfo -> MutableMacroBlock s Int16
+acCoefficientsDecode :: HuffmanPackedTree -> MutableMacroBlock s Int16
                      -> BoolReader s (MutableMacroBlock s Int16)
 acCoefficientsDecode acTree mutableBlock = parseAcCoefficient 1 >> return mutableBlock
   where parseAcCoefficient n | n >= 64 = return ()
@@ -700,8 +107,8 @@ decodeEOB tree = do
 
 -- | Decompress a macroblock from a bitstream given the current configuration
 -- from the frame.
-decompressMacroBlock :: HuffmanTreeInfo     -- ^ Tree used for DC coefficient
-                     -> HuffmanTreeInfo     -- ^ Tree used for Ac coefficient
+decompressMacroBlock :: HuffmanPackedTree   -- ^ Tree used for DC coefficient
+                     -> HuffmanPackedTree   -- ^ Tree used for Ac coefficient
                      -> MacroBlock Int16    -- ^ Current quantization table
                      -> MutableMacroBlock s Int16    -- ^ A zigzag table, to avoid allocation
                      -> DcCoefficient       -- ^ Previous dc value
@@ -718,7 +125,7 @@ decompressMacroBlock dcTree acTree quantizationTable zigzagBlock previousDc = do
 gatherQuantTables :: JpgImage -> [JpgQuantTableSpec]
 gatherQuantTables img = concat [t | JpgQuantTable t <- jpgFrame img]
 
-gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanTreeInfo)]
+gatherHuffmanTables :: JpgImage -> [(JpgHuffmanTableSpec, HuffmanPackedTree   )]
 gatherHuffmanTables img =
     concat [lst | JpgHuffmanTable lst <- jpgFrame img] ++ defaultHuffmanTables
 
@@ -881,10 +288,6 @@ unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
 
                                   vertDup $ hDup + 1
 
--- | Type only used to make clear what kind of integer we are carrying
--- Might be transformed into newtype in the future
-type DcCoefficient = Int16
-
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
 
@@ -901,23 +304,9 @@ decodeRestartInterval = return (-1) {-  do
 type JpgScripter a =
     RWS () [([JpgUnpackerParameter], L.ByteString)] JpgDecoderState a
 
-data JpgUnpackerParameter = JpgUnpackerParameter
-    { dcHuffmanTree        :: !HuffmanTreeInfo
-    , acHuffmanTree        :: !HuffmanTreeInfo
-    , quantization         :: !(MacroBlock Int16)
-    , componentIndex       :: !Int
-    , restartInterval      :: !Int
-    , componentWidth       :: !Int
-    , componentHeight      :: !Int
-    , coefficientRange     :: !(Int, Int)
-    , successiveApprox     :: !(Int, Int)
-    , mcuX                 :: !Int
-    , mcuY                 :: !Int
-    }
-
 data JpgDecoderState = JpgDecoderState
-    { dcDecoderTables      :: !(V.Vector HuffmanTreeInfo)
-    , acDecoderTables      :: !(V.Vector HuffmanTreeInfo)
+    { dcDecoderTables      :: !(V.Vector HuffmanPackedTree)
+    , acDecoderTables      :: !(V.Vector HuffmanPackedTree)
     , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
     , currentRestartInterv :: !Word16
     , currentFrame         :: Maybe JpgFrameHeader
@@ -986,7 +375,7 @@ jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
      , maximumHorizontalResolution =
          fromIntegral $ maximum horizontalResolutions
      , minimumVerticalResolution =
-         fromIntegral $ maximum horizontalResolutions
+         fromIntegral $ maximum verticalResolutions
      }
     where components = jpgComponents hdr
           horizontalResolutions = map horizontalSamplingFactor components
@@ -1189,7 +578,7 @@ decodeJpeg file = case runGetStrict get file of
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 setDecodedStringJpg . B.concat $ L.toChunks imgData
                 decodeImage img compCount wrapped
-                return resultImage) (BoolState (-1) 0 B.empty)
+                return resultImage) emptyBoolState
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
@@ -1284,7 +673,7 @@ divUpward n dividor = val + (if rest /= 0 then 1 else 0)
     where (val, rest) = n `divMod` dividor
 
 prepareHuffmanTable :: DctComponent -> Word8 -> HuffmanTable
-                    -> (JpgHuffmanTableSpec, HuffmanTreeInfo)
+                    -> (JpgHuffmanTableSpec, HuffmanPackedTree)
 prepareHuffmanTable classVal dest tableDef =
    (JpgHuffmanTableSpec { huffmanTableClass = classVal
                         , huffmanTableDest  = dest
@@ -1301,7 +690,7 @@ prepareHuffmanTable classVal dest tableDef =
 encodeJpeg :: Image PixelYCbCr8 -> L.ByteString
 encodeJpeg = encodeJpegAtQuality 50
 
-defaultHuffmanTables :: [(JpgHuffmanTableSpec, HuffmanTreeInfo)]
+defaultHuffmanTables :: [(JpgHuffmanTableSpec, HuffmanPackedTree)]
 defaultHuffmanTables =
     [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
     , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
