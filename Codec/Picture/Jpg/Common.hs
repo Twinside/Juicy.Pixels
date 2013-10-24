@@ -3,16 +3,20 @@ module Codec.Picture.Jpg.Common
     ( decodeInt
     , dcCoefficientDecode
     , deQuantize
+    , decodeRrrrSsss
     , zigZagReorderForward 
     , zigZagReorderForwardv
     , zigZagReorder
     , inverseDirectCosineTransform
+    , unpackInt
+    , unpackMacroBlock
+    , rasterMap
     ) where
 
-import Control.Applicative( (<$>) )
-import Control.Monad( replicateM, )
+import Control.Applicative( (<$>), pure )
+import Control.Monad( replicateM, when )
 import Control.Monad.ST( ST, runST )
-import Data.Bits( unsafeShiftL )
+import Data.Bits( unsafeShiftL, unsafeShiftR, (.&.) )
 import Data.Int( Int16, Int32 )
 import Data.List( foldl' )
 import Data.Maybe( fromMaybe )
@@ -21,13 +25,14 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Foreign.Storable ( Storable )
 
+import Codec.Picture.Types
 import Codec.Picture.BitWriter
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
 
 {-# INLINE decodeInt #-}
-decodeInt :: Int32 -> BoolReader s Int32
+decodeInt :: Int -> BoolReader s Int32
 decodeInt ssss = do
     signBit <- getNextBitJpg
     let dataRange = 1 `unsafeShiftL` fromIntegral (ssss - 1)
@@ -38,6 +43,12 @@ decodeInt ssss = do
        then (\w -> dataRange + fromIntegral w) <$> unpackInt leftBitCount
        else (\w -> 1 - dataRange * 2 + fromIntegral w) <$> unpackInt leftBitCount
 
+decodeRrrrSsss :: HuffmanPackedTree -> BoolReader s (Int, Int)
+decodeRrrrSsss tree = do
+    rrrrssss <- huffmanPackedDecode tree
+    let rrrr = (rrrrssss `unsafeShiftR` 4) .&. 0xF
+        ssss =  rrrrssss .&. 0xF
+    pure (fromIntegral rrrr, fromIntegral ssss)
 
 dcCoefficientDecode :: HuffmanPackedTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
@@ -122,11 +133,62 @@ zigZagReorder zigzaged block = do
     return zigzaged
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
-unpackInt :: Int32 -> BoolReader s Int32
-unpackInt bitCount = packInt <$> replicateM (fromIntegral bitCount) getNextBitJpg
+unpackInt :: Int -> BoolReader s Int32
+unpackInt bitCount = packInt <$> replicateM bitCount getNextBitJpg
+
+
+{-# INLINE rasterMap #-}
+rasterMap :: (Monad m)
+          => Int -> Int -> (Int -> Int -> m ())
+          -> m ()
+rasterMap width height f = liner 0
+  where liner y | y >= height = return ()
+        liner y = columner 0
+          where columner x | x >= width = liner (y + 1)
+                columner x = f x y >> columner (x + 1)
 
 packInt :: [Bool] -> Int32
 packInt = foldl' bitStep 0
     where bitStep acc True = (acc `unsafeShiftL` 1) + 1
           bitStep acc False = acc `unsafeShiftL` 1
+
+pixelClamp :: Int16 -> Word8
+pixelClamp n = fromIntegral . min 255 $ max 0 n
+
+-- | Given a size coefficient (how much a pixel span horizontally
+-- and vertically), the position of the macroblock, return a list
+-- of indices and value to be stored in an array (like the final
+-- image)
+unpackMacroBlock :: Int    -- ^ Component count
+                 -> Int    -- ^ Component index
+                 -> Int -- ^ Width coefficient
+                 -> Int -- ^ Height coefficient
+                 -> Int -- ^ x
+                 -> Int -- ^ y
+                 -> MutableImage s PixelYCbCr8
+                 -> MutableMacroBlock s Int16
+                 -> ST s ()
+unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
+                 (MutableImage { mutableImageWidth = imgWidth,
+                                 mutableImageHeight = imgHeight, mutableImageData = img })
+                 block = -- trace (printf "w:%d h:%d x:%d y:%d wCoeff:%d hCoeff:%d" imgWidth imgHeight x y wCoeff hCoeff) $
+                            blockVert 0
+  where blockVert j | j >= dctBlockSize = return ()
+        blockVert j = blockHoriz 0
+          where yBase = (y * dctBlockSize + j) * hCoeff
+                blockHoriz i | i >= dctBlockSize = blockVert $ j + 1
+                blockHoriz i = (pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))) >>= horizDup 0
+                  where xBase = (x * dctBlockSize + i) * wCoeff
+                        horizDup wDup _ | wDup >= wCoeff = blockHoriz $ i + 1
+                        horizDup wDup compVal = vertDup 0
+                          where vertDup hDup | hDup >= hCoeff = horizDup (wDup + 1) compVal
+                                vertDup hDup = do
+                                  let xPos = xBase + wDup
+                                      yPos = yBase + hDup
+
+                                  when (xPos < imgWidth && yPos < imgHeight)
+                                       (do let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
+                                           (img `M.unsafeWrite` mutableIdx) compVal)
+
+                                  vertDup $ hDup + 1
 

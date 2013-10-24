@@ -16,6 +16,10 @@ module Codec.Picture.BitWriter( BoolReader
                               , newWriteStateRef
                               , finalizeBoolWriter
                               , writeBits'
+
+                              , initBoolState 
+                              , execBoolReader
+                              , runBoolReaderWith
                               ) where
 
 import Data.STRef
@@ -48,6 +52,19 @@ type BoolReader s a = S.StateT BoolState (ST s) a
 
 runBoolReader :: BoolReader s a -> ST s a
 runBoolReader action = S.evalStateT action $ BoolState 0 0 B.empty
+
+runBoolReaderWith :: BoolState -> BoolReader s a -> ST s (a, BoolState)
+runBoolReaderWith st action = S.runStateT action st
+
+execBoolReader :: BoolState -> BoolReader s a -> ST s BoolState
+execBoolReader st reader = S.execStateT reader st
+
+
+
+initBoolState :: B.ByteString -> BoolState
+initBoolState str = case B.uncons str of
+     Nothing -> BoolState 0 0 B.empty
+     Just (v, rest) -> BoolState 0 v rest
 
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()
