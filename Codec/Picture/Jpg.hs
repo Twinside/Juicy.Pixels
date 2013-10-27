@@ -18,7 +18,7 @@ import Control.Applicative( pure, (<$>) )
 import Control.Monad( when, forM_, foldM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
-import Control.Monad.Trans.RWS( RWS, modify, tell, gets )
+import Control.Monad.Trans.RWS( RWS, modify, tell, gets, execRWS )
 import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.Maybe( fromJust )
@@ -34,7 +34,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
--- import Data.Array.Unboxed( Array, UArray, elems, listArray, (!) )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 
@@ -58,17 +57,6 @@ quantize table block = update 0
             (block `M.unsafeWrite` idx) finalValue
             update $ idx + 1
 
-
--- | This is one of the most important function of the decoding,
--- it form the barebone decoding pipeline for macroblock. It's all
--- there is to know for macro block transformation
-decodeMacroBlock :: MacroBlock DctCoefficients
-                 -> MutableMacroBlock s Int16
-                 -> MutableMacroBlock s Int16
-                 -> ST s (MutableMacroBlock s Int16)
-decodeMacroBlock quantizationTable zigZagBlock block =
-    deQuantize quantizationTable block >>= zigZagReorder zigZagBlock
-                                       >>= inverseDirectCosineTransform
 
 powerOf :: Int32 -> Word32
 powerOf 0 = 0
@@ -249,9 +237,6 @@ unpack422Ycbcr compIdx x y
 
             blockVert (idx + lineOffset) (readIdx + dctBlockSize) $ j + 1
 
--- | Same as for DcCoefficient, to provide nicer type signatures
-type DctCoefficients = DcCoefficient
-
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
   bits <- replicateM 8 getNextBitJpg
@@ -272,8 +257,28 @@ data JpgDecoderState = JpgDecoderState
     , currentRestartInterv :: !Word16
     , currentFrame         :: Maybe JpgFrameHeader
     , maximumHorizontalResolution :: !Int
-    , minimumVerticalResolution   :: !Int
+    , maximumVerticalResolution   :: !Int
     , seenBlobs                   :: !Int
+    }
+
+emptyDecoderState :: JpgDecoderState
+emptyDecoderState = JpgDecoderState
+    { dcDecoderTables = V.fromList $ map snd
+            [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+            , prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
+            ]
+
+    , acDecoderTables = V.fromList $ map snd
+            [ prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+            , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
+            ]
+
+    , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
+    , currentRestartInterv = 0
+    , currentFrame         = Nothing
+    , maximumHorizontalResolution = 0
+    , maximumVerticalResolution   = 0
+    , seenBlobs = 0
     }
 
 -- | This pseudo interpreter interpret the Jpg frame for the huffman,
@@ -297,7 +302,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
             maxHoriz <- gets maximumHorizontalResolution
-            maxVert <- gets minimumVerticalResolution
+            maxVert <- gets maximumVerticalResolution
             restart <- gets currentRestartInterv
             frameInfo <- gets currentFrame
             blobId <- gets seenBlobs                   
@@ -340,7 +345,7 @@ jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
    s { currentFrame = Just hdr
      , maximumHorizontalResolution =
          fromIntegral $ maximum horizontalResolutions
-     , minimumVerticalResolution =
+     , maximumVerticalResolution =
          fromIntegral $ maximum verticalResolutions
      }
     where components = jpgComponents hdr
@@ -517,9 +522,9 @@ decodeJpeg file = case runGetStrict get file of
   Left err -> Left err
   Right img -> case (compCount, imgKind) of
                  (_, Nothing) -> Left "Unknown Jpg kind"
-                 (_, Just ProgressiveDCT) -> Left "Unsupported Progressive JPEG image"
-                 (1, _) -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
-                 (3, _) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
+                 (3, Just ProgressiveDCT) -> Right . ImageYCbCr8 $ decodeProgressive
+                 (1, Just BaseLineDCT) -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
+                 (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
                  _ -> Left "Wrong component count"
 
       where (imgData:_) = [d | JpgScanBlob _kind d <- jpgFrame img]
@@ -531,6 +536,16 @@ decodeJpeg file = case runGetStrict get file of
             imgHeight = fromIntegral $ jpgHeight scanInfo
 
             imageSize = imgWidth * imgHeight * compCount
+
+            decodeProgressive = runST $ do
+                let (st, wrotten) =
+                        execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+                    Just fHdr = currentFrame st
+                progressiveUnpack
+                    (maximumHorizontalResolution st, maximumVerticalResolution st)
+                    fHdr
+                    (quantizationMatrices st)
+                    wrotten >>= unsafeFreezeImage
 
             pixelData = runST $ VS.unsafeFreeze =<< S.evalStateT (do
                 resultImage <- lift $ M.new imageSize

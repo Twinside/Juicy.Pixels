@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.Common
-    ( decodeInt
+    ( DctCoefficients
+    , decodeInt
     , dcCoefficientDecode
     , deQuantize
     , decodeRrrrSsss
@@ -11,6 +12,7 @@ module Codec.Picture.Jpg.Common
     , unpackInt
     , unpackMacroBlock
     , rasterMap
+    , decodeMacroBlock
     ) where
 
 import Control.Applicative( (<$>), pure )
@@ -30,6 +32,9 @@ import Codec.Picture.BitWriter
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
+
+-- | Same as for DcCoefficient, to provide nicer type signatures
+type DctCoefficients = DcCoefficient
 
 {-# INLINE decodeInt #-}
 decodeInt :: Int -> BoolReader s Int32
@@ -191,4 +196,15 @@ unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
                                            (img `M.unsafeWrite` mutableIdx) compVal)
 
                                   vertDup $ hDup + 1
+
+-- | This is one of the most important function of the decoding,
+-- it form the barebone decoding pipeline for macroblock. It's all
+-- there is to know for macro block transformation
+decodeMacroBlock :: MacroBlock DctCoefficients
+                 -> MutableMacroBlock s Int16
+                 -> MutableMacroBlock s Int16
+                 -> ST s (MutableMacroBlock s Int16)
+decodeMacroBlock quantizationTable zigZagBlock block =
+    deQuantize quantizationTable block >>= zigZagReorder zigZagBlock
+                                       >>= inverseDirectCosineTransform
 

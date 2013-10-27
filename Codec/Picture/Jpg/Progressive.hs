@@ -6,7 +6,7 @@ module Codec.Picture.Jpg.Progressive
     ) where
 
 import Control.Applicative( pure, (<$>) )
-import Control.Monad( when )
+import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import Data.Bits( (.&.), (.|.), unsafeShiftL )
@@ -167,19 +167,24 @@ data ComponentData s = ComponentData
 
 progressiveUnpack :: (Int, Int)
                   -> JpgFrameHeader
+                  -> V.Vector (MacroBlock Int16)
                   -> [([JpgUnpackerParameter], L.ByteString)]
                   -> ST s (MutableImage s PixelYCbCr8)
-progressiveUnpack (maxiW, maxiH) frame lst = do
+progressiveUnpack (maxiW, maxiH) frame quants lst = do
     (unpackers, readers) <-  prepareUnpacker lst
     allBlocks <- mapM allocateWorkingBlocks $ jpgComponents frame
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
+    workBlock <- createEmptyMutableMacroBlock
     let imgWidth = fromIntegral $ jpgWidth frame
         imgHeight = fromIntegral $ jpgHeight frame
         elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
     img <- MutableImage imgWidth imgHeight <$> MS.new elementCount
 
     rasterMap mcuBlockWidth mcuBlockHeight $ \mmX mmY -> do
+
+        -- Reset all blocks to 0
+        forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
 
         V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
             boolState <- readers `M.read` readerIndex unpackParam
@@ -196,22 +201,25 @@ progressiveUnpack (maxiW, maxiH) frame lst = do
             (readers `M.write` readerIndex unpackParam) state
             (eobRuns `MS.write` readerIndex unpackParam) eobrun'
 
-        sequence_ [unpackMacroBlock cId imgComponentCount
-                            cw8 ch8 rx ry img block
-                    | (cId, comp) <- zip [0..] $ jpgComponents frame
-                    , let compW =
-                            maxiW - fromIntegral (horizontalSamplingFactor comp) - 1
-                          compH =
-                            maxiH - fromIntegral (verticalSamplingFactor comp) - 1
-                          cw8 = fromIntegral $ horizontalSamplingFactor comp
-                          ch8 = fromIntegral $ verticalSamplingFactor comp
-
-                    , y <- [0 .. compH - 1]
-                    , let ry = mmY * compH + y
-                    , x <- [0 .. compW - 1]
-                    , let rx = mmX * compW + x
-                    , let block = undefined
-                    ]
+        sequence_ [decodeMacroBlock table workBlock block >>=
+                      unpackMacroBlock cId imgComponentCount
+                                cw8 ch8 rx ry img
+                      | (cId, comp) <- zip [0..] $ jpgComponents frame
+                      , let compW =
+                              maxiW - fromIntegral (horizontalSamplingFactor comp) - 1
+                            compH =
+                              maxiH - fromIntegral (verticalSamplingFactor comp) - 1
+                            cw8 = fromIntegral $ horizontalSamplingFactor comp
+                            ch8 = fromIntegral $ verticalSamplingFactor comp
+                     
+                      , y <- [0 .. compH - 1]
+                      , let ry = mmY * compH + y
+                      , x <- [0 .. compW - 1]
+                      , let rx = mmX * compW + x
+                      , let compBlocks = componentBlocks (allBlocks !! cId)
+                            block = compBlocks ! (y * compW + x)
+                            table = quants ! (min 1 cId)
+                      ]
     return img
 
   where imgComponentCount = length $ jpgComponents frame
