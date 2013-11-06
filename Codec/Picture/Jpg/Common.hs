@@ -33,6 +33,9 @@ import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
 
+import Debug.Trace
+import Text.Printf
+
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
 
@@ -58,7 +61,7 @@ decodeRrrrSsss tree = do
 dcCoefficientDecode :: HuffmanPackedTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanPackedDecode dcTree
-    if ssss == 0
+    if trace (printf "s:%d" ssss) $ ssss == 0
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
 
@@ -177,25 +180,18 @@ unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
                  block = -- trace (printf "w:%d h:%d x:%d y:%d wCoeff:%d hCoeff:%d" imgWidth imgHeight x y wCoeff hCoeff) $
-                            blockVert 0
-  where blockVert j | j >= dctBlockSize = return ()
-        blockVert j = blockHoriz 0
-          where yBase = (y * dctBlockSize + j) * hCoeff
-                blockHoriz i | i >= dctBlockSize = blockVert $ j + 1
-                blockHoriz i = (pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))) >>= horizDup 0
-                  where xBase = (x * dctBlockSize + i) * wCoeff
-                        horizDup wDup _ | wDup >= wCoeff = blockHoriz $ i + 1
-                        horizDup wDup compVal = vertDup 0
-                          where vertDup hDup | hDup >= hCoeff = horizDup (wDup + 1) compVal
-                                vertDup hDup = do
-                                  let xPos = xBase + wDup
-                                      yPos = yBase + hDup
+                            rasterMap dctBlockSize dctBlockSize unpacker
+  where unpacker i j = do
+          let yBase = (y * dctBlockSize + j) * hCoeff
+          compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))
+          rasterMap wCoeff hCoeff $ \hDup wDup -> do
+             let xBase = (x * dctBlockSize + i) * wCoeff
+                 xPos = xBase + wDup
+                 yPos = yBase + hDup
 
-                                  when (xPos < imgWidth && yPos < imgHeight)
-                                       (do let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
-                                           (img `M.unsafeWrite` mutableIdx) compVal)
-
-                                  vertDup $ hDup + 1
+             when (xPos < imgWidth && yPos < imgHeight)
+                  (do let mutableIdx = (xPos + yPos * imgWidth) * compCount + compIdx
+                      (img `M.unsafeWrite` mutableIdx) compVal)
 
 -- | This is one of the most important function of the decoding,
 -- it form the barebone decoding pipeline for macroblock. It's all

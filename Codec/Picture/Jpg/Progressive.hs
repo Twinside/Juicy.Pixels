@@ -1,15 +1,17 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Codec.Picture.Jpg.Progressive
     ( JpgUnpackerParameter( .. )
-    , progressiveUnpack 
-    , prepareUnpacker
+    , progressiveUnpack
     ) where
 
 import Control.Applicative( pure, (<$>) )
-import Control.Monad( when, forM_ )
+import Control.Monad( when, forM_, replicateM )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import Data.Bits( (.&.), (.|.), unsafeShiftL )
+import Data.Word( Word8 )
 import Data.Int( Int16, Int32 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -23,6 +25,11 @@ import Codec.Picture.BitWriter
 import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
+
+import Debug.Trace
+import Text.Printf
+import Text.Groom
+import qualified Data.Vector.Storable as VS
 
 data JpgUnpackerParameter = JpgUnpackerParameter
     { dcHuffmanTree        :: !HuffmanPackedTree
@@ -38,6 +45,102 @@ data JpgUnpackerParameter = JpgUnpackerParameter
     , mcuY                 :: !Int
     , readerIndex          :: !Int
     }
+    deriving Show
+
+{-  
+    METHODDEF(boolean)
+decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
+{   
+    phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
+    int Al = cinfo->Al;
+    register int s, r;
+    int blkn, ci;
+    JBLOCKROW block;
+    BITREAD_STATE_VARS;
+    savable_state state;
+    d_derived_tbl * tbl;
+    jpeg_component_info * compptr;
+
+    /* Process restart marker if needed; may have to suspend */
+    if (cinfo->restart_interval) {
+        if (entropy->restarts_to_go == 0)
+            if (! process_restart(cinfo))
+                return FALSE;
+    }
+
+    /* If we've run out of data, just leave the MCU set to zeroes.
+     * This way, we return uniform gray for the remainder of the segment.
+     */
+    if (! entropy->pub.insufficient_data) {
+
+        /* Load up working state */
+        BITREAD_LOAD_STATE(cinfo,entropy->bitstate);
+        ASSIGN_STATE(state, entropy->saved);
+
+        /* Outer loop handles each block in the MCU */
+
+        for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+            block = MCU_data[blkn];
+            ci = cinfo->MCU_membership[blkn];
+            compptr = cinfo->cur_comp_info[ci];
+            tbl = entropy->derived_tbls[compptr->dc_tbl_no];
+
+            /* Decode a single block's worth of coefficients */
+
+            /* Section F.2.2.1: decode the DC coefficient difference */
+            HUFF_DECODE(s, br_state, tbl, return FALSE, label1);
+            if (s) {
+                CHECK_BIT_BUFFER(br_state, s, return FALSE);
+                r = GET_BITS(s);
+                s = HUFF_EXTEND(r, s);
+            }
+
+            /* Convert DC difference to actual value, update last_dc_val */
+            s += state.last_dc_val[ci];
+            state.last_dc_val[ci] = s;
+            /* Scale and output the coefficient (assumes jpeg_natural_order[0]=0) */
+            (*block)[0] = (JCOEF) (s << Al);
+        }
+
+        /* Completed MCU, so update state */
+        BITREAD_SAVE_STATE(cinfo,entropy->bitstate);
+        ASSIGN_STATE(entropy->saved, state);
+    }
+
+    /* Account for restart interval (no-op if not using restarts) */
+    entropy->restarts_to_go--;
+
+    return TRUE;
+}
+-}
+unpackInt' :: Int -> BoolReader s Int32
+unpackInt' bitCount = packInt' <$> replicateM bitCount getNextBitJpg
+    where packInt' = foldr bitStep 0
+          bitStep True acc = (acc `unsafeShiftL` 1) .|. 1
+          bitStep False acc = acc `unsafeShiftL` 1
+
+decodeProgressiveInt :: Int -> BoolReader s Int32
+decodeProgressiveInt ssss = do
+    r <- unpackInt' (ssss - 1)
+    let si = fromIntegral ssss
+        dataRange = 1 `unsafeShiftL` (si - 1)
+
+    -- First following bits store the sign of the coefficient, and counted in
+    -- SSSS, so the bit count for the int, is ssss - 1
+    -- HUFF_EXTEND(x,s)  ((x) < (1<<((s)-1)) ? (x) + (((-1)<<(s)) + 1) : (x))
+    return $ if r < dataRange
+       then r + ((negate 1 `unsafeShiftL` si) + 1)
+       else r
+
+-- GET_BITS(nbits) \
+    --	(((int) (get_buffer >> (bits_left -= (nbits)))) & ((1<<(nbits))-1))
+dcProgressiveCoefficientDecode :: HuffmanPackedTree
+                               -> BoolReader s (Word8, DcCoefficient)
+dcProgressiveCoefficientDecode dcTree = do
+    ssss <- huffmanPackedDecode dcTree
+    if ssss == 0
+       then return (ssss, 0)
+       else (ssss,) . fromIntegral <$> decodeProgressiveInt (fromIntegral ssss)
 
 decodeFirstDC :: JpgUnpackerParameter
               -> MS.STVector s Int16
@@ -46,12 +149,15 @@ decodeFirstDC :: JpgUnpackerParameter
               -> BoolReader s Int32
 decodeFirstDC params dcCoeffs block eobrun = unpack >> pure eobrun
   where unpack = do
-          dcDeltaCoefficient <- dcCoefficientDecode $ dcHuffmanTree params
+          {-(s, dcDeltaCoefficient) <- dcProgressiveCoefficientDecode $ dcHuffmanTree params-}
+          (dcDeltaCoefficient) <- dcCoefficientDecode $ dcHuffmanTree params
           previousDc <- lift $ dcCoeffs `MS.unsafeRead` componentIndex params
-          let neoDcCoefficient = previousDc + dcDeltaCoefficient
+          let s = 0 :: Int
+              neoDcCoefficient = previousDc + dcDeltaCoefficient
               approxLow = fst $ successiveApprox params
               scaledDc = neoDcCoefficient `unsafeShiftL` approxLow
-          lift $ (block `MS.unsafeWrite` 0) scaledDc 
+          lift . (trace $ printf "DCFirst> cId:%d s:%d s':%4d context:%4d"
+                            (componentIndex params) s dcDeltaCoefficient previousDc) $ (block `MS.unsafeWrite` 0) scaledDc 
           lift $ (dcCoeffs `MS.unsafeWrite` componentIndex params) neoDcCoefficient
 
 decodeRefineDc :: JpgUnpackerParameter
@@ -171,23 +277,21 @@ progressiveUnpack :: (Int, Int)
                   -> [([JpgUnpackerParameter], L.ByteString)]
                   -> ST s (MutableImage s PixelYCbCr8)
 progressiveUnpack (maxiW, maxiH) frame quants lst = do
-    (unpackers, readers) <-  prepareUnpacker lst
-    allBlocks <- mapM allocateWorkingBlocks $ jpgComponents frame
+    (unpackers, readers) <- trace (printf "maxiW:%d maxiH:%d" maxiW maxiH) $ prepareUnpacker lst
+    allBlocks <- trace (groom $ map (\(v, _) -> map (\c -> c { dcHuffmanTree = VS.empty, acHuffmanTree = VS.empty }) v) lst) $ mapM allocateWorkingBlocks $ jpgComponents frame
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
     workBlock <- createEmptyMutableMacroBlock
-    let imgWidth = fromIntegral $ jpgWidth frame
-        imgHeight = fromIntegral $ jpgHeight frame
-        elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
-    img <- MutableImage imgWidth imgHeight <$> MS.new elementCount
+    let elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
+    img <- MutableImage imgWidth imgHeight <$> MS.replicate elementCount 128
 
-    rasterMap mcuBlockWidth mcuBlockHeight $ \mmX mmY -> do
+    rasterMap imageMcuWidth imageMcuHeight $ \mmX mmY -> trace (printf "MCU x:%d y:%d" mmX mmY) $ do
 
         -- Reset all blocks to 0
         forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
 
-        V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
-            boolState <- readers `M.read` readerIndex unpackParam
+        trace ("(1)") $ V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
+            boolState <- trace "  U" $ readers `M.read` readerIndex unpackParam
             eobrun <- eobRuns `MS.read` readerIndex unpackParam
             let mcuBlocks = allBlocks !! componentIndex unpackParam
                 blockIndex =
@@ -201,36 +305,39 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
             (readers `M.write` readerIndex unpackParam) state
             (eobRuns `MS.write` readerIndex unpackParam) eobrun'
 
-        sequence_ [decodeMacroBlock table workBlock block >>=
-                      unpackMacroBlock cId imgComponentCount
-                                cw8 ch8 rx ry img
+        trace ("(2)") $ sequence_ [trace (printf "  cId:%d w:%d h:%d compW:%d compH:%d x:%d y:%d rx:%d ry:%d" cId cw8 ch8 compW compH x y rx ry) $
+                  decodeMacroBlock table workBlock block >>=
+                      unpackMacroBlock imgComponentCount cId
+                                cw8 ch8 (rx `div` cw8) (ry `div` ch8) img
                       | (cId, comp) <- zip [0..] $ jpgComponents frame
-                      , let compW =
-                              maxiW - fromIntegral (horizontalSamplingFactor comp) - 1
-                            compH =
-                              maxiH - fromIntegral (verticalSamplingFactor comp) - 1
-                            cw8 = fromIntegral $ horizontalSamplingFactor comp
-                            ch8 = fromIntegral $ verticalSamplingFactor comp
+                      , cId == 0
+                      , let compW = fromIntegral $ horizontalSamplingFactor comp
+                            compH = fromIntegral $ verticalSamplingFactor comp
+                            cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
+                            ch8 = maxiH - fromIntegral (verticalSamplingFactor comp) + 1
                      
                       , y <- [0 .. compH - 1]
-                      , let ry = mmY * compH + y
+                      , let ry = mmY * maxiH + y
                       , x <- [0 .. compW - 1]
-                      , let rx = mmX * compW + x
+                      , let rx = mmX * maxiW + x
                       , let compBlocks = componentBlocks (allBlocks !! cId)
                             block = compBlocks ! (y * compW + x)
-                            table = quants ! (min 1 cId)
+                            table = quants ! (max 1 cId)
                       ]
-    return img
+    trace ("(3)") $ return img
 
   where imgComponentCount = length $ jpgComponents frame
         mcuBlockWidth = maxiW * dctBlockSize
         mcuBlockHeight = maxiH * dctBlockSize
+
+        imgWidth = fromIntegral $ jpgWidth frame
+        imgHeight = fromIntegral $ jpgHeight frame
+        imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
+        imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
         allocateWorkingBlocks comp = ComponentData <$> blocks 
             where hSample = fromIntegral $ horizontalSamplingFactor comp
                   vSample = fromIntegral $ verticalSamplingFactor comp
-                  width = maxiW - hSample  + 1
-                  height = maxiH - vSample + 1
-                  blocks = V.replicateM (width * height)
+                  blocks = V.replicateM (hSample * vSample)
                                 createEmptyMutableMacroBlock
 -- -}  
 

@@ -376,7 +376,9 @@ testSuite = do
 
 jpegToPng :: IO ()
 jpegToPng = do
- img <- readImage "tests/jpeg/huge.jpg"
+ {-Right rez <- readImage "tests/jpeg/sheep.jpg"-}
+ {-savePngImage "control.png" rez-}
+ img <- readImage  "tests/jpeg/mand_prgrsv.jpg" -- "tests/jpeg/huge.jpg"
  case img of
    Left err -> do
        putStrLn err

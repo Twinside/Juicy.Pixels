@@ -46,6 +46,9 @@ import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
 
+import Debug.Trace
+import Text.Printf
+
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
 quantize table block = update 0
@@ -298,7 +301,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
         scanSpecifier scanSpec = do
             let dcIndex = fromIntegral $ dcEntropyCodingTable scanSpec
                 acIndex = fromIntegral $ acEntropyCodingTable scanSpec
-                comp = fromIntegral $ componentSelector scanSpec
+                comp = fromIntegral (componentSelector scanSpec) - 1
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
             maxHoriz <- gets maximumHorizontalResolution
@@ -318,7 +321,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
                      quantIndex = fromIntegral $ quantizationTableDest compDesc
 
-                 quant <- gets $ (V.! quantIndex) . quantizationMatrices
+                 quant <- trace (printf "comp:%d xSampling:%d ySampling:%d xSamplingFactor:%d ySamplingFactor:%d"
+                                            comp xSampling ySampling xSamplingFactor ySamplingFactor) $ gets $ (V.! quantIndex) . quantizationMatrices
 
                  pure [ JpgUnpackerParameter
                           { dcHuffmanTree = dcTree
@@ -326,8 +330,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                           , quantization = quant
                           , componentIndex = comp
                           , restartInterval = fromIntegral restart
-                          , componentWidth = xSamplingFactor
-                          , componentHeight = ySamplingFactor
+                          , componentWidth = xSampling
+                          , componentHeight = ySampling
                           , successiveApprox = (approxLow, approxHigh)
                           , readerIndex = blobId
                           , coefficientRange =
@@ -338,8 +342,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                           , mcuX = x
                           , mcuY = y
                           }
-                              | y <- [0 .. ySamplingFactor - 1]
-                              , x <- [0 .. xSamplingFactor - 1] ]
+                              | y <- [0 .. ySampling - 1]
+                              , x <- [0 .. xSampling - 1] ]
 
 jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
    s { currentFrame = Just hdr
