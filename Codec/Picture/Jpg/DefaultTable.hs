@@ -143,9 +143,10 @@ scaleQuantisationMatrix quality
 
 huffmanPackedDecode :: HuffmanPackedTree -> BoolReader s Word8
 huffmanPackedDecode table = getNextBitJpg >>= aux 0
-  where aux idx b | (v .&. 0x8000) /= 0 = return 0
-                  | (v .&. 0x4000) /= 0 = return . fromIntegral $ v .&. 0xFF
-                  | otherwise = getNextBitJpg >>= aux v
+  where aux idx b
+            | (v .&. 0x8000) /= 0 = return  0
+            | (v .&. 0x4000) /= 0 = return . fromIntegral $ v .&. 0xFF
+            | otherwise = getNextBitJpg >>= aux v
           where tableIndex | b = idx + 1
                            | otherwise = idx
                 v = table `SV.unsafeIndex` fromIntegral tableIndex

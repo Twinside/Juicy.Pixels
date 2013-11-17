@@ -33,9 +33,6 @@ import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
 
-import Debug.Trace
-import Text.Printf
-
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
 
@@ -61,7 +58,7 @@ decodeRrrrSsss tree = do
 dcCoefficientDecode :: HuffmanPackedTree -> BoolReader s DcCoefficient
 dcCoefficientDecode dcTree = do
     ssss <- huffmanPackedDecode dcTree
-    if trace (printf "s:%d" ssss) $ ssss == 0
+    if ssss == 0
        then return 0
        else fromIntegral <$> decodeInt (fromIntegral ssss)
 
@@ -179,8 +176,7 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block = -- trace (printf "w:%d h:%d x:%d y:%d wCoeff:%d hCoeff:%d" imgWidth imgHeight x y wCoeff hCoeff) $
-                            rasterMap dctBlockSize dctBlockSize unpacker
+                 block = rasterMap dctBlockSize dctBlockSize unpacker
   where unpacker i j = do
           let yBase = (y * dctBlockSize + j) * hCoeff
           compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))

@@ -18,6 +18,7 @@ module Codec.Picture.BitWriter( BoolReader
                               , writeBits'
 
                               , initBoolState 
+                              , initBoolStateJpg
                               , execBoolReader
                               , runBoolReaderWith
                               ) where
@@ -35,9 +36,6 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-
-{-import Debug.Trace-}
-{-import Text.Printf-}
 
 --------------------------------------------------
 ----            Reader
@@ -68,6 +66,11 @@ initBoolState :: B.ByteString -> BoolState
 initBoolState str = case B.uncons str of
      Nothing -> BoolState 0 0 B.empty
      Just (v, rest) -> BoolState 0 v rest
+
+initBoolStateJpg :: B.ByteString -> BoolState
+initBoolStateJpg str = case B.uncons str of
+     Nothing -> BoolState 0 0 B.empty
+     Just (v, rest) -> BoolState 7 v rest
 
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()
@@ -142,7 +145,7 @@ setDecodedStringJpg str = case B.uncons str of
             Just (0x00, afterMarker) -> -- trace "00" $ 
                 S.put $ BoolState 7 0xFF afterMarker
             Just (_   , afterMarker) -> setDecodedStringJpg afterMarker
-     Just (v, rest) -> -- trace (printf "%02X" v) $ 
+     Just (v, rest) ->
         S.put $ BoolState 7 v rest
 
 --------------------------------------------------

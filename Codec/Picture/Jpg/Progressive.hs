@@ -7,11 +7,10 @@ module Codec.Picture.Jpg.Progressive
     ) where
 
 import Control.Applicative( pure, (<$>) )
-import Control.Monad( when, forM_, replicateM )
+import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import Data.Bits( (.&.), (.|.), unsafeShiftL )
-import Data.Word( Word8 )
 import Data.Int( Int16, Int32 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -26,10 +25,8 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 
-import Debug.Trace
-import Text.Printf
-import Text.Groom
-import qualified Data.Vector.Storable as VS
+{-import Debug.Trace-}
+{-import Text.Printf-}
 
 data JpgUnpackerParameter = JpgUnpackerParameter
     { dcHuffmanTree        :: !HuffmanPackedTree
@@ -113,35 +110,6 @@ decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
     return TRUE;
 }
 -}
-unpackInt' :: Int -> BoolReader s Int32
-unpackInt' bitCount = packInt' <$> replicateM bitCount getNextBitJpg
-    where packInt' = foldr bitStep 0
-          bitStep True acc = (acc `unsafeShiftL` 1) .|. 1
-          bitStep False acc = acc `unsafeShiftL` 1
-
-decodeProgressiveInt :: Int -> BoolReader s Int32
-decodeProgressiveInt ssss = do
-    r <- unpackInt' (ssss - 1)
-    let si = fromIntegral ssss
-        dataRange = 1 `unsafeShiftL` (si - 1)
-
-    -- First following bits store the sign of the coefficient, and counted in
-    -- SSSS, so the bit count for the int, is ssss - 1
-    -- HUFF_EXTEND(x,s)  ((x) < (1<<((s)-1)) ? (x) + (((-1)<<(s)) + 1) : (x))
-    return $ if r < dataRange
-       then r + ((negate 1 `unsafeShiftL` si) + 1)
-       else r
-
--- GET_BITS(nbits) \
-    --	(((int) (get_buffer >> (bits_left -= (nbits)))) & ((1<<(nbits))-1))
-dcProgressiveCoefficientDecode :: HuffmanPackedTree
-                               -> BoolReader s (Word8, DcCoefficient)
-dcProgressiveCoefficientDecode dcTree = do
-    ssss <- huffmanPackedDecode dcTree
-    if ssss == 0
-       then return (ssss, 0)
-       else (ssss,) . fromIntegral <$> decodeProgressiveInt (fromIntegral ssss)
-
 decodeFirstDC :: JpgUnpackerParameter
               -> MS.STVector s Int16
               -> MutableMacroBlock s Int16
@@ -149,15 +117,12 @@ decodeFirstDC :: JpgUnpackerParameter
               -> BoolReader s Int32
 decodeFirstDC params dcCoeffs block eobrun = unpack >> pure eobrun
   where unpack = do
-          {-(s, dcDeltaCoefficient) <- dcProgressiveCoefficientDecode $ dcHuffmanTree params-}
           (dcDeltaCoefficient) <- dcCoefficientDecode $ dcHuffmanTree params
           previousDc <- lift $ dcCoeffs `MS.unsafeRead` componentIndex params
-          let s = 0 :: Int
-              neoDcCoefficient = previousDc + dcDeltaCoefficient
+          let neoDcCoefficient = previousDc + dcDeltaCoefficient
               approxLow = fst $ successiveApprox params
               scaledDc = neoDcCoefficient `unsafeShiftL` approxLow
-          lift . (trace $ printf "DCFirst> cId:%d s:%d s':%4d context:%4d"
-                            (componentIndex params) s dcDeltaCoefficient previousDc) $ (block `MS.unsafeWrite` 0) scaledDc 
+          lift $ (block `MS.unsafeWrite` 0) scaledDc 
           lift $ (dcCoeffs `MS.unsafeWrite` componentIndex params) neoDcCoefficient
 
 decodeRefineDc :: JpgUnpackerParameter
@@ -260,7 +225,7 @@ prepareUnpacker lst = do
          (V.fromList $ map (,unpacker) (param:xs), boolReader)
            where unpacker = selection (successiveApprox param) (coefficientRange param)
 
-                 boolReader = initBoolState . B.concat $ L.toChunks byteString
+                 boolReader = initBoolStateJpg . B.concat $ L.toChunks byteString
 
                  selection (_, 0) (0, _) = decodeFirstDC
                  selection (_, 0) _      = decodeFirstAc
@@ -277,21 +242,21 @@ progressiveUnpack :: (Int, Int)
                   -> [([JpgUnpackerParameter], L.ByteString)]
                   -> ST s (MutableImage s PixelYCbCr8)
 progressiveUnpack (maxiW, maxiH) frame quants lst = do
-    (unpackers, readers) <- trace (printf "maxiW:%d maxiH:%d" maxiW maxiH) $ prepareUnpacker lst
-    allBlocks <- trace (groom $ map (\(v, _) -> map (\c -> c { dcHuffmanTree = VS.empty, acHuffmanTree = VS.empty }) v) lst) $ mapM allocateWorkingBlocks $ jpgComponents frame
+    (unpackers, readers) <- prepareUnpacker lst
+    allBlocks <- mapM allocateWorkingBlocks $ jpgComponents frame
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
     workBlock <- createEmptyMutableMacroBlock
     let elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
     img <- MutableImage imgWidth imgHeight <$> MS.replicate elementCount 128
 
-    rasterMap imageMcuWidth imageMcuHeight $ \mmX mmY -> trace (printf "MCU x:%d y:%d" mmX mmY) $ do
+    rasterMap imageMcuWidth imageMcuHeight $ \mmX mmY -> do
 
         -- Reset all blocks to 0
         forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
 
-        trace ("(1)") $ V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
-            boolState <- trace "  U" $ readers `M.read` readerIndex unpackParam
+        V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
+            boolState <- readers `M.read` readerIndex unpackParam
             eobrun <- eobRuns `MS.read` readerIndex unpackParam
             let mcuBlocks = allBlocks !! componentIndex unpackParam
                 blockIndex =
@@ -302,15 +267,14 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                 runBoolReaderWith boolState $
                     unpacker unpackParam dcCoeffs writeBlock eobrun
 
+            
             (readers `M.write` readerIndex unpackParam) state
             (eobRuns `MS.write` readerIndex unpackParam) eobrun'
 
-        trace ("(2)") $ sequence_ [trace (printf "  cId:%d w:%d h:%d compW:%d compH:%d x:%d y:%d rx:%d ry:%d" cId cw8 ch8 compW compH x y rx ry) $
-                  decodeMacroBlock table workBlock block >>=
+        sequence_ [ decodeMacroBlock table workBlock block >>=
                       unpackMacroBlock imgComponentCount cId
                                 cw8 ch8 (rx `div` cw8) (ry `div` ch8) img
                       | (cId, comp) <- zip [0..] $ jpgComponents frame
-                      , cId == 0
                       , let compW = fromIntegral $ horizontalSamplingFactor comp
                             compH = fromIntegral $ verticalSamplingFactor comp
                             cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
@@ -324,7 +288,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                             block = compBlocks ! (y * compW + x)
                             table = quants ! (max 1 cId)
                       ]
-    trace ("(3)") $ return img
+    return img
 
   where imgComponentCount = length $ jpgComponents frame
         mcuBlockWidth = maxiW * dctBlockSize

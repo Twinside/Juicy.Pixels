@@ -18,7 +18,7 @@ import Control.Applicative( pure, (<$>) )
 import Control.Monad( when, forM_, foldM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )
-import Control.Monad.Trans.RWS( RWS, modify, tell, gets, execRWS )
+import Control.Monad.Trans.RWS.Strict( RWS, modify, tell, gets, execRWS )
 import qualified Control.Monad.Trans.State.Strict as S
 
 import Data.Maybe( fromJust )
@@ -45,9 +45,6 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
-
-import Debug.Trace
-import Text.Printf
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
@@ -304,8 +301,6 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                 comp = fromIntegral (componentSelector scanSpec) - 1
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
-            maxHoriz <- gets maximumHorizontalResolution
-            maxVert <- gets maximumVerticalResolution
             restart <- gets currentRestartInterv
             frameInfo <- gets currentFrame
             blobId <- gets seenBlobs                   
@@ -314,15 +309,11 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
               Just v -> do
                  let compDesc = jpgComponents v !! comp
                      xSampling = fromIntegral $ horizontalSamplingFactor compDesc
-                     xSamplingFactor = maxHoriz - xSampling + 1
-
                      ySampling = fromIntegral $ verticalSamplingFactor compDesc
-                     ySamplingFactor = maxVert - ySampling + 1
 
                      quantIndex = fromIntegral $ quantizationTableDest compDesc
 
-                 quant <- trace (printf "comp:%d xSampling:%d ySampling:%d xSamplingFactor:%d ySamplingFactor:%d"
-                                            comp xSampling ySampling xSamplingFactor ySamplingFactor) $ gets $ (V.! quantIndex) . quantizationMatrices
+                 quant <- gets $ (V.! quantIndex) . quantizationMatrices
 
                  pure [ JpgUnpackerParameter
                           { dcHuffmanTree = dcTree
@@ -360,8 +351,10 @@ jpgMachineStep (JpgIntervalRestart restart) =
 jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
   where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
             DcComponent -> modify $ \s ->
-                s { dcDecoderTables = dcDecoderTables s // [(idx, tree)] }
+                let neu = dcDecoderTables s // [(idx, tree)] in 
+                s { dcDecoderTables = neu `seq` neu }
                     where idx = fromIntegral $ huffmanTableDest spec
+                          
             AcComponent -> modify $ \s ->
                 s { acDecoderTables = acDecoderTables s // [(idx, tree)] }
                     where idx = fromIntegral $ huffmanTableDest spec
