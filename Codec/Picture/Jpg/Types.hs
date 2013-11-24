@@ -14,6 +14,7 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , JpgImageKind( .. )
                               , JpgScanSpecification( .. )
                               , calculateSize
+                              , dctBlockSize
                               ) where
 
 import Control.Applicative( (<$>), (<*>))
@@ -52,7 +53,6 @@ import Codec.Picture.Jpg.DefaultTable
 
 {-import Debug.Trace-}
 import Text.Printf
-
 
 -- | Type only used to make clear what kind of integer we are carrying
 -- Might be transformed into newtype in the future
@@ -531,3 +531,7 @@ printMacroBlock block = pLn 0
               vn <- pLn (i+1)
               return $ printf (if i `mod` 8 == 0 then "\n%5d " else "%5d ") v ++ vn
 
+
+{-# INLINE dctBlockSize #-}
+dctBlockSize :: Num a => a
+dctBlockSize = 8

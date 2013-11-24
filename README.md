@@ -49,8 +49,8 @@ Status
         - 8 bits greyscale (with palette)
 
  - Jpeg   (.jpg, .jpeg) 
-    * Reading non-interlaced baseline DCT image
-    * Writing
+    * Reading normal and interlaced baseline DCT image
+    * Writing non-interlaced JPG
 
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.

@@ -16,13 +16,13 @@ import Control.Monad( forM, forM_ )
 referenceDct :: MutableMacroBlock s Int32
              -> MutableMacroBlock s Int16
              -> ST s (MutableMacroBlock s Int32)
-referenceDct workData block = forM_ [(u, v) | u <- [0 :: Int .. 7], v <- [0..7]] (\(u,v) -> do
+referenceDct workData block = forM_ [(u, v) | u <- [0 :: Int .. dctBlockSize - 1], v <- [0..dctBlockSize - 1]] (\(u,v) -> do
     val <- at (u,v)
-    (workData `M.unsafeWrite` (v * 8 + u)) . truncate $ (1 / 4) * c u * c v * val)
+    (workData `M.unsafeWrite` (v * dctBlockSize + u)) . truncate $ (1 / 4) * c u * c v * val)
     >> return workData
  where -- at :: (Int, Int) -> ST s Float
-       at (u,v) = sum <$> (forM [(x,y) | x <- [0..7], y <- [0..7 :: Int]] $ \(x,y) -> do
-           sample <- fromIntegral <$> (block `M.unsafeRead` (y * 8 + x))
+       at (u,v) = sum <$> (forM [(x,y) | x <- [0..dctBlockSize - 1], y <- [0..dctBlockSize - 1 :: Int]] $ \(x,y) -> do
+           sample <- fromIntegral <$> (block `M.unsafeRead` (y * dctBlockSize + x))
            return $ sample * cos ((2 * fromIntegral x + 1) * fromIntegral u * (pi :: Float)/ 16) 
                            * cos ((2 * fromIntegral y + 1) * fromIntegral v * pi / 16))
        c 0 = 1 / sqrt 2
@@ -65,9 +65,9 @@ fastDctLibJpeg workData sample_block = do
   where -- Pass 1: process rows.
         -- Note results are scaled up by sqrt(8) compared to a true DCT;
         -- furthermore, we scale the results by 2**PASS1_BITS.
-        firstPass         _ 8 = return ()
+        firstPass         _ i | i == dctBlockSize = return ()
         firstPass dataBlock i = do
-            let baseIdx = i * 8
+            let baseIdx = i * dctBlockSize
                 readAt idx = fromIntegral <$> sample_block `M.unsafeRead` (baseIdx + idx)
                 mult = (*)
                 writeAt idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx)) n
@@ -99,7 +99,7 @@ fastDctLibJpeg workData sample_block = do
                 tmp3' = blk3 - blk4
 
             -- Stage 4 and output
-            writeAt 0 $ (tmp10 + tmp11 - 8 * cENTERJSAMPLE) `unsafeShiftL` pASS1_BITS
+            writeAt 0 $ (tmp10 + tmp11 - dctBlockSize * cENTERJSAMPLE) `unsafeShiftL` pASS1_BITS
             writeAt 4 $ (tmp10 - tmp11) `unsafeShiftL` pASS1_BITS
 
             let z1 = mult (tmp12 + tmp13) fIX_0_541196100
@@ -138,10 +138,10 @@ fastDctLibJpeg workData sample_block = do
         secondPass :: M.STVector s Int32 -> Int -> ST s ()
         secondPass _     (-1) = return ()
         secondPass block i = do
-            let readAt idx = block `M.unsafeRead` ((7 - i) + idx * 8)
+            let readAt idx = block `M.unsafeRead` ((7 - i) + idx * dctBlockSize)
                 mult = (*)
-                writeAt idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) n
-                writeAtPos idx n = (block `M.unsafeWrite` (8 * idx + (7 - i))) $ n `unsafeShiftR` (cONST_BITS + pASS1_BITS + 3)
+                writeAt idx n = (block `M.unsafeWrite` (dctBlockSize * idx + (7 - i))) n
+                writeAtPos idx n = (block `M.unsafeWrite` (dctBlockSize * idx + (7 - i))) $ n `unsafeShiftR` (cONST_BITS + pASS1_BITS + 3)
             blk0 <- readAt 0
             blk1 <- readAt 1
             blk2 <- readAt 2
