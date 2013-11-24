@@ -33,13 +33,10 @@ Flag Mmap
 Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
-  Ghc-options: -rtsopts -prof -fprof-auto-top
-  -- -O3 -Wall 
-  -- 
+  Ghc-options: -O3 -Wall
   -- -ddump-simpl
-  -- 
-  Include-Dirs: Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
+  Include-Dirs: Codec/Picture
   Build-depends: base                >= 4       && < 5,
                  bytestring          >= 0.9     && < 0.11,
                  mtl                 >= 1.1     && < 2.2,

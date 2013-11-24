@@ -26,9 +26,6 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 
-import Debug.Trace
-import Text.Printf
-
 data JpgUnpackerParameter = JpgUnpackerParameter
     { dcHuffmanTree        :: !HuffmanPackedTree
     , acHuffmanTree        :: !HuffmanPackedTree
@@ -46,7 +43,7 @@ data JpgUnpackerParameter = JpgUnpackerParameter
     deriving Show
 
 mcuIndexer :: JpgComponent -> DctComponent -> Int -> VS.Vector Int
-mcuIndexer param kind mcuWidth = traShow (printf "mcuWidth:%d compW:%d compH:%d th:%d" mcuWidth compW compH th) $ VS.fromListN (mcuWidth * th) indexes
+mcuIndexer param kind mcuWidth = VS.fromListN (mcuWidth * th) indexes
   where compW = fromIntegral $ horizontalSamplingFactor param
         compH = fromIntegral $ verticalSamplingFactor param
         th = compW * compH
@@ -216,9 +213,6 @@ lineMap count f = go 0
   where go n | n >= count = return ()
         go n = f n >> go (n + 1)
 
-traShow :: Show a => String -> a -> a
-traShow str a = trace (str ++ show a) a
-
 progressiveUnpack :: (Int, Int)
                   -> JpgFrameHeader
                   -> V.Vector (MacroBlock Int16)
@@ -242,15 +236,15 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
 
       lineMap imageMcuWidth $ \_mmx -> do
         V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
-            boolState <- trace (printf "unpack %d" mmY) $ readers `M.read` readerIndex unpackParam
+            boolState <- readers `M.read` readerIndex unpackParam
             eobrun <- eobRuns `MS.read` readerIndex unpackParam
             let componentNumber = componentIndex unpackParam
             writeIndex <- writeIndices `MS.read` componentNumber
             let componentData = allBlocks !! componentNumber
                 indexVector =
                     componentIndices componentData ! indiceVector unpackParam
-                realIndex = indexVector VS.! (traShow (printf "print cid:%d idx:" componentNumber) $ writeIndex + blockIndex unpackParam)
-                writeBlock = trace (printf "realIndex: %d" realIndex) $ componentBlocks componentData ! realIndex
+                realIndex = indexVector VS.! (writeIndex + blockIndex unpackParam)
+                writeBlock = componentBlocks componentData ! realIndex
             (eobrun', state) <-
                 runBoolReaderWith boolState $
                     unpacker unpackParam dcCoeffs writeBlock eobrun
@@ -260,7 +254,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
 
         -- Update the write indices
         forM_ allBlocks $ \comp -> do
-          writeIndex <- trace "Update" $ writeIndices `MS.read` componentId comp
+          writeIndex <- writeIndices `MS.read` componentId comp
           let newIndex = writeIndex + componentBlockCount comp
           (writeIndices `MS.write` componentId comp) $ newIndex
 
@@ -274,7 +268,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
             cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
             ch8 = maxiH - fromIntegral (verticalSamplingFactor comp) + 1
 
-        rasterMap (trace "writeback" $ imageMcuWidth * compW) compH $ \rx y -> do
+        rasterMap (imageMcuWidth * compW) compH $ \rx y -> do
             let ry = mmY * maxiH + y
                 block = compBlocks ! (y * imageMcuWidth * compW + rx)
             transformed <- decodeMacroBlock table workBlock block
@@ -295,8 +289,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
 
         allocateWorkingBlocks (ix, comp) = do
             let blockCount = hSample * vSample * imageMcuWidth
-            blocks <- V.replicateM (trace (printf "allocating %d block for %d (%d,%d)" blockCount ix hSample vSample) blockCount)
-                            createEmptyMutableMacroBlock
+            blocks <- V.replicateM blockCount createEmptyMutableMacroBlock
             return $ ComponentData 
                 { componentBlocks = blocks
                 , componentIndices = createMcuLineIndices comp imageMcuWidth

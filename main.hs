@@ -83,7 +83,7 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "fenek.jpg", "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg", "JPEG_example_JPG_RIP_025.jpg"
                  , "JPEG_example_JPG_RIP_050.jpg", "JPEG_example_JPG_RIP_100.jpg"
-                 , "sheep.jpg"
+                 , "sheep.jpg", "mand_prgrsv.jpg"
                  ]
  
 bmpValidTests :: [FilePath]
@@ -376,9 +376,7 @@ testSuite = do
 
 jpegToPng :: IO ()
 jpegToPng = do
- {-Right rez <- readImage "tests/jpeg/sheep.jpg"-}
- {-savePngImage "control.png" rez-}
- img <- readImage  "tests/jpeg/mand_prgrsv.jpg" -- "tests/jpeg/huge.jpg"
+ img <- readImage "tests/jpeg/huge.jpg"
  case img of
    Left err -> do
        putStrLn err
@@ -453,13 +451,7 @@ myMain = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
-        ("debug":_) -> do
-            Right rez <- readImage "tests/jpeg/sheep.jpg"
-            putStrLn "============"
-            rez <- readImage "tests/jpeg/mand_prgrsv.jpg"
-            case rez of
-              Left err -> putStrLn err
-              Right v -> saveJpgImage 90 "test.jpg" v
+        ("debug":_) -> return ()
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
