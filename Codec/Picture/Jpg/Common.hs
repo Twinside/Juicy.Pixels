@@ -33,6 +33,9 @@ import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.FastIdct
 import Codec.Picture.Jpg.DefaultTable
 
+import Debug.Trace
+import Text.Printf
+
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
 
@@ -176,7 +179,9 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block = rasterMap dctBlockSize dctBlockSize unpacker
+                 block = 
+                 trace (printf "compIdx:%d wCoeff:%d hCoeff:%d x:%d y:%d" compIdx wCoeff hCoeff x y)
+                 $ rasterMap dctBlockSize dctBlockSize unpacker
   where unpacker i j = do
           let yBase = (y * dctBlockSize + j) * hCoeff
           compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))

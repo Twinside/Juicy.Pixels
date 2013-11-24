@@ -6,7 +6,7 @@ module Codec.Picture.Jpg.Progressive
     , progressiveUnpack
     ) where
 
-import Control.Applicative( pure, (<$>) )
+import Control.Applicative( pure, (<$>), (<*>) )
 import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
@@ -15,6 +15,7 @@ import Data.Int( Int16, Int32 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import Data.Vector( (!) )
 import qualified Data.Vector.Mutable as M
 import qualified Data.Vector.Storable.Mutable as MS
@@ -25,91 +26,40 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 
-{-import Debug.Trace-}
-{-import Text.Printf-}
+import Debug.Trace
+import Text.Printf
 
 data JpgUnpackerParameter = JpgUnpackerParameter
     { dcHuffmanTree        :: !HuffmanPackedTree
     , acHuffmanTree        :: !HuffmanPackedTree
     , quantization         :: !(MacroBlock Int16)
-    , componentIndex       :: !Int
-    , restartInterval      :: !Int
-    , componentWidth       :: !Int
-    , componentHeight      :: !Int
+    , componentIndex       :: {-# UNPACK #-} !Int
+    , restartInterval      :: {-# UNPACK #-} !Int
+    , componentWidth       :: {-# UNPACK #-} !Int
+    , componentHeight      :: {-# UNPACK #-} !Int
     , coefficientRange     :: !(Int, Int)
     , successiveApprox     :: !(Int, Int)
-    , mcuX                 :: !Int
-    , mcuY                 :: !Int
-    , readerIndex          :: !Int
+    , readerIndex          :: {-# UNPACK #-} !Int
+    , blockIndex           :: {-# UNPACK #-} !Int
+    , indiceVector         :: {-# UNPACK #-} !Int
     }
     deriving Show
 
-{-  
-    METHODDEF(boolean)
-decode_mcu_DC_first (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
-{   
-    phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
-    int Al = cinfo->Al;
-    register int s, r;
-    int blkn, ci;
-    JBLOCKROW block;
-    BITREAD_STATE_VARS;
-    savable_state state;
-    d_derived_tbl * tbl;
-    jpeg_component_info * compptr;
+mcuIndexer :: JpgComponent -> DctComponent -> Int -> VS.Vector Int
+mcuIndexer param kind mcuWidth = traShow (printf "mcuWidth:%d compW:%d compH:%d th:%d" mcuWidth compW compH th) $ VS.fromListN (mcuWidth * th) indexes
+  where compW = fromIntegral $ horizontalSamplingFactor param
+        compH = fromIntegral $ verticalSamplingFactor param
+        th = compW * compH
 
-    /* Process restart marker if needed; may have to suspend */
-    if (cinfo->restart_interval) {
-        if (entropy->restarts_to_go == 0)
-            if (! process_restart(cinfo))
-                return FALSE;
-    }
+        index AcComponent mcu y x = mcu * th + x + y * compW
+        index DcComponent mcu y x = (mcu + y * mcuWidth) * compW + x
+        indexes =
+            index kind <$> [0 .. mcuWidth - 1] <*> [0 .. compH - 1] <*> [0 .. compW - 1]
 
-    /* If we've run out of data, just leave the MCU set to zeroes.
-     * This way, we return uniform gray for the remainder of the segment.
-     */
-    if (! entropy->pub.insufficient_data) {
+createMcuLineIndices :: JpgComponent -> Int -> V.Vector (VS.Vector Int)
+createMcuLineIndices comp mcuWidth =
+  V.fromList [ mcuIndexer comp part mcuWidth | part <- [DcComponent, AcComponent] ]
 
-        /* Load up working state */
-        BITREAD_LOAD_STATE(cinfo,entropy->bitstate);
-        ASSIGN_STATE(state, entropy->saved);
-
-        /* Outer loop handles each block in the MCU */
-
-        for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
-            block = MCU_data[blkn];
-            ci = cinfo->MCU_membership[blkn];
-            compptr = cinfo->cur_comp_info[ci];
-            tbl = entropy->derived_tbls[compptr->dc_tbl_no];
-
-            /* Decode a single block's worth of coefficients */
-
-            /* Section F.2.2.1: decode the DC coefficient difference */
-            HUFF_DECODE(s, br_state, tbl, return FALSE, label1);
-            if (s) {
-                CHECK_BIT_BUFFER(br_state, s, return FALSE);
-                r = GET_BITS(s);
-                s = HUFF_EXTEND(r, s);
-            }
-
-            /* Convert DC difference to actual value, update last_dc_val */
-            s += state.last_dc_val[ci];
-            state.last_dc_val[ci] = s;
-            /* Scale and output the coefficient (assumes jpeg_natural_order[0]=0) */
-            (*block)[0] = (JCOEF) (s << Al);
-        }
-
-        /* Completed MCU, so update state */
-        BITREAD_SAVE_STATE(cinfo,entropy->bitstate);
-        ASSIGN_STATE(entropy->saved, state);
-    }
-
-    /* Account for restart interval (no-op if not using restarts) */
-    entropy->restarts_to_go--;
-
-    return TRUE;
-}
--}
 decodeFirstDC :: JpgUnpackerParameter
               -> MS.STVector s Int16
               -> MutableMacroBlock s Int16
@@ -166,24 +116,44 @@ decodeRefineAc :: JpgUnpackerParameter
                -> MutableMacroBlock s Int16
                -> Int32
                -> BoolReader s Int32
-decodeRefineAc _params _ _block eobrun | eobrun > 0 = pure $ eobrun - 1
-decodeRefineAc params _ block _ = unpack startIndex
+decodeRefineAc params _ block eobrun
+        | eobrun == 0 = unpack startIndex
+        | otherwise   = performEobRun startIndex >> return (eobrun - 1)
   where (startIndex, maxIndex) = coefficientRange params
         (low, _) = successiveApprox params
         plusOne = 1 `unsafeShiftL` low
-        minusOne = 1 `unsafeShiftL` low
+        minusOne = (-1) `unsafeShiftL` low
 
         getBitVal = do
             v <- getNextBitJpg
             pure $ if v then plusOne else minusOne
 
+        {-performEobRun :: Int -> BoolReader s ()-}
+        performEobRun idx | idx > maxIndex = pure ()
+        performEobRun idx = do
+          coeff <- lift $ block `MS.unsafeRead` idx
+          when (coeff /= 0) $ do
+            bit <- getNextBitJpg
+            case (bit, (coeff .&. plusOne) == 0) of
+               (False, _)    -> performEobRun $ idx + 1
+               (True, False) -> performEobRun $ idx + 1
+               (True, True) -> do
+                   let newVal | coeff >= 0 = coeff + plusOne
+                              | otherwise = coeff + minusOne
+                   lift $ (block `MS.unsafeWrite` idx) newVal
+                   performEobRun $ idx + 1
+                   
         unpack idx | idx > maxIndex = pure 0
         unpack idx = do
             rrrrssss <- decodeRrrrSsss $ acHuffmanTree params
             case rrrrssss of
               (0xF, 0) -> error "Dunno"
-              (  r, 0) -> eobrun <$> unpackInt r
-                 where eobrun lowBits = (1 `unsafeShiftL` r) + lowBits - 1
+              (  r, 0) -> do
+                  lowBits <- unpackInt r
+                  let newEobRun = (1 `unsafeShiftL` r) + lowBits - 1
+                  performEobRun idx
+                  pure newEobRun
+                         
               (  r, _) -> do
                   idx' <- updateCoeffs r idx
                   val <- getBitVal
@@ -224,7 +194,6 @@ prepareUnpacker lst = do
         prepare (param : xs, byteString) =
          (V.fromList $ map (,unpacker) (param:xs), boolReader)
            where unpacker = selection (successiveApprox param) (coefficientRange param)
-
                  boolReader = initBoolStateJpg . B.concat $ L.toChunks byteString
 
                  selection (_, 0) (0, _) = decodeFirstDC
@@ -233,8 +202,22 @@ prepareUnpacker lst = do
                  selection _      _      = decodeRefineAc
 
 data ComponentData s = ComponentData
-    { componentBlocks :: V.Vector (MutableMacroBlock s Int16)
+    { componentIndices    :: V.Vector (VS.Vector Int)
+    , componentBlocks     :: V.Vector (MutableMacroBlock s Int16)
+    , componentId         :: !Int
+    , componentBlockCount :: !Int
     }
+
+-- | Iteration from to n in monadic context, without data
+-- keeping.
+lineMap :: (Monad m) => Int -> (Int -> m ()) -> m ()
+{-# INLINE lineMap #-}
+lineMap count f = go 0
+  where go n | n >= count = return ()
+        go n = f n >> go (n + 1)
+
+traShow :: Show a => String -> a -> a
+traShow str a = trace (str ++ show a) a
 
 progressiveUnpack :: (Int, Int)
                   -> JpgFrameHeader
@@ -243,51 +226,62 @@ progressiveUnpack :: (Int, Int)
                   -> ST s (MutableImage s PixelYCbCr8)
 progressiveUnpack (maxiW, maxiH) frame quants lst = do
     (unpackers, readers) <- prepareUnpacker lst
-    allBlocks <- mapM allocateWorkingBlocks $ jpgComponents frame
+    allBlocks <- mapM allocateWorkingBlocks . zip [0..] $ jpgComponents frame
+                    :: ST s [ComponentData s]
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
     workBlock <- createEmptyMutableMacroBlock
+    writeIndices <- MS.replicate imgComponentCount (0 :: Int)
     let elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
     img <- MutableImage imgWidth imgHeight <$> MS.replicate elementCount 128
 
-    rasterMap imageMcuWidth imageMcuHeight $ \mmX mmY -> do
+    lineMap imageMcuHeight $ \mmY -> do
+      -- Reset all blocks to 0
+      forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
+      MS.set writeIndices 0
 
-        -- Reset all blocks to 0
-        forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
-
+      lineMap imageMcuWidth $ \_mmx -> do
         V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
-            boolState <- readers `M.read` readerIndex unpackParam
+            boolState <- trace (printf "unpack %d" mmY) $ readers `M.read` readerIndex unpackParam
             eobrun <- eobRuns `MS.read` readerIndex unpackParam
-            let mcuBlocks = allBlocks !! componentIndex unpackParam
-                blockIndex =
-                    componentWidth unpackParam * mcuY unpackParam
-                            + mcuX unpackParam
-                writeBlock = componentBlocks mcuBlocks ! blockIndex
+            let componentNumber = componentIndex unpackParam
+            writeIndex <- writeIndices `MS.read` componentNumber
+            let componentData = allBlocks !! componentNumber
+                indexVector =
+                    componentIndices componentData ! indiceVector unpackParam
+                realIndex = indexVector VS.! (traShow (printf "print cid:%d idx:" componentNumber) $ writeIndex + blockIndex unpackParam)
+                writeBlock = trace (printf "realIndex: %d" realIndex) $ componentBlocks componentData ! realIndex
             (eobrun', state) <-
                 runBoolReaderWith boolState $
                     unpacker unpackParam dcCoeffs writeBlock eobrun
 
-            
             (readers `M.write` readerIndex unpackParam) state
             (eobRuns `MS.write` readerIndex unpackParam) eobrun'
 
-        sequence_ [ decodeMacroBlock table workBlock block >>=
-                      unpackMacroBlock imgComponentCount cId
-                                cw8 ch8 (rx `div` cw8) (ry `div` ch8) img
-                      | (cId, comp) <- zip [0..] $ jpgComponents frame
-                      , let compW = fromIntegral $ horizontalSamplingFactor comp
-                            compH = fromIntegral $ verticalSamplingFactor comp
-                            cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
-                            ch8 = maxiH - fromIntegral (verticalSamplingFactor comp) + 1
-                     
-                      , y <- [0 .. compH - 1]
-                      , let ry = mmY * maxiH + y
-                      , x <- [0 .. compW - 1]
-                      , let rx = mmX * maxiW + x
-                      , let compBlocks = componentBlocks (allBlocks !! cId)
-                            block = compBlocks ! (y * compW + x)
-                            table = quants ! (max 1 cId)
-                      ]
+        -- Update the write indices
+        forM_ allBlocks $ \comp -> do
+          writeIndex <- trace "Update" $ writeIndices `MS.read` componentId comp
+          let newIndex = writeIndex + componentBlockCount comp
+          (writeIndices `MS.write` componentId comp) $ newIndex
+
+      forM_ allBlocks $ \compData -> do
+        let compBlocks = componentBlocks compData
+            cId = componentId compData
+            table = quants ! max 1 cId
+            comp = jpgComponents frame !! cId
+            compW = fromIntegral $ horizontalSamplingFactor comp
+            compH = fromIntegral $ verticalSamplingFactor comp
+            cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
+            ch8 = maxiH - fromIntegral (verticalSamplingFactor comp) + 1
+
+        rasterMap (trace "writeback" $ imageMcuWidth * compW) compH $ \rx y -> do
+            let ry = mmY * maxiH + y
+                block = compBlocks ! (y * imageMcuWidth * compW + rx)
+            transformed <- decodeMacroBlock table workBlock block
+            unpackMacroBlock imgComponentCount cId
+                    cw8 ch8 rx (ry `div` ch8)
+                    img transformed
+
     return img
 
   where imgComponentCount = length $ jpgComponents frame
@@ -298,151 +292,17 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
         imgHeight = fromIntegral $ jpgHeight frame
         imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
         imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
-        allocateWorkingBlocks comp = ComponentData <$> blocks 
+
+        allocateWorkingBlocks (ix, comp) = do
+            let blockCount = hSample * vSample * imageMcuWidth
+            blocks <- V.replicateM (trace (printf "allocating %d block for %d (%d,%d)" blockCount ix hSample vSample) blockCount)
+                            createEmptyMutableMacroBlock
+            return $ ComponentData 
+                { componentBlocks = blocks
+                , componentIndices = createMcuLineIndices comp imageMcuWidth
+                , componentBlockCount = hSample * vSample
+                , componentId = ix
+                }
             where hSample = fromIntegral $ horizontalSamplingFactor comp
                   vSample = fromIntegral $ verticalSamplingFactor comp
-                  blocks = V.replicateM (hSample * vSample)
-                                createEmptyMutableMacroBlock
--- -}  
-
-{- 
-/*
- * MCU decoding for AC successive approximation refinement scan.
- */
-
-    METHODDEF(boolean)
-decode_mcu_AC_refine (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
-{   
-    phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
-    int Se = cinfo->Se;
-    int p1 = 1 << cinfo->Al;	/* 1 in the bit position being coded */
-    int m1 = (-1) << cinfo->Al;	/* -1 in the bit position being coded */
-    register int s, k, r;
-    unsigned int EOBRUN;
-    JBLOCKROW block;
-    JCOEFPTR thiscoef;
-    BITREAD_STATE_VARS;
-    d_derived_tbl * tbl;
-    int num_newnz;
-    int newnz_pos[DCTSIZE2];
-
-    /* If we've run out of data, don't modify the MCU.
-    */
-    if (! entropy->pub.insufficient_data) {
-
-        /* Load up working state */
-        BITREAD_LOAD_STATE(cinfo,entropy->bitstate);
-        EOBRUN = entropy->saved.EOBRUN; /* only part of saved state we need */
-
-
-        /* If we are forced to suspend, we must undo the assignments to any newly
-         * nonzero coefficients in the block, because otherwise we'd get confused
-         * next time about which coefficients were already nonzero.
-         * But we need not undo addition of bits to already-nonzero coefficients;
-         * instead, we can test the current bit to see if we already did it.
-         */
-        num_newnz = 0;
-
-        /* initialize coefficient loop counter to start of band */
-        k = cinfo->Ss;
-
-        if (EOBRUN == 0) {
-            for (; k <= Se; k++) {
-                HUFF_DECODE(s, br_state, tbl, goto undoit, label3);
-                r = s >> 4;
-                s &= 15;
-                if (s) {
-                    if (s != 1)		/* size of new coef should always be 1 */
-                        WARNMS(cinfo, JWRN_HUFF_BAD_CODE);
-                    CHECK_BIT_BUFFER(br_state, 1, goto undoit);
-                    if (GET_BITS(1))
-                        s = p1;		/* newly nonzero coef is positive */
-                    else
-                        s = m1;		/* newly nonzero coef is negative */
-                } else {
-                    if (r != 15) {
-                        EOBRUN = 1 << r;	/* EOBr, run length is 2^r + appended bits */
-                        if (r) {
-                            CHECK_BIT_BUFFER(br_state, r, goto undoit);
-                            r = GET_BITS(r);
-                            EOBRUN += r;
-                        }
-                        break;		/* rest of block is handled by EOB logic */
-                    }
-                    /* note s = 0 for processing ZRL */
-                }
-                /* Advance over already-nonzero coefs and r still-zero coefs,
-                 * appending correction bits to the nonzeroes.  A correction bit is 1
-                 * if the absolute value of the coefficient must be increased.
-                 */
-                do {
-                    thiscoef = *block + jpeg_natural_order[k];
-                    if (*thiscoef != 0) {
-                        CHECK_BIT_BUFFER(br_state, 1, goto undoit);
-                        if (GET_BITS(1)) {
-                            if ((*thiscoef & p1) == 0) { /* do nothing if already set it */
-                                if (*thiscoef >= 0)
-                                    *thiscoef += p1;
-                                else
-                                    *thiscoef += m1;
-                            }
-                        }
-                    } else {
-                        if (--r < 0)
-                            break;		/* reached target zero coefficient */
-                    }
-                    k++;
-                } while (k <= Se);
-                if (s) {
-                    int pos = jpeg_natural_order[k];
-                    /* Output newly nonzero coefficient */
-                    (*block)[pos] = (JCOEF) s;
-                    /* Remember its position in case we have to suspend */
-                    newnz_pos[num_newnz++] = pos;
-                }
-            }
-        }
-
-        if (EOBRUN > 0) {
-            /* Scan any remaining coefficient positions after the end-of-band
-             * (the last newly nonzero coefficient, if any).  Append a correction
-             * bit to each already-nonzero coefficient.  A correction bit is 1
-             * if the absolute value of the coefficient must be increased.
-             */
-            for (; k <= Se; k++) {
-                thiscoef = *block + jpeg_natural_order[k];
-                if (*thiscoef != 0) {
-                    CHECK_BIT_BUFFER(br_state, 1, goto undoit);
-                    if (GET_BITS(1)) {
-                        if ((*thiscoef & p1) == 0) { /* do nothing if already changed it */
-                            if (*thiscoef >= 0)
-                                *thiscoef += p1;
-                            else
-                                *thiscoef += m1;
-                        }
-                    }
-                }
-            }
-            /* Count one block completed in EOB run */
-            EOBRUN--;
-        }
-
-        /* Completed MCU, so update state */
-        BITREAD_SAVE_STATE(cinfo,entropy->bitstate);
-        entropy->saved.EOBRUN = EOBRUN; /* only part of saved state we need */
-    }
-
-    /* Account for restart interval (no-op if not using restarts) */
-    entropy->restarts_to_go--;
-
-    return TRUE;
-
-undoit:
-    /* Re-zero any output coefficients that we made newly nonzero */
-    while (num_newnz > 0)
-        (*block)[newnz_pos[--num_newnz]] = 0;
-
-    return FALSE;
-}
--}
 

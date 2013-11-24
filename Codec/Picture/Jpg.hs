@@ -325,13 +325,12 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                           , componentHeight = ySampling
                           , successiveApprox = (approxLow, approxHigh)
                           , readerIndex = blobId
+                          , indiceVector =
+                              if selectionLow == 0 then 0 else 1
                           , coefficientRange =
                               ( fromIntegral selectionLow
                               , fromIntegral selectionHigh )
-
-
-                          , mcuX = x
-                          , mcuY = y
+                          , blockIndex = y * ySampling + x
                           }
                               | y <- [0 .. ySampling - 1]
                               , x <- [0 .. xSampling - 1] ]
