@@ -25,7 +25,7 @@ import Data.Maybe( fromJust )
 import Data.List( find )
 import Data.Bits( (.|.), unsafeShiftL )
 import Data.Int( Int16, Int32 )
-import Data.Word(Word8, Word16, Word32)
+import Data.Word(Word8, Word32)
 import Data.Binary( Binary(..), encode )
 
 import Data.Vector( (//) )
@@ -237,16 +237,6 @@ unpack422Ycbcr compIdx x y
 
             blockVert (idx + lineOffset) (readIdx + dctBlockSize) $ j + 1
 
-decodeRestartInterval :: BoolReader s Int32
-decodeRestartInterval = return (-1) {-  do
-  bits <- replicateM 8 getNextBitJpg
-  if bits == replicate 8 True
-     then do
-         marker <- replicateM 8 getNextBitJpg
-         return $ packInt marker
-     else return (-1)
-        -}
-
 type JpgScripter a =
     RWS () [([JpgUnpackerParameter], L.ByteString)] JpgDecoderState a
 
@@ -254,7 +244,7 @@ data JpgDecoderState = JpgDecoderState
     { dcDecoderTables      :: !(V.Vector HuffmanPackedTree)
     , acDecoderTables      :: !(V.Vector HuffmanPackedTree)
     , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
-    , currentRestartInterv :: !Word16
+    , currentRestartInterv :: !Int
     , currentFrame         :: Maybe JpgFrameHeader
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
@@ -274,7 +264,7 @@ emptyDecoderState = JpgDecoderState
             ]
 
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
-    , currentRestartInterv = 0
+    , currentRestartInterv = -1
     , currentFrame         = Nothing
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -311,14 +301,9 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                      xSampling = fromIntegral $ horizontalSamplingFactor compDesc
                      ySampling = fromIntegral $ verticalSamplingFactor compDesc
 
-                     quantIndex = fromIntegral $ quantizationTableDest compDesc
-
-                 quant <- gets $ (V.! quantIndex) . quantizationMatrices
-
                  pure [ JpgUnpackerParameter
                           { dcHuffmanTree = dcTree
                           , acHuffmanTree = acTree
-                          , quantization = quant
                           , componentIndex = comp
                           , restartInterval = fromIntegral restart
                           , componentWidth = xSampling
@@ -346,7 +331,7 @@ jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
           horizontalResolutions = map horizontalSamplingFactor components
           verticalResolutions = map verticalSamplingFactor components
 jpgMachineStep (JpgIntervalRestart restart) =
-    modify $ \s -> s { currentRestartInterv = restart }
+    modify $ \s -> s { currentRestartInterv = fromIntegral restart }
 jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
   where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
             DcComponent -> modify $ \s ->

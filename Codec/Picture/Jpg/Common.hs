@@ -13,6 +13,7 @@ module Codec.Picture.Jpg.Common
     , unpackMacroBlock
     , rasterMap
     , decodeMacroBlock
+    , decodeRestartInterval
     ) where
 
 import Control.Applicative( (<$>), pure )
@@ -35,6 +36,16 @@ import Codec.Picture.Jpg.DefaultTable
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
+
+decodeRestartInterval :: BoolReader s Int32
+decodeRestartInterval = return (-1) {-  do
+  bits <- replicateM 8 getNextBitJpg
+  if bits == replicate 8 True
+     then do
+         marker <- replicateM 8 getNextBitJpg
+         return $ packInt marker
+     else return (-1)
+        -}
 
 {-# INLINE decodeInt #-}
 decodeInt :: Int -> BoolReader s Int32
@@ -176,8 +187,7 @@ unpackMacroBlock :: Int    -- ^ Component count
 unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
-                 block = 
-                 rasterMap dctBlockSize dctBlockSize unpacker
+                 block = rasterMap dctBlockSize dctBlockSize unpacker
   where unpacker i j = do
           let yBase = (y * dctBlockSize + j) * hCoeff
           compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))

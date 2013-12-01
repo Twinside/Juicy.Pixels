@@ -2,6 +2,7 @@
 module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
                               , printMacroBlock
+                              , printPureMacroBlock
                               , DcCoefficient
                               , JpgImage( .. )
                               , JpgComponent( .. )
@@ -530,6 +531,14 @@ printMacroBlock block = pLn 0
               v <- block `M.unsafeRead` i
               vn <- pLn (i+1)
               return $ printf (if i `mod` 8 == 0 then "\n%5d " else "%5d ") v ++ vn
+
+printPureMacroBlock :: (Storable a, PrintfArg a) => MacroBlock a -> String
+printPureMacroBlock block = pLn 0
+    where pLn 64 = "===============================\n"
+          pLn i = str ++ pLn (i + 1)
+            where str | i `mod` 8 == 0 = printf "\n%5d " v
+                      | otherwise = printf "%5d" v
+                  v = block VS.! i
 
 
 {-# INLINE dctBlockSize #-}

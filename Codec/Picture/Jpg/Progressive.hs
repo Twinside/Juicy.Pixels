@@ -29,7 +29,6 @@ import Codec.Picture.Jpg.DefaultTable
 data JpgUnpackerParameter = JpgUnpackerParameter
     { dcHuffmanTree        :: !HuffmanPackedTree
     , acHuffmanTree        :: !HuffmanPackedTree
-    , quantization         :: !(MacroBlock Int16)
     , componentIndex       :: {-# UNPACK #-} !Int
     , restartInterval      :: {-# UNPACK #-} !Int
     , componentWidth       :: {-# UNPACK #-} !Int
@@ -100,6 +99,7 @@ decodeFirstAc params _ block _ = unpack startIndex
             rrrrssss <- decodeRrrrSsss $ acHuffmanTree params
             case rrrrssss of
                 (0xF, 0) -> unpack $ n + 16
+                (  0, 0) -> return 0
                 (  r, 0) -> eobrun <$> unpackInt r
                     where eobrun lowBits = (1 `unsafeShiftL` r) - 1 + lowBits
                 (  r, s) -> do
@@ -222,12 +222,33 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
     (unpackers, readers) <- prepareUnpacker lst
     allBlocks <- mapM allocateWorkingBlocks . zip [0..] $ jpgComponents frame
                     :: ST s [ComponentData s]
+    let scanCount = length lst
+        restartIntervalValue = case lst of
+                (p:_,_): _ -> restartInterval p
+                _ -> -1
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
     workBlock <- createEmptyMutableMacroBlock
     writeIndices <- MS.replicate imgComponentCount (0 :: Int)
+    restartIntervals <- MS.replicate scanCount restartIntervalValue
     let elementCount = imgWidth * imgHeight * fromIntegral imgComponentCount
     img <- MutableImage imgWidth imgHeight <$> MS.replicate elementCount 128
+
+    let processRestartInterval =
+          forM_ [0 .. scanCount - 1] $ \ix -> do
+            v <- restartIntervals `MS.read` ix
+            if v == 0 then do
+              -- reset DC prediction
+              when (ix == 0) (MS.set dcCoeffs 0)
+              reader <- readers `M.read` ix
+              (_, updated) <- runBoolReaderWith reader $
+                  byteAlignJpg >> decodeRestartInterval
+              (readers `M.write` ix) updated 
+              (eobRuns `MS.unsafeWrite` ix) 0
+              (restartIntervals `MS.unsafeWrite` ix) $ restartIntervalValue - 1
+            else
+              (restartIntervals `MS.unsafeWrite` ix) $ v - 1
+
 
     lineMap imageMcuHeight $ \mmY -> do
       -- Reset all blocks to 0
@@ -235,6 +256,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
       MS.set writeIndices 0
 
       lineMap imageMcuWidth $ \_mmx -> do
+        processRestartInterval 
         V.forM_ unpackers $ V.mapM_ $ \(unpackParam, unpacker) -> do
             boolState <- readers `M.read` readerIndex unpackParam
             eobrun <- eobRuns `MS.read` readerIndex unpackParam
@@ -244,7 +266,8 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                 indexVector =
                     componentIndices componentData ! indiceVector unpackParam
                 realIndex = indexVector VS.! (writeIndex + blockIndex unpackParam)
-                writeBlock = componentBlocks componentData ! realIndex
+                writeBlock = 
+                    componentBlocks componentData ! realIndex
             (eobrun', state) <-
                 runBoolReaderWith boolState $
                     unpacker unpackParam dcCoeffs writeBlock eobrun
@@ -258,10 +281,10 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
           let newIndex = writeIndex + componentBlockCount comp
           (writeIndices `MS.write` componentId comp) $ newIndex
 
-      forM_ allBlocks $ \compData -> do
+      forM_ (allBlocks) $ \compData -> do
         let compBlocks = componentBlocks compData
             cId = componentId compData
-            table = quants ! max 1 cId
+            table = quants ! min 1 cId
             comp = jpgComponents frame !! cId
             compW = fromIntegral $ horizontalSamplingFactor comp
             compH = fromIntegral $ verticalSamplingFactor comp
