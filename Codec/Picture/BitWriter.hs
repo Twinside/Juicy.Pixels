@@ -68,9 +68,27 @@ initBoolState str = case B.uncons str of
      Just (v, rest) -> BoolState 0 v rest
 
 initBoolStateJpg :: B.ByteString -> BoolState
-initBoolStateJpg str = case B.uncons str of
+initBoolStateJpg str = 
+   case B.uncons str of
      Nothing -> BoolState 0 0 B.empty
+     Just (0xFF, rest) -> case B.uncons rest of
+            Nothing                  -> BoolState maxBound 0 B.empty
+            Just (0x00, afterMarker) -> BoolState 7 0xFF afterMarker
+            Just (_   , afterMarker) -> initBoolStateJpg afterMarker
      Just (v, rest) -> BoolState 7 v rest
+
+skipWhileJpg :: (Word8 -> Bool) -> BoolReader s ()
+skipWhileJpg f = do
+   BoolState _ n rest <- S.get
+   let val | f n = update rest
+           | otherwise = rest
+   S.put $ initBoolStateJpg val
+
+  where update str = case B.uncons str of
+          Nothing -> str
+          Just (v, rest) | f v -> update rest
+          Just (_, rest) -> str
+
 
 -- | Bitify a list of things to decode.
 setDecodedString :: B.ByteString -> BoolReader s ()

@@ -83,7 +83,7 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "fenek.jpg", "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg", "JPEG_example_JPG_RIP_025.jpg"
                  , "JPEG_example_JPG_RIP_050.jpg", "JPEG_example_JPG_RIP_100.jpg"
-                 , "sheep.jpg", "mand_prgrsv.jpg"
+                 , "sheep.jpg"
                  ]
  
 bmpValidTests :: [FilePath]
@@ -376,7 +376,9 @@ testSuite = do
 
 jpegToPng :: IO ()
 jpegToPng = do
- img <- readImage "tests/jpeg/huge.jpg"
+ {-Right rez <- readImage "tests/jpeg/sheep.jpg"-}
+ {-savePngImage "control.png" rez-}
+ img <- readImage  "tests/jpeg/mand_prgrsv.jpg" -- "tests/jpeg/huge.jpg"
  case img of
    Left err -> do
        putStrLn err
@@ -446,12 +448,30 @@ benchMark = do
         ]
     putStrLn "END"
 
+debug :: IO ()
+debug = do
+ forM_ ["MCU0.jpg", "MCU1.jpg", "MCU5.jpg", "MCU10.jpg"
+       ,"MCU35.jpg"
+       ,"mand_prgrsv.jpg"
+       ,"sheep.jpg"
+       ,"20100713-0107-interleaved2.jpg"
+       ] $ \file -> do
+    putStrLn "========================================================="
+    putStrLn "========================================================="
+    putStrLn $ "decoding " ++ file
+    img <- readImage $ "tests/jpeg/" ++ file
+    case img of
+        Right i -> savePngImage (file ++ "_debug.png") i
+        Left err -> do
+            putStrLn err
+            {-error "Can't decompress img"-}
+
 myMain :: IO ()
 myMain = do
     args <- getArgs
     case args of
         ("test":_) -> testSuite
-        ("debug":_) -> return ()
+        ("debug":_) -> debug
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
