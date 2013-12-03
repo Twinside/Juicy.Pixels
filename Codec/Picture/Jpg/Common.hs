@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Jpg.Common
     ( DctCoefficients
+    , JpgUnpackerParameter( .. )
     , decodeInt
     , dcCoefficientDecode
     , deQuantize
@@ -36,6 +37,24 @@ import Codec.Picture.Jpg.DefaultTable
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
+
+data JpgUnpackerParameter = JpgUnpackerParameter
+    { dcHuffmanTree        :: !HuffmanPackedTree
+    , acHuffmanTree        :: !HuffmanPackedTree
+    , componentIndex       :: {-# UNPACK #-} !Int
+    , restartInterval      :: {-# UNPACK #-} !Int
+    , componentWidth       :: {-# UNPACK #-} !Int
+    , componentHeight      :: {-# UNPACK #-} !Int
+    , subSampling          :: !(Int, Int)
+    , coefficientRange     :: !(Int, Int)
+    , successiveApprox     :: !(Int, Int)
+    , readerIndex          :: {-# UNPACK #-} !Int
+    , indiceVector         :: {-# UNPACK #-} !Int
+    , blockIndex           :: {-# UNPACK #-} !Int
+    , blockMcuX            :: {-# UNPACK #-} !Int
+    , blockMcuY            :: {-# UNPACK #-} !Int
+    }
+    deriving Show
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
@@ -176,15 +195,15 @@ pixelClamp n = fromIntegral . min 255 $ max 0 n
 -- of indices and value to be stored in an array (like the final
 -- image)
 unpackMacroBlock :: Int    -- ^ Component count
-                 -> Int    -- ^ Component index
                  -> Int -- ^ Width coefficient
                  -> Int -- ^ Height coefficient
                  -> Int -- ^ x
                  -> Int -- ^ y
+                 -> Int    -- ^ Component index
                  -> MutableImage s PixelYCbCr8
                  -> MutableMacroBlock s Int16
                  -> ST s ()
-unpackMacroBlock compCount compIdx  wCoeff hCoeff x y
+unpackMacroBlock compCount wCoeff hCoeff compIdx x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = imgHeight, mutableImageData = img })
                  block = rasterMap dctBlockSize dctBlockSize unpacker

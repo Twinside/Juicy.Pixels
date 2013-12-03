@@ -26,21 +26,6 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 
-data JpgUnpackerParameter = JpgUnpackerParameter
-    { dcHuffmanTree        :: !HuffmanPackedTree
-    , acHuffmanTree        :: !HuffmanPackedTree
-    , componentIndex       :: {-# UNPACK #-} !Int
-    , restartInterval      :: {-# UNPACK #-} !Int
-    , componentWidth       :: {-# UNPACK #-} !Int
-    , componentHeight      :: {-# UNPACK #-} !Int
-    , coefficientRange     :: !(Int, Int)
-    , successiveApprox     :: !(Int, Int)
-    , readerIndex          :: {-# UNPACK #-} !Int
-    , blockIndex           :: {-# UNPACK #-} !Int
-    , indiceVector         :: {-# UNPACK #-} !Int
-    }
-    deriving Show
-
 mcuIndexer :: JpgComponent -> DctComponent -> Int -> VS.Vector Int
 mcuIndexer param kind mcuWidth = VS.fromListN (mcuWidth * th) indexes
   where compW = fromIntegral $ horizontalSamplingFactor param
@@ -179,7 +164,7 @@ type Unpacker s =
         -> BoolReader s Int32
 
 
-prepareUnpacker :: [([JpgUnpackerParameter], L.ByteString)]
+prepareUnpacker :: [([(JpgUnpackerParameter, a)], L.ByteString)]
                 -> ST s ( V.Vector (V.Vector (JpgUnpackerParameter, Unpacker s))
                         , M.STVector s BoolState)
 prepareUnpacker lst = do
@@ -188,8 +173,8 @@ prepareUnpacker lst = do
     return (V.fromList $ map fst infos, vec)
   where infos = map prepare lst
         prepare ([], _) = error "progressiveUnpack, no component"
-        prepare (param : xs, byteString) =
-         (V.fromList $ map (,unpacker) (param:xs), boolReader)
+        prepare (whole@((param, _) : _) , byteString) =
+         (V.fromList $ map (\(p,_) -> (p, unpacker)) whole, boolReader)
            where unpacker = selection (successiveApprox param) (coefficientRange param)
                  boolReader = initBoolStateJpg . B.concat $ L.toChunks byteString
 
@@ -216,7 +201,7 @@ lineMap count f = go 0
 progressiveUnpack :: (Int, Int)
                   -> JpgFrameHeader
                   -> V.Vector (MacroBlock Int16)
-                  -> [([JpgUnpackerParameter], L.ByteString)]
+                  -> [([(JpgUnpackerParameter, a)], L.ByteString)]
                   -> ST s (MutableImage s PixelYCbCr8)
 progressiveUnpack (maxiW, maxiH) frame quants lst = do
     (unpackers, readers) <- prepareUnpacker lst
@@ -224,7 +209,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                     :: ST s [ComponentData s]
     let scanCount = length lst
         restartIntervalValue = case lst of
-                (p:_,_): _ -> restartInterval p
+                ((p,_):_,_): _ -> restartInterval p
                 _ -> -1
     dcCoeffs <- MS.replicate imgComponentCount 0
     eobRuns <- MS.replicate (length lst) 0
@@ -295,8 +280,8 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
             let ry = mmY * maxiH + y
                 block = compBlocks ! (y * imageMcuWidth * compW + rx)
             transformed <- decodeMacroBlock table workBlock block
-            unpackMacroBlock imgComponentCount cId
-                    cw8 ch8 rx (ry `div` ch8)
+            unpackMacroBlock imgComponentCount
+                    cw8 ch8 cId rx (ry `div` ch8)
                     img transformed
 
     return img

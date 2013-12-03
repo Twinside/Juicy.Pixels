@@ -60,8 +60,6 @@ runBoolReaderWith st action = S.runStateT action st
 execBoolReader :: BoolState -> BoolReader s a -> ST s BoolState
 execBoolReader st reader = S.execStateT reader st
 
-
-
 initBoolState :: B.ByteString -> BoolState
 initBoolState str = case B.uncons str of
      Nothing -> BoolState 0 0 B.empty

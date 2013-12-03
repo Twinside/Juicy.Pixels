@@ -83,7 +83,9 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "fenek.jpg", "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg", "JPEG_example_JPG_RIP_025.jpg"
                  , "JPEG_example_JPG_RIP_050.jpg", "JPEG_example_JPG_RIP_100.jpg"
-                 , "sheep.jpg"
+                 , "sheep.jpg", "mand_prgrsv.jpg"
+                 , "MCU0.jpg", "MCU1.jpg", "MCU5.jpg", "MCU10.jpg", "MCU35.jpg"
+                 , "20100713-0107-interleaved2.jpg"
                  ]
  
 bmpValidTests :: [FilePath]
