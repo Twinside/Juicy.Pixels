@@ -208,10 +208,10 @@ unpackMacroBlock compCount wCoeff hCoeff compIdx x y
                                  mutableImageHeight = imgHeight, mutableImageData = img })
                  block = rasterMap dctBlockSize dctBlockSize unpacker
   where unpacker i j = do
-          let yBase = (y * dctBlockSize + j) * hCoeff
+          let yBase = y * dctBlockSize + j * hCoeff
           compVal <- pixelClamp <$> (block `M.unsafeRead` (i + j * dctBlockSize))
-          rasterMap wCoeff hCoeff $ \hDup wDup -> do
-             let xBase = (x * dctBlockSize + i) * wCoeff
+          rasterMap wCoeff hCoeff $ \wDup hDup -> do
+             let xBase = x * dctBlockSize + i * wCoeff
                  xPos = xBase + wDup
                  yPos = yBase + hDup
 

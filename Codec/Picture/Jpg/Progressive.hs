@@ -266,7 +266,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
           let newIndex = writeIndex + componentBlockCount comp
           (writeIndices `MS.write` componentId comp) $ newIndex
 
-      forM_ (allBlocks) $ \compData -> do
+      forM_ allBlocks $ \compData -> do
         let compBlocks = componentBlocks compData
             cId = componentId compData
             table = quants ! min 1 cId
@@ -281,7 +281,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                 block = compBlocks ! (y * imageMcuWidth * compW + rx)
             transformed <- decodeMacroBlock table workBlock block
             unpackMacroBlock imgComponentCount
-                    cw8 ch8 cId rx (ry `div` ch8)
+                    cw8 ch8 cId (rx * cw8) ry
                     img transformed
 
     return img

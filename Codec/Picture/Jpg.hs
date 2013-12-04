@@ -163,18 +163,18 @@ unpack444Ycbcr compIdx x y
                     {-(img `M.unsafeWrite` idx) val-}
                     {-blockHoriz (idx + 3) (readIdx + 1) $ i + 1-}
 
-unpack422Ycbcr :: Int -- ^ Component index
+unpack421Ycbcr :: Int -- ^ Component index
                -> Int -- ^ x
                -> Int -- ^ y
                -> MutableImage s PixelYCbCr8
                -> MutableMacroBlock s Int16
                -> ST s ()
-unpack422Ycbcr compIdx x y
+unpack421Ycbcr compIdx x y
                  (MutableImage { mutableImageWidth = imgWidth,
                                  mutableImageHeight = _, mutableImageData = img })
                  block = blockVert baseIdx 0 zero
   where zero = 0 :: Int
-        baseIdx = (x * dctBlockSize * 2 + y * dctBlockSize * imgWidth) * 3 + compIdx
+        baseIdx = (x * dctBlockSize + y * dctBlockSize * imgWidth) * 3 + compIdx
         lineOffset = imgWidth * 3
 
         blockVert        _       _ j | j >= dctBlockSize = return ()
@@ -230,6 +230,7 @@ data JpgDecoderState = JpgDecoderState
     , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
     , currentRestartInterv :: !Int
     , currentFrame         :: Maybe JpgFrameHeader
+    , isProgressive        :: !Bool
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
     , seenBlobs                   :: !Int
@@ -250,6 +251,7 @@ emptyDecoderState = JpgDecoderState
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
     , currentFrame         = Nothing
+    , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
     , seenBlobs = 0
@@ -275,8 +277,9 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                 comp = fromIntegral (componentSelector scanSpec) - 1
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
-            maxiH <- gets maximumHorizontalResolution 
-            maxiW <- gets maximumVerticalResolution
+            isProgressiveImage <- gets isProgressive
+            maxiW <- gets maximumHorizontalResolution 
+            maxiH <- gets maximumVerticalResolution
             restart <- gets currentRestartInterv
             frameInfo <- gets currentFrame
             blobId <- gets seenBlobs                   
@@ -289,52 +292,37 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                      ySampling = fromIntegral $ verticalSamplingFactor compDesc
                      componentSubSampling =
                         (maxiW - xSampling + 1, maxiH - ySampling + 1)
+                     (xCount, yCount)
+                        | scanCount > 1 || isProgressiveImage = (xSampling, ySampling)
+                        | otherwise = (1, 1)
 
-                 if scanCount > 1 then
-                    pure [ (JpgUnpackerParameter
-                            { dcHuffmanTree = dcTree
-                            , acHuffmanTree = acTree
-                            , componentIndex = comp
-                            , restartInterval = fromIntegral restart
-                            , componentWidth = xSampling
-                            , componentHeight = ySampling
-                            , subSampling = componentSubSampling
-                            , successiveApprox = (approxLow, approxHigh)
-                            , readerIndex = blobId
-                            , indiceVector =
-                                if selectionLow == 0 then 0 else 1
-                            , coefficientRange =
-                                ( fromIntegral selectionLow
-                                , fromIntegral selectionHigh )
-                            , blockIndex = y * ySampling + x
-                            , blockMcuX = x
-                            , blockMcuY = y
-                            }, unpackerDecision compCount comp xSampling ySampling )
-                                | y <- [0 .. ySampling - 1]
-                                , x <- [0 .. xSampling - 1] ]
-                 else
-                    pure [ (JpgUnpackerParameter
-                            { dcHuffmanTree = dcTree
-                            , acHuffmanTree = acTree
-                            , componentIndex = comp
-                            , restartInterval = fromIntegral restart
-                            , componentWidth = 1
-                            , componentHeight = 1
-                            , subSampling = componentSubSampling
-                            , successiveApprox = (approxLow, approxHigh)
-                            , readerIndex = blobId
-                            , indiceVector =
-                                if selectionLow == 0 then 0 else 1
-                            , coefficientRange =
-                                ( fromIntegral selectionLow
-                                , fromIntegral selectionHigh )
-                            , blockIndex = 0
-                            , blockMcuX = 0
-                            , blockMcuY = 0
-                            }, unpackerDecision compCount comp xSampling ySampling )]
+                 pure [ (JpgUnpackerParameter
+                         { dcHuffmanTree = dcTree
+                         , acHuffmanTree = acTree
+                         , componentIndex = comp
+                         , restartInterval = fromIntegral restart
+                         , componentWidth = xSampling
+                         , componentHeight = ySampling
+                         , subSampling = componentSubSampling
+                         , successiveApprox = (approxLow, approxHigh)
+                         , readerIndex = blobId
+                         , indiceVector =
+                             if selectionLow == 0 then 0 else 1
+                         , coefficientRange =
+                             ( fromIntegral selectionLow
+                             , fromIntegral selectionHigh )
+                         , blockIndex = y * ySampling + x
+                         , blockMcuX = x
+                         , blockMcuY = y
+                         }, unpackerDecision compCount componentSubSampling)
+                             | y <- [0 .. yCount - 1]
+                             , x <- [0 .. xCount - 1] ]
 
-jpgMachineStep (JpgScans _ hdr) = modify $ \s ->
+jpgMachineStep (JpgScans kind hdr) = modify $ \s ->
    s { currentFrame = Just hdr
+     , isProgressive = case kind of
+            JpgProgressiveDCTHuffman -> True
+            _ -> False
      , maximumHorizontalResolution =
          fromIntegral $ maximum horizontalResolutions
      , maximumVerticalResolution =
@@ -363,19 +351,19 @@ jpgMachineStep (JpgQuantTable tables) = mapM_ placeQuantizationTables tables
             modify $ \s ->
                 s { quantizationMatrices =  quantizationMatrices s // [(idx, tableData)] }
 
-unpackerDecision :: Int -> Int -> Int -> Int -> Unpacker s
-unpackerDecision 1 _ 1 1 = unpack444Y
-unpackerDecision _ _ 1 1 = unpack444Ycbcr
-unpackerDecision _ _ 2 1 = unpack422Ycbcr
-unpackerDecision compCount _ xScalingFactor yScalingFactor =
+unpackerDecision :: Int -> (Int, Int) -> Unpacker s
+unpackerDecision 1 (1, 1) = unpack444Y
+unpackerDecision _ (1, 1) = unpack444Ycbcr
+unpackerDecision _ (2, 1) = unpack421Ycbcr
+unpackerDecision compCount (xScalingFactor, yScalingFactor) =
     unpackMacroBlock compCount xScalingFactor yScalingFactor
 
-decodeImage :: (Int, Int) -> JpgFrameHeader
+decodeImage :: JpgFrameHeader
             -> V.Vector (MacroBlock Int16)
             -> [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)]
             -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
             -> ST s ()
-decodeImage (globalMaxiW, globalMaxiH) frame quants lst outImage = do
+decodeImage frame quants lst outImage = do
   let compCount = length $ jpgComponents frame
   zigZagArray <- createEmptyMutableMacroBlock
   dcArray <- M.replicate compCount 0  :: ST s (M.STVector s DcCoefficient)
@@ -384,11 +372,8 @@ decodeImage (globalMaxiW, globalMaxiH) frame quants lst outImage = do
   forM_ lst $ \(params, str) -> do
     let componentsInfo = V.fromList params
         compReader = initBoolStateJpg . B.concat $ L.toChunks str
-        firstParam = fst $ head params
-        (thisWidth, thisHeight) = subSampling firstParam
-        (maxiW, maxiH)
-            | length params > 1 || thisWidth > 1 || thisHeight > 1 = (globalMaxiW, globalMaxiH)
-            | otherwise = (1, 1)
+        maxiW = maximum [fst $ subSampling c | (c,_) <- params]
+        maxiH = maximum [snd $ subSampling c | (c,_) <- params]
         mcuBlockWidth = maxiW * dctBlockSize
         mcuBlockHeight = maxiH * dctBlockSize
         imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
@@ -411,19 +396,18 @@ decodeImage (globalMaxiW, globalMaxiH) frame quants lst outImage = do
             qTable = quants V.! (min 1 compIdx)
             xd = blockMcuX comp
             yd = blockMcuY comp
-            horizCount = componentWidth comp
-            vertCount = componentHeight comp
+            (subX, subY) = subSampling comp
         dc <- lift $ dcArray `M.unsafeRead` compIdx
         (dcCoeff, block) <-
               decompressMacroBlock dcTree acTree qTable zigZagArray $ fromIntegral dc
         lift $ (dcArray `M.unsafeWrite` compIdx) dcCoeff
-        let verticalLimited = yd == horizCount - 1 || y == mcuBlockHeight - 1
-        if (xd == horizCount - 1 && x == mcuBlockWidth - 1) || verticalLimited then
+        let verticalLimited = y == imageMcuHeight - 1
+        if (x == imageMcuWidth - 1) || verticalLimited then
           lift $ unpackMacroBlock imgComponentCount
-                                  (maxiW - horizCount + 1) (maxiH- vertCount + 1) compIdx 
-                                  (x * horizCount + xd) (y * vertCount + yd) outImage block
+                                  subX subY compIdx
+                                  (x * maxiW + xd) (y * maxiH + yd) outImage block
         else
-          lift $ unpack compIdx (x * horizCount + xd) (y * vertCount + yd) outImage block
+          lift $ unpack compIdx (x * maxiW + xd) (y * maxiH + yd) outImage block
 
   where imgComponentCount = length $ jpgComponents frame
 
@@ -488,7 +472,6 @@ decodeJpeg file = case runGetStrict get file of
                 resultImage <- M.new imageSize
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 decodeImage 
-                    (maximumHorizontalResolution st, maximumVerticalResolution st)
                     fHdr
                     (quantizationMatrices st)
                     wrotten
