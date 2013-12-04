@@ -75,7 +75,7 @@ packHuffmanTree tree = runST $ do
         aux (Branch i1 i2@(Leaf _)) idx = do
             ix1 <- aux i1 (idx + 2)
             _ <- aux i2 (idx + 1)
-            (table `M.unsafeWrite` idx) (fromIntegral ix1)
+            (table `M.unsafeWrite` idx) . fromIntegral $ idx + 2
             return ix1
 
         aux (Branch i1 i2) idx = do
