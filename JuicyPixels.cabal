@@ -26,6 +26,8 @@ Source-Repository this
     Location:  git://github.com/Twinside/Juicy.Pixels.git
     Tag:       v3.1.2
 
+extra-source-files: changelog
+
 Flag Mmap
     Description: Enable the file loading via mmap (memory map)
     Default: False
