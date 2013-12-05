@@ -15,7 +15,9 @@ Category:            Codec, Graphics
 Build-type:          Simple
 
 -- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       >= 1.10
+Cabal-version:       >= 1.16
+
+Extra-source-files: changelog
 
 Source-Repository head
     Type:      git
@@ -25,8 +27,6 @@ Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
     Tag:       v3.1.2
-
-extra-source-files: changelog
 
 Flag Mmap
     Description: Enable the file loading via mmap (memory map)
@@ -64,6 +64,8 @@ Library
                  Codec.Picture.Jpg.FastIdct,
                  Codec.Picture.Jpg.FastDct,
                  Codec.Picture.Jpg.Types,
+                 Codec.Picture.Jpg.Common,
+                 Codec.Picture.Jpg.Progressive,
                  Codec.Picture.Gif.LZW,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
