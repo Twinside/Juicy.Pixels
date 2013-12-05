@@ -22,6 +22,7 @@ module Codec.Picture.Types( -- * Types
                             -- ** Pixel types
                           , Pixel8
                           , Pixel16
+                          , Pixel32
                           , PixelF
                           , PixelYA8( .. )
                           , PixelYA16( .. )
@@ -79,7 +80,7 @@ import Control.Monad.ST( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR )
-import Data.Word( Word8, Word16 )
+import Data.Word( Word8, Word16, Word32 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
@@ -360,6 +361,9 @@ type Pixel8 = Word8
 
 -- | Simple alias for greyscale value in 16 bits.
 type Pixel16 = Word16
+
+-- | Simple alias for greyscale value in 16 bits.
+type Pixel32 = Word32
 
 -- | Floating greyscale value, the 0 to 255 8 bit range maps
 -- to 0 to 1 in this floating version
@@ -767,6 +771,11 @@ instance LumaPlaneExtractable Pixel16 where
     computeLuma = id
     extractLumaPlane = id
 
+instance LumaPlaneExtractable Pixel32 where
+    {-# INLINE computeLuma #-}
+    computeLuma = id
+    extractLumaPlane = id
+
 instance LumaPlaneExtractable PixelF where
     {-# INLINE computeLuma #-}
     computeLuma = id
@@ -885,6 +894,31 @@ instance ColorConvertible Pixel16 PixelRGB16 where
 instance ColorConvertible Pixel16 PixelRGBA16 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGBA16 c c c maxBound
+
+--------------------------------------------------
+----            Pixel32 instances
+--------------------------------------------------
+instance Pixel Pixel32 where
+    type PixelBaseComponent Pixel32 = Word32
+
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+
+    componentCount _ = 1
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y = arr ! (x + y * w)
+
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    unsafePixelAt = V.unsafeIndex
+    unsafeReadPixel = M.unsafeRead
+    unsafeWritePixel = M.unsafeWrite
 
 --------------------------------------------------
 ----            PixelF instances

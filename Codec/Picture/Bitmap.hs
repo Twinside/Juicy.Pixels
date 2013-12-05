@@ -27,6 +27,8 @@ import Data.Binary.Put( Put
 import Data.Binary.Get( Get
                       , getWord16le 
                       , getWord32le
+                      , bytesRead
+                      , skip
                       )
 
 import Data.Word( Word32, Word16, Word8 )
@@ -257,15 +259,21 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap str = flip runGetStrict str $ do
-  _hdr      <- get :: Get BmpHeader
+  hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
     (24, 1, 0) -> do
+        readed <- bytesRead
+
+        when (readed > fromIntegral (dataOffset hdr))
+             (fail "Invalid bmp image, data in header")
+
+        skip . fromIntegral $ dataOffset hdr - fromIntegral readed
         rest <- getRemainingBytes
         return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
-    _          -> fail "Can't handle BMP file"
+    a          -> fail $ "Can't handle BMP file " ++ show a
 
 
 -- | Write an image in a file use the bitmap format.

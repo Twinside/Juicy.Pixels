@@ -14,13 +14,19 @@ Documentation
 -------------
 The library documentation can be accessed on [Hackage](http://hackage.haskell.org/package/JuicyPixels)
 
-REPA
-----
+Wrappers
+--------
 For the user of
 [REPA](http://www.haskell.org/haskellwiki/Numeric_Haskell:_A_Repa_Tutorial),
 check-out JuicyPixels-repa on
 [GitHub](https://github.com/TomMD/JuicyPixels-repa) or
 [Hackage](http://hackage.haskell.org/package/JuicyPixels-repa)
+
+For the user of
+[Gloss](http://hackage.haskell.org/package/gloss),
+check-out gloss-juicy on
+[GitHub](https://github.com/alpmestan/gloss-juicy) or
+[Hackage](http://hackage.haskell.org/package/gloss-juicy)
 
 Status
 ------
@@ -49,8 +55,8 @@ Status
         - 8 bits greyscale (with palette)
 
  - Jpeg   (.jpg, .jpeg) 
-    * Reading non-interlaced baseline DCT image
-    * Writing
+    * Reading normal and interlaced baseline DCT image
+    * Writing non-interlaced JPG
 
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.

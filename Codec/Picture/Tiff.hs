@@ -334,7 +334,7 @@ word16OfTag = aux
 
 instance BinaryParam Endianness TiffTag where
   getP endianness = tagOfWord16 <$> getP endianness
-  putP endianness = putP endianness . word16OfTag 
+  putP endianness = putP endianness . word16OfTag
 
 data ExtendedDirectoryData =
       ExtendedDataNone
@@ -406,11 +406,11 @@ unLong _ (ExtendedDataShort v) = pure $ V.map fromIntegral v
 unLong _ (ExtendedDataLong v) = pure v
 unLong errMessage _ = fail errMessage
 
-cleanImageFileDirectory :: ImageFileDirectory -> ImageFileDirectory
-cleanImageFileDirectory ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
+cleanImageFileDirectory :: Endianness -> ImageFileDirectory -> ImageFileDirectory
+cleanImageFileDirectory EndianBig ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
     where aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
           aux _ = ifd
-cleanImageFileDirectory ifd = ifd
+cleanImageFileDirectory _ ifd = ifd
 
 instance BinaryParam Endianness ImageFileDirectory where
   getP endianness =
@@ -433,7 +433,7 @@ instance BinaryParam Endianness [ImageFileDirectory] where
     rez <- replicateM (fromIntegral count) $ getP endianness
     _ <- getP endianness :: Get Word32
     pure rez
-  
+
   putP endianness lst = do
     let count = fromIntegral $ length lst :: Word16
     putP endianness count
@@ -490,8 +490,10 @@ findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory]
 findIFDExtDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
-        (x:_) -> V.toList <$>
-                    unLong ("Can't unlong " ++ (show tag)) (ifdExtended x)
+        (ImageFileDirectory { ifdExtended = ExtendedDataNone }:_) -> return d
+        (x:_) -> V.toList <$> unLong errorMessage (ifdExtended x)
+            where errorMessage =
+                    "Can't parse tag " ++ show tag ++ " " ++ show (ifdExtended x)
 
 -- It's temporary, remove once tiff decoding is better
 -- handled.
@@ -688,6 +690,45 @@ instance Unpackable Word16 where
 
               looperBe (writeIndex + stride) (readIndex + 2)
 
+instance Unpackable Word32 where
+  type StorageType Word32 = Word32
+
+  offsetStride _ _ _ = (0, 1)
+  outAlloc _ = M.new
+  allocTempBuffer _ _ s = M.new $ s * 4
+  mergeBackTempBuffer _ EndianLittle tempVec _ index size stride outVec =
+        looperLe index 0
+    where looperLe _ readIndex | readIndex >= fromIntegral size = pure ()
+          looperLe writeIndex readIndex = do
+              v1 <- tempVec `M.read` readIndex
+              v2 <- tempVec `M.read` (readIndex + 1)
+              v3 <- tempVec `M.read` (readIndex + 2)
+              v4 <- tempVec `M.read` (readIndex + 3)
+              let finalValue =
+                    (fromIntegral v4 `unsafeShiftL` 24) .|.
+                    (fromIntegral v3 `unsafeShiftL` 16) .|.
+                    (fromIntegral v2 `unsafeShiftL` 8) .|.
+                    fromIntegral v1
+              (outVec `M.write` writeIndex) finalValue
+
+              looperLe (writeIndex + stride) (readIndex + 4)
+  mergeBackTempBuffer _ EndianBig tempVec _ index size stride outVec =
+         looperBe index 0
+    where looperBe _ readIndex | readIndex >= fromIntegral size = pure ()
+          looperBe writeIndex readIndex = do
+              v1 <- tempVec `M.read` readIndex
+              v2 <- tempVec `M.read` (readIndex + 1)
+              v3 <- tempVec `M.read` (readIndex + 2)
+              v4 <- tempVec `M.read` (readIndex + 3)
+              let finalValue =
+                    (fromIntegral v1 `unsafeShiftL` 24) .|.
+                    (fromIntegral v2 `unsafeShiftL` 16) .|.
+                    (fromIntegral v3 `unsafeShiftL` 8) .|.
+                    fromIntegral v4
+              (outVec `M.write` writeIndex) finalValue
+
+              looperBe (writeIndex + stride) (readIndex + 4)
+
 data Pack4 = Pack4
 
 instance Unpackable Pack4 where
@@ -789,7 +830,7 @@ instance Unpackable Pack12 where
 
             inner (readIdx + 3) (writeIdx + 2 * stride) (line - 2)
 
-data YCbCrSubsampling = YCbCrSubsampling 
+data YCbCrSubsampling = YCbCrSubsampling
     { ycbcrWidth        :: !Int
     , ycbcrHeight       :: !Int
     , ycbcrImageWidth   :: !Int
@@ -832,7 +873,7 @@ instance Unpackable YCbCrSubsampling where
                     return $ readIndex + 1
 
               foldM_ writer readIdx pixelIndices
-              
+
               return $ readIdx + blockSize
 
 gatherStrips :: ( Unpackable comp
@@ -951,8 +992,8 @@ setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
         ifdSize = 12
         ifdCountSize = 2
         nextOffsetSize = 4
-        startExtended = initialOffset 
-                     + ifdElementCount * ifdSize 
+        startExtended = initialOffset
+                     + ifdElementCount * ifdSize
                      + ifdCountSize + nextOffsetSize
 
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataAscii b }) =
@@ -980,10 +1021,10 @@ instance BinaryParam B.ByteString TiffInfo where
             ifdShorts TagBitsPerSample $ tiffBitsPerSample nfo
             ifdSingleLong TagSamplesPerPixel $ tiffSampleCount nfo
             ifdSingleLong TagRowPerStrip $ tiffRowPerStrip nfo
-            ifdShort TagPhotometricInterpretation 
-                                        . packPhotometricInterpretation 
+            ifdShort TagPhotometricInterpretation
+                                        . packPhotometricInterpretation
                                         $ tiffColorspace nfo
-            ifdShort TagPlanarConfiguration 
+            ifdShort TagPlanarConfiguration
                     . constantToPlaneConfiguration $ tiffPlaneConfiguration nfo
             ifdShort TagCompression . packCompression
                                           $ tiffCompression nfo
@@ -1005,7 +1046,7 @@ instance BinaryParam B.ByteString TiffInfo where
     skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
     let endian = hdrEndianness hdr
 
-    ifd <- fmap cleanImageFileDirectory <$> getP endian
+    ifd <- fmap (cleanImageFileDirectory endian) <$> getP endian
     cleaned <- fetchExtended endian ifd
 
     let dataFind str tag = findIFDData str tag cleaned
@@ -1036,13 +1077,15 @@ instance BinaryParam B.ByteString TiffInfo where
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
+-- | while mandatory some images don't put correct
+-- rowperstrip. So replacing 0 with actual image height.
+unpack file nfo@TiffInfo { tiffRowPerStrip = 0 } =
+    unpack file $ nfo { tiffRowPerStrip = tiffHeight nfo }
 unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format
                          , tiffPalette = Just p
-                         , tiffRowPerStrip = rowPerStrip
                          }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.singleton 8 && format == [TiffSampleUint] =
       let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
           gathered :: Image Pixel8
@@ -1065,20 +1108,15 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
       pure . ImageRGB16 $ applyPalette gathered
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffCMYK
-                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageCMYK8 $ gatherStrips (0 :: Word8) file nfo
 
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
 
-unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0
-                         , tiffRowPerStrip = rowPerStrip
-                         }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
   | otherwise = do
     img <- unpack file (nfo { tiffColorspace = TiffMonochrome })
     case img of
@@ -1087,10 +1125,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0
       _ -> pure img
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
-                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
         pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
@@ -1101,13 +1137,15 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
         pure . ImageY16 . pixelMap (16 *) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
+  | lst == V.singleton 32 && all (TiffSampleUint ==) format =
+        pure . ImageY16 $ pixelMap (toWord16) img
+           where toWord16 v = fromIntegral $ v `unsafeShiftR` 16
+                 img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
-                         , tiffRowPerStrip = rowPerStrip
                          , tiffPlaneConfiguration = PlanarConfigContig
                          , tiffSampleFormat = format }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
     pure . ImageYCbCr8 $ gatherStrips cbcrConf  file nfo
       where defaulting 0 = 2
@@ -1123,10 +1161,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                 }
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
-                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
@@ -1140,10 +1176,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageRGBA16 $ gatherStrips (0 :: Word16) file nfo
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
-                         , tiffRowPerStrip = rowPerStrip
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
-  | rowPerStrip == 0 = fail "Invalid row per strip"
   -- some files are a little bit borked...
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
@@ -1211,7 +1245,7 @@ instance TiffSaveable PixelYCbCr8 where
 encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
 encodeTiff img = runPut $ putP rawPixelData hdr
   where intSampleCount = componentCount (undefined :: px)
-        sampleCount = fromIntegral intSampleCount 
+        sampleCount = fromIntegral intSampleCount
 
         sampleType = (undefined :: PixelBaseComponent px)
         pixelData = imageData img
@@ -1226,7 +1260,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
         headerSize = 8
 
         hdr = TiffInfo
-            { tiffHeader             = TiffHeader 
+            { tiffHeader             = TiffHeader
                                             { hdrEndianness = EndianLittle
                                             , hdrOffset = headerSize + imageSize
                                             }
