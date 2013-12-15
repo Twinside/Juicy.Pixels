@@ -16,8 +16,11 @@ module Codec.Picture.Types( -- * Types
                           , DynamicImage( .. )
 
                             -- ** Image functions
+                          , createMutableImage
                           , freezeImage
                           , unsafeFreezeImage
+                          , thawImage
+                          , unsafeThawImage
 
                             -- ** Pixel types
                           , Pixel8
@@ -50,6 +53,7 @@ module Codec.Picture.Types( -- * Types
                           , dynamicPixelMap
                           , dropAlphaLayer
                           , withImage
+                          , zipPixelComponent3
                           , generateImage
                           , generateFoldImage
                           , gammaCorrection
@@ -198,9 +202,15 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
     -- | Just return the opaque pixel value
     dropTransparency :: a -> b
 
+    -- | access the transparency (alpha layer) of a given
+    -- transparent pixel type
+    getTransparency :: a -> PixelBaseComponent a
+
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
+    {-# INLINE getTransparency #-}
+    getTransparency (PixelRGBA8 _ _ _ a) = a
 
 stride :: (Storable (PixelBaseComponent a))
        => Image a -> Int -> Int -> Int -> V.Vector (PixelBaseComponent a)
@@ -240,15 +250,35 @@ data MutableImage s a = MutableImage
     }
 
 -- | `O(n)` Yield an immutable copy of an image by making a copy of it
-freezeImage :: (Storable (PixelBaseComponent a), PrimMonad m)
-            => MutableImage (PrimState m) a -> m (Image a)
+freezeImage :: (Storable (PixelBaseComponent px), PrimMonad m)
+            => MutableImage (PrimState m) px -> m (Image px)
 freezeImage (MutableImage w h d) = Image w h `liftM` V.freeze d
+
+-- | `O(n)` Yield a mutable copy of an image by making a copy of it.
+thawImage :: (Storable (PixelBaseComponent px), PrimMonad m)
+          => Image px -> m (MutableImage (PrimState m) px)
+thawImage (Image w h d) = MutableImage w h `liftM` V.thaw d
+
+-- | `O(1)` Unsafe convert an imutable image to an mutable one without copying.
+-- The source image shouldn't be used after this operation.
+unsafeThawImage :: (Storable (PixelBaseComponent px), PrimMonad m)
+                => Image px -> m (MutableImage (PrimState m) px)
+unsafeThawImage (Image w h d) = MutableImage w h `liftM` V.unsafeThaw d
 
 -- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
 -- The mutable image may not be used after this operation.
 unsafeFreezeImage ::  (Storable (PixelBaseComponent a), PrimMonad m)
                   => MutableImage (PrimState m) a -> m (Image a)
 unsafeFreezeImage (MutableImage w h d) = Image w h `liftM` V.unsafeFreeze d
+
+-- | Create a mutable image, filled with the given background color.
+createMutableImage :: (Pixel px, PrimMonad m)
+                   => Int -- ^ Width
+                   -> Int -- ^ Height
+                   -> px  -- ^ Background color
+                   -> m (MutableImage (PrimState m) px)
+createMutableImage width height background =
+   unsafeThawImage $ generateImage (\_ _ -> background) width height
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
@@ -746,6 +776,35 @@ pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
             -- outside of this where block
             V.unsafeFreeze newArr
 
+-- | Combine, pixel by pixel and component by component
+-- the values of 3 different images. Usage example:
+--
+-- > averageBrightNess c1 c2 c3 = clamp $ toInt c1 + toInt c2 + toInt c3
+-- >   where clamp = fromIntegral . min 0 . max 255
+-- >         toInt :: a -> Int
+-- >         toInt = fromIntegral
+-- > ziPixelComponent3 averageBrightNess img1 img2 img3
+--
+zipPixelComponent3
+    :: forall px. ( V.Storable (PixelBaseComponent px))
+    => (PixelBaseComponent px -> PixelBaseComponent px -> PixelBaseComponent px
+            -> PixelBaseComponent px)
+    -> Image px -> Image px -> Image px -> Image px
+{-# INLINE zipPixelComponent3 #-}
+zipPixelComponent3 f i1@(Image { imageWidth = w, imageHeight = h }) i2 i3
+  | not isDimensionEqual = error "Different image size zipPairwisePixelComponent"
+  | otherwise = Image { imageWidth = w
+                      , imageHeight = h
+                      , imageData = V.zipWith3 f data1 data2 data3
+                      }
+       where data1 = imageData i1
+             data2 = imageData i2
+             data3 = imageData i3
+
+             isDimensionEqual =
+                 w == imageWidth i2 && w == imageWidth i3 &&
+                     h == imageHeight i2 && h == imageHeight i3
+
 -- | Helper class to help extract a luma plane out
 -- of an image or a pixel
 class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
@@ -1001,6 +1060,8 @@ instance ColorPlane PixelYA8 PlaneAlpha where
 instance TransparentPixel PixelYA8 Pixel8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelYA8 y _) = y
+    {-# INLINE getTransparency #-}
+    getTransparency (PixelYA8 _ a) = a
 
 instance LumaPlaneExtractable PixelYA8 where
     {-# INLINE computeLuma #-}
@@ -1055,6 +1116,9 @@ instance ColorPlane PixelYA16 PlaneAlpha where
 instance TransparentPixel PixelYA16 Pixel16 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelYA16 y _) = y
+    {-# INLINE getTransparency #-}
+    getTransparency (PixelYA16 _ a) = a
+
 --------------------------------------------------
 ----            PixelRGBF instances
 --------------------------------------------------
@@ -1356,6 +1420,8 @@ instance Pixel PixelRGBA16 where
 instance TransparentPixel PixelRGBA16 PixelRGB16 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA16 r g b _) = PixelRGB16 r g b
+    {-# INLINE getTransparency #-}
+    getTransparency (PixelRGBA16 _ _ _ a) = a
 
 instance ColorPlane PixelRGBA16 PlaneRed where
     toComponentIndex _ _ = 0
