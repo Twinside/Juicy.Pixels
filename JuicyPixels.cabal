@@ -102,6 +102,6 @@ Library
                  Codec.Picture.InternalHelper,
                  Codec.Picture.VectorByteConversion
 
-  Install-Includes: Codec/Picture/ConvGraph.hs
+  Install-Includes: src/Codec/Picture/ConvGraph.hs
   Include-Dirs: src/Codec/Picture
 
