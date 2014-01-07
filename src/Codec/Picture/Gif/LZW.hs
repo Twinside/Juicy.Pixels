@@ -15,6 +15,7 @@ import qualified Data.ByteString as B
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.BitWriter
+import Codec.Picture.Gif.LZWEncoding
 
 {-# INLINE (.!!!.) #-}
 (.!!!.) :: (Storable a) => M.STVector s a -> Int -> ST s a
