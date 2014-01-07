@@ -10,7 +10,7 @@
 --
 -- For an easy image writing use the 'saveBmpImage', 'saveJpgImage' & 'savePngImage'
 -- functions
-module Codec.Picture ( 
+module Codec.Picture (
                      -- * Generic functions
                        readImage
                      , decodeImage
@@ -27,14 +27,14 @@ module Codec.Picture (
                      , saveRadianceImage
 
                      -- * Specific image format functions
-                     -- ** Bitmap handling 
+                     -- ** Bitmap handling
                      , BmpEncodable
                      , writeBitmap
                      , encodeBitmap
                      , readBitmap
                      , decodeBitmap
-                     , encodeDynamicBitmap 
-                     , writeDynamicBitmap 
+                     , encodeDynamicBitmap
+                     , writeDynamicBitmap
 
                      -- ** Gif handling
                      , readGif
@@ -44,7 +44,7 @@ module Codec.Picture (
 
                      -- ** Jpeg handling
                      , readJpeg
-                     , decodeJpeg 
+                     , decodeJpeg
                      , encodeJpeg
                      , encodeJpegAtQuality
 
@@ -90,6 +90,9 @@ module Codec.Picture (
                      , PixelYCbCr8( .. )
                      , PixelCMYK8( .. )
                      , PixelCMYK16( .. )
+
+                     -- * Color Quantization utilities
+                     , module Codec.Picture.ColorQuant
                      ) where
 
 import Control.Applicative( (<$>) )
@@ -112,6 +115,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
+import Codec.Picture.ColorQuant
 -- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
@@ -162,10 +166,10 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("HDR", decodeHDR)
                                  ,("Tiff", decodeTiff)
                                  ]
-    
+
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
-readPng = withImageDecoder decodePng 
+readPng = withImageDecoder decodePng
 
 -- | Helper function trying to load a gif file from a file on disk.
 readGif :: FilePath -> IO (Either String DynamicImage)

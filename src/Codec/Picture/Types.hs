@@ -48,6 +48,7 @@ module Codec.Picture.Types( -- * Types
 
                             -- * Helper functions
                           , pixelMap
+                          , pixelMapXY
                           , pixelFold
                           , dynamicMap
                           , dynamicPixelMap
@@ -766,6 +767,40 @@ pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
                             | x >= w = lineMapper readIdx writeIdx $ y + 1
                             | otherwise = do
                                 unsafeWritePixel newArr writeIdx . f $ unsafePixelAt vec readIdx
+                                colMapper (readIdx + sourceComponentCount)
+                                          (writeIdx + destComponentCount)
+                                          (x + 1)
+            lineMapper 0 0 0
+
+            -- unsafeFreeze avoids making a second copy and it will be
+            -- safe because newArray can't be referenced as a mutable array
+            -- outside of this where block
+            V.unsafeFreeze newArr
+
+-- | Just like `pixelMap` only the function takes the pixel coordinates as
+--   additional parameters.
+pixelMapXY :: forall a b. (Pixel a, Pixel b)
+         => (Int -> Int -> a -> b) -> Image a -> Image b
+{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+pixelMapXY f Image { imageWidth = w, imageHeight = h, imageData = vec } =
+  Image w h pixels
+    where sourceComponentCount = componentCount (undefined :: a)
+          destComponentCount = componentCount (undefined :: b)
+
+          pixels = runST $ do
+            newArr <- M.new (w * h * destComponentCount)
+            let lineMapper _ _ y | y >= h = return ()
+                lineMapper readIdxLine writeIdxLine y = colMapper readIdxLine writeIdxLine 0
+                  where colMapper readIdx writeIdx x
+                            | x >= w = lineMapper readIdx writeIdx $ y + 1
+                            | otherwise = do
+                                unsafeWritePixel newArr writeIdx . f x y $ unsafePixelAt vec readIdx
                                 colMapper (readIdx + sourceComponentCount)
                                           (writeIdx + destComponentCount)
                                           (x + 1)

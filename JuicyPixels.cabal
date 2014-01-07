@@ -37,10 +37,10 @@ Executable imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
-  -- -O3 -Wall 
-  -- 
+  -- -O3 -Wall
+  --
   -- -ddump-simpl
-  -- 
+  --
   Include-Dirs: src/Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base                >= 4       && < 5,
@@ -72,6 +72,7 @@ Library
                     Codec.Picture.Tiff,
                     Codec.Picture.Saving,
                     Codec.Picture.Types
+                    Codec.Picture.ColorQuant
 
   Ghc-options: -O3 -Wall
   Build-depends: base                >= 4       && < 5,
