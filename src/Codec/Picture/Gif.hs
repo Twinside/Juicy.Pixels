@@ -34,6 +34,7 @@ import Data.Binary.Put( Put
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
+import Codec.Picture.Gif.LZWEncoding
 import Codec.Picture.BitWriter
 
 {-
