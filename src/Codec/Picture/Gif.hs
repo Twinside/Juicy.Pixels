@@ -8,7 +8,10 @@ import Control.Monad( replicateM )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
-import Data.Bits( (.&.), unsafeShiftR, testBit )
+import Data.Bits( (.&.), (.|.)
+                , unsafeShiftR
+                , unsafeShiftL
+                , testBit, setBit )
 import Data.Word( Word8, Word16 )
 
 import qualified Data.ByteString as B
@@ -20,6 +23,12 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16le
                       , getByteString
+                      )
+
+import Data.Binary.Put( Put
+                      , putWord8
+                      , putWord16le
+                      , putByteString
                       )
 
 import Codec.Picture.InternalHelper
@@ -90,7 +99,31 @@ data LogicalScreenDescriptor = LogicalScreenDescriptor
   }
 
 instance Binary LogicalScreenDescriptor where
-    put _ = undefined
+    put v = do
+      putWord16le $ screenWidth v
+      putWord16le $ screenHeight v
+      let globalMapField
+            | hasGlobalMap v = 0x80
+            | otherwise = 0
+
+          colorTableSortedField
+            | isColorTableSorted v = 0x08
+            | otherwise = 0
+
+          tableSizeField = (colorTableSize v - 1) .&. 7
+
+          colorResolutionField = 
+            ((colorResolution v - 1) .&. 7) `unsafeShiftL` 5
+
+          packedField = globalMapField
+                     .|. colorTableSortedField
+                     .|. tableSizeField
+                     .|. colorResolutionField
+
+      putWord8 packedField
+      putWord8 0 -- aspect ratio
+      putWord8 $ backgroundIndex v
+
     get = do
         w <- getWord16le
         h <- getWord16le
@@ -142,6 +175,16 @@ parseDataBlocks = B.concat <$> (getWord8 >>= aux)
  where aux    0 = pure []
        aux size = (:) <$> getByteString (fromIntegral size) <*> (getWord8 >>= aux)
 
+putDataBlocks :: B.ByteString -> Put
+putDataBlocks wholeString = putSlices wholeString >> putWord8 0
+  where putSlices str | B.length str == 0 = pure ()
+                      | B.length str > 0xFF =
+            let (before, after) = B.splitAt 0xFF str in
+            putWord8 0xFF >> putByteString before >> putSlices after
+        putSlices str =
+            putWord8 (fromIntegral $ B.length str) >> putByteString str
+     
+
 data GraphicControlExtension = GraphicControlExtension
     { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
     , gceUserInputFlag         :: !Bool
@@ -151,7 +194,29 @@ data GraphicControlExtension = GraphicControlExtension
     }
 
 instance Binary GraphicControlExtension where
-    put _ = undefined
+    put v = do
+        putWord8 extensionIntroducer
+        putWord8 0x4  -- size
+        let disposalField =
+                (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
+
+            userInputField 
+                | gceUserInputFlag v = 0 `setBit` 1
+                | otherwise = 0
+
+            transparentField
+                | gceTransparentFlag v = 0 `setBit` 0 
+                | otherwise = 0
+
+            packedFields =  disposalField
+                        .|. userInputField
+                        .|. transparentField
+
+        putWord8 packedFields
+        putWord16le $ gceDelay v
+        putWord8 $ gceTransparentColorIndex v
+        putWord8 0 -- blockTerminator
+
     get = do
         -- due to missing lookahead
         {-_extensionLabel  <- getWord8-}
@@ -176,7 +241,14 @@ data GifImage = GifImage
     }
 
 instance Binary GifImage where
-    put _ = undefined
+    put img = do
+        put $ imgDescriptor img
+        case imgLocalPalette img of
+          Nothing -> return ()
+          Just p -> putPalette p
+        putWord8 $ imgLzwRootSize img
+        putDataBlocks $ imgData img
+
     get = do
         desc <- get
         let hasLocalColorTable = gDescHasLocalMap desc
@@ -204,7 +276,35 @@ parseGifBlocks = getWord8 >>= blockParse
             fail ("Unrecognized gif block " ++ show v)
 
 instance Binary ImageDescriptor where
-    put _ = undefined
+    put v = do
+        putWord8 imageSeparator
+        putWord16le $ gDescPixelsFromLeft v
+        putWord16le $ gDescPixelsFromTop v
+        putWord16le $ gDescImageWidth v
+        putWord16le $ gDescImageHeight v
+        let localMapField 
+                | gDescHasLocalMap v = 0 `setBit` 7
+                | otherwise = 0
+
+            isInterlacedField
+                | gDescIsInterlaced v = 0 `setBit` 6
+                | otherwise = 0
+
+            isImageDescriptorSorted
+                | gDescIsImgDescriptorSorted v = 0 `setBit` 5
+                | otherwise = 0
+
+            localSize = gDescLocalColorTableSize v
+            tableSizeField
+                | localSize > 0 = (localSize - 1) .&. 0x7
+                | otherwise = 0
+
+            packedFields = localMapField
+                        .|. isInterlacedField
+                        .|. isImageDescriptorSorted
+                        .|. tableSizeField
+        putWord8 packedFields
+
     get = do
         -- due to missing lookahead
         {-_imageSeparator <- getWord8-}
@@ -235,6 +335,9 @@ getPalette :: Word8 -> Get Palette
 getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
+putPalette :: Palette -> Put
+putPalette = mapM_ putWord8 . V.toList . imageData
+
 --------------------------------------------------
 ----            GifImage
 --------------------------------------------------
@@ -245,7 +348,11 @@ data GifHeader = GifHeader
   }
 
 instance Binary GifHeader where
-    put _ = undefined
+    put v = do
+      put $ gifVersion v
+      put $ gifScreenDescriptor v
+      putPalette $ gifGlobalMap v
+
     get = do
         version    <- get
         screenDesc <- get
@@ -270,7 +377,13 @@ associateDescr (BlockGraphicControl ctrl : BlockImage img : xs) =
     (Just ctrl, img) : associateDescr xs
 
 instance Binary GifFile where
-    put _ = undefined
+    put v = do
+        put $ gifHeader v
+        let putter (Nothing, i) = put i
+            putter (Just a, i) = put a >> put i
+        mapM_ putter $ gifImages v
+        put gifTrailer
+        
     get = do
         hdr <- get
         blocks <- parseGifBlocks
