@@ -4,7 +4,7 @@ import           Codec.Picture
 import           System.Environment                (getArgs)
 
 -- Some quick and dirty code to test ColorQuant.
-
+main :: IO ()
 main = do
   args <- getArgs
   case args of

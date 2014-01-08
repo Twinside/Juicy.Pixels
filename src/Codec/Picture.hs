@@ -90,9 +90,6 @@ module Codec.Picture (
                      , PixelYCbCr8( .. )
                      , PixelCMYK8( .. )
                      , PixelCMYK16( .. )
-
-                     -- * Color Quantization utilities
-                     , module Codec.Picture.ColorQuant
                      ) where
 
 import Control.Applicative( (<$>) )

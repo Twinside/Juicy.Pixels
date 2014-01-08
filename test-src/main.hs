@@ -452,18 +452,17 @@ benchMark = do
 
 debug :: IO ()
 debug = do
- forM_ ["MCU0.jpg", "MCU1.jpg", "MCU5.jpg", "MCU10.jpg"
-       ,"MCU35.jpg"
-       ,"mand_prgrsv.jpg"
-       ,"sheep.jpg"
-       ,"20100713-0107-interleaved2.jpg"
-       ] $ \file -> do
-    putStrLn "========================================================="
+ forM_ ["avatar.jpg" ,"sheep.jpg" ] $ \file -> do
     putStrLn "========================================================="
     putStrLn $ "decoding " ++ file
     img <- readImage $ "tests/jpeg/" ++ file
     case img of
-        Right i -> savePngImage (file ++ "_debug.png") i
+        Right (ImageYCbCr8 i) -> do
+            let luma = extractLumaPlane i
+            writeGifImage (file ++ "_debug.gif") luma
+            writePng (file ++ "_debug.png") luma
+
+        Right _ -> return ()
         Left err -> do
             putStrLn err
             {-error "Can't decompress img"-}

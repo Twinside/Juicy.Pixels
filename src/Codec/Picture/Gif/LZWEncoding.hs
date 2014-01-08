@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
-module Codec.Picture.Gif.LZWEncoding where
+module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
 
 import Control.Applicative( (<$>) )
 import Control.Monad.ST( runST )
@@ -87,7 +87,7 @@ lzwEncode vec = runST $ do
             go (updateCodeSize codeSize writeIndex)
                (writeIndex + 1) endIndex trie'
 
-    go 9 0x100 0 mempty
+    go 9 0x100 0 initialTrie
     finalizeBoolWriter bitWriter
   where
     maxi = V.length vec
