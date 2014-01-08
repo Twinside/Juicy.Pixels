@@ -138,6 +138,7 @@ clusters img = cs !! 255
     cs = iterate split [c]
     c = initCluster img
 
+<<<<<<< HEAD
 instance Ord PixelRGB8 where
   compare (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2)
     | r1 > r2 = GT
@@ -148,6 +149,8 @@ instance Ord PixelRGB8 where
     | b1 < b2 = LT
     | otherwise = EQ
 
+=======
+>>>>>>> 8f1822a979716334ef93ef2e9ac41e70ca41ddea
 toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
 toAList (Cluster m _ _ cs) = foldr f [] cs
   where

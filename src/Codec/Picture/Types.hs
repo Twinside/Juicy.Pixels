@@ -410,7 +410,7 @@ type PixelF = Float
 --
 data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
                          {-# UNPACK #-} !Pixel8  -- Alpha value
-              deriving (Eq, Show)
+              deriving (Eq, Ord, Show)
 
 -- | Pixel type storing Luminance (Y) and alpha information
 -- on 16 bits.
@@ -422,7 +422,7 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
 --
 data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
                            {-# UNPACK #-} !Pixel16  -- Alpha value
-              deriving (Eq, Show)
+              deriving (Eq, Ord, Show)
 
 -- | Pixel type storing classic pixel on 8 bits
 -- Value are stored in the following order :
@@ -436,7 +436,7 @@ data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
 data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
                            {-# UNPACK #-} !Pixel8 -- Green
                            {-# UNPACK #-} !Pixel8 -- Blue
-               deriving (Eq, Show)
+               deriving (Eq, Ord, Show)
 
 -- | Pixel type storing pixels on 16 bits
 -- Value are stored in the following order :
@@ -450,7 +450,7 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
 data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                              {-# UNPACK #-} !Pixel16 -- Green
                              {-# UNPACK #-} !Pixel16 -- Blue
-               deriving (Eq, Show)
+               deriving (Eq, Ord, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
 -- Value are stored in the following order :
@@ -464,7 +464,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
 data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Green
                            {-# UNPACK #-} !PixelF -- Blue
-               deriving (Eq, Show)
+               deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
 -- value are stored in the following order :
@@ -478,7 +478,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cr red difference
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
-                 deriving (Eq, Show)
+                 deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the CMYK colorspace. value
 -- are stored in the following order :
@@ -495,7 +495,7 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Magenta
                              {-# UNPACK #-} !Pixel8 -- Yellow
                              {-# UNPACK #-} !Pixel8 -- Black
-                 deriving (Eq, Show)
+                 deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the CMYK colorspace. value
 -- are stored in the following order :
@@ -512,7 +512,7 @@ data PixelCMYK16 = PixelCMYK16 {-# UNPACK #-} !Pixel16 -- Cyan
                                {-# UNPACK #-} !Pixel16 -- Magenta
                                {-# UNPACK #-} !Pixel16 -- Yellow
                                {-# UNPACK #-} !Pixel16 -- Black
-                 deriving (Eq, Show)
+                 deriving (Eq, Ord, Show)
 
 
 -- | Pixel type storing a classic pixel, with an alpha component.
@@ -530,7 +530,7 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Pixel8 -- Red
                              {-# UNPACK #-} !Pixel8 -- Green
                              {-# UNPACK #-} !Pixel8 -- Blue
                              {-# UNPACK #-} !Pixel8 -- Alpha
-                deriving (Eq, Show)
+                deriving (Eq, Ord, Show)
 
 -- | Pixel type storing a RGB information with an alpha
 -- channel on 16 bits.
@@ -548,7 +548,7 @@ data PixelRGBA16 = PixelRGBA16 {-# UNPACK #-} !Pixel16 -- Red
                                {-# UNPACK #-} !Pixel16 -- Green
                                {-# UNPACK #-} !Pixel16 -- Blue
                                {-# UNPACK #-} !Pixel16 -- Alpha
-                deriving (Eq, Show)
+                deriving (Eq, Ord, Show)
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).
@@ -780,14 +780,19 @@ pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
 -- | Just like `pixelMap` only the function takes the pixel coordinates as
 --   additional parameters.
 pixelMapXY :: forall a b. (Pixel a, Pixel b)
-         => (Int -> Int -> a -> b) -> Image a -> Image b
-{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
-{-# SPECIALIZE INLINE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
-{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
-{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
-{-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
-{-# SPECIALIZE INLINE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
-{-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+           => (Int -> Int -> a -> b) -> Image a -> Image b
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> PixelYCbCr8 -> PixelRGB8)
+                                 -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> PixelRGB8 -> PixelYCbCr8)
+                                 -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> PixelRGB8 -> PixelRGB8)
+                                 -> Image PixelRGB8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> PixelRGB8 -> PixelRGBA8)
+                                 -> Image PixelRGB8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> PixelRGBA8 -> PixelRGBA8)
+                                 -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
+{-# SPECIALIZE INLINE pixelMapXY :: (Int -> Int -> Pixel8 -> PixelRGB8)
+                                 -> Image Pixel8 -> Image PixelRGB8 #-}
 pixelMapXY f Image { imageWidth = w, imageHeight = h, imageData = vec } =
   Image w h pixels
     where sourceComponentCount = componentCount (undefined :: a)
