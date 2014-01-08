@@ -16,6 +16,6 @@ main = do
       case dImg of
         Left _ -> putStrLn "Unable to read image."
         Right (ImageRGB8 img) -> savePngImage outFile (ImageRGB8
-                               $ (onePassCQ . aDither (masks !! m') l') img)
+                               $ (modMedianCutCQ . aDither (masks !! m') l') img)
         Right _ -> putStrLn "Looking for RGB8."
     _ -> putStrLn "Two files required."
