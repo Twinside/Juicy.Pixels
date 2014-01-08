@@ -138,16 +138,6 @@ clusters img = cs !! 255
     cs = iterate split [c]
     c = initCluster img
 
-instance Ord PixelRGB8 where
-  compare (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2)
-    | r1 > r2 = GT
-    | r1 < r2 = LT
-    | g1 > g2 = GT
-    | g1 < g2 = LT
-    | b1 > b2 = GT
-    | b1 < b2 = LT
-    | otherwise = EQ
-
 toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
 toAList (Cluster m _ _ cs) = foldr f [] cs
   where
