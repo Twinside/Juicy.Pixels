@@ -83,8 +83,15 @@ minRGB (RGBdbl r1 g1 b1) (RGBdbl r2 g2 b2) =
   RGBdbl (min r1 r2) (min g1 g2) (min b1 b2)
 
 extrems :: [RGBdbl] -> (RGBdbl, RGBdbl)
-extrems ps = foldl' (\(sp, bp) p -> (minRGB sp p, maxRGB bp p))
-                    (RGBdbl inf inf inf, RGBdbl (-inf) (-inf) (-inf)) ps
+extrems ps = (s, b)
+  where
+    s = foldl' (\sp p -> minRGB sp p) (RGBdbl inf inf inf) ps
+    b = foldl' (\bp p -> maxRGB bp p) (RGBdbl (-inf) (-inf) (-inf)) ps
+
+-- I would love to know why the code below can cause a stakc overflow?
+{- extrems ps = foldl' (\(sp, bp) p -> (minRGB sp p, maxRGB bp p))
+                       (RGBdbl inf inf inf, RGBdbl (-inf) (-inf) (-inf)) ps
+-}
 
 volAndDims :: [RGBdbl] -> (Double, RGBdbl)
 volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
@@ -93,10 +100,11 @@ volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
     (dr, dg, db) = (br - sr, bg - sg, bb - sb)
 
 mkCluster :: [RGBdbl] -> Cluster
-mkCluster ps = Cluster m v ds ps
+mkCluster ps = Cluster m (v * l) ds ps
   where
     (v, ds) = volAndDims ps
     m = meanRGB ps
+    l = fromIntegral $ length ps
 
 maxAxis :: RGBdbl -> Axis
 maxAxis (RGBdbl r g b) =
@@ -138,19 +146,6 @@ clusters img = cs !! 255
     cs = iterate split [c]
     c = initCluster img
 
-<<<<<<< HEAD
-instance Ord PixelRGB8 where
-  compare (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2)
-    | r1 > r2 = GT
-    | r1 < r2 = LT
-    | g1 > g2 = GT
-    | g1 < g2 = LT
-    | b1 > b2 = GT
-    | b1 < b2 = LT
-    | otherwise = EQ
-
-=======
->>>>>>> 8f1822a979716334ef93ef2e9ac41e70ca41ddea
 toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
 toAList (Cluster m _ _ cs) = foldr f [] cs
   where
