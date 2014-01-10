@@ -24,7 +24,7 @@ prof:
 	hp2ps -c imageTest.hp
 
 test:
-	dist\build\imageTest\imageTest.exe
+	dist\build\imageTest\imageTest.exe debug
 
 lint:
 	hlint Codec

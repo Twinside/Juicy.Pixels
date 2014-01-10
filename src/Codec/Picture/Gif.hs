@@ -528,8 +528,8 @@ encodeGifImage img = encode allFile
 
     toSerialize = GifImage
         { imgDescriptor = imageDescriptor
-        , imgLocalPalette = Just greyPalette
-        , imgLzwRootSize = 9
+        , imgLocalPalette = Nothing
+        , imgLzwRootSize = 8
         , imgData = B.concat . L.toChunks . lzwEncode $ imageData img
         }
 
@@ -538,7 +538,7 @@ encodeGifImage img = encode allFile
         , gDescPixelsFromTop          = 0
         , gDescImageWidth             = fromIntegral $ imageWidth img
         , gDescImageHeight            = fromIntegral $ imageHeight img
-        , gDescHasLocalMap            = True
+        , gDescHasLocalMap            = False
         , gDescIsInterlaced           = False
         , gDescIsImgDescriptorSorted  = False
         , gDescLocalColorTableSize    = 0
