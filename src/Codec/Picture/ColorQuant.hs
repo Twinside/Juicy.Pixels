@@ -1,12 +1,10 @@
 module Codec.Picture.ColorQuant where
 
 import           Codec.Picture.Types
-import           Data.Bits                         ((.&.))
-import           Data.Word                         (Word8)
-import           Data.List                         (foldl', foldl1', partition)
-import           Data.Map.Lazy                     (Map)
+import           Data.Bits            ((.&.))
+import           Data.List            (foldl', foldl1', partition, minimumBy)
+import           Data.Map.Lazy        (Map)
 import qualified Data.Map.Lazy as L
-
 
 -------------------------------------------------------------------------------
 ----            Single Pass Algorithm
@@ -26,17 +24,45 @@ onePassCQ = pixelMap maskFunction
 ----            Modified Median Cut Algorithm
 -------------------------------------------------------------------------------
 
--- | A port of the OCaml implementation:
---   http://rosettacode.org/wiki/Color_quantization
---   which was in turn based on: www.leptonica.com/papers/mediancut.pdf.
+--  Based on the OCaml implementation:
+--  http://rosettacode.org/wiki/Color_quantization
+--  which was in turn based on: www.leptonica.com/papers/mediancut.pdf.
+--  We use the product of volume and population to determine the next cluster
+--  to split and assign the color of each cluster to its mean color.
 
-modMedianCutCQ :: Image PixelRGB8 -> Image PixelRGB8
-modMedianCutCQ img = pixelMap paletteFunc img
+-- | Modified median cut algorithm without dithering.
+mmcCQ :: Image PixelRGB8 -> Image PixelRGB8
+mmcCQ img = pixelMap paletteFunc img
   where
     paletteFunc p = case L.lookup p pm of
                       Just px -> px
                       Nothing -> PixelRGB8 0 0 0
     pm = paletteMap . clusters $ img
+
+-- Add a dither mask to an image for ordered dithering.
+-- Using a small, spatially stable dithering algorithm based on magic numbers
+-- and arithmetic inspired by the *a dither* algorithm of Øyvind Kolås,
+-- pippin@gimp.org, 2013. See, http://pippin.gimp.org/a_dither/.
+dither :: Int -> Int -> PixelRGB8 -> PixelRGB8
+dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
+                                         (fromIntegral g')
+                                         (fromIntegral b')
+  where
+    -- Should view 16 as a parameter that can be optimized for best looking
+    -- results
+    r' = min 255 (fromIntegral r + (x' + y') .&. 16)
+    g' = min 255 (fromIntegral g + (x' + y' + 7973) .&. 16)
+    b' = min 255 (fromIntegral b + (x' + y' + 15946) .&. 16)
+    x' = 119 * x
+    y' = 28084 * y
+
+-- | Modified median cut algorithm with ordered dithering.
+dmmcCQ :: Image PixelRGB8 -> Image PixelRGB8
+dmmcCQ img = pixelMap paletteFunc dImg
+  where
+    paletteFunc p = paletteColor p pal
+    pal = mkPalette . clusters $ img
+    dImg = pixelMapXY dither img
 
 -- Much room for optimization / better implementation, this is a pretty direct
 -- port. E.g. use Vectors not lists and perhaps a priority queue to choose the
@@ -47,7 +73,7 @@ data RGBdbl = RGBdbl !Double !Double !Double deriving Eq
 data Cluster = Cluster { meanColor :: RGBdbl
                        , value     :: Double
                        , dims      :: RGBdbl
-                       , pixels    ::[RGBdbl]
+                       , colors    ::[RGBdbl]
                        } deriving Eq
 
 data Axis = RAxis | GAxis | BAxis
@@ -83,8 +109,10 @@ minRGB (RGBdbl r1 g1 b1) (RGBdbl r2 g2 b2) =
   RGBdbl (min r1 r2) (min g1 g2) (min b1 b2)
 
 extrems :: [RGBdbl] -> (RGBdbl, RGBdbl)
-extrems ps = foldl' (\(sp, bp) p -> (minRGB sp p, maxRGB bp p))
-                    (RGBdbl inf inf inf, RGBdbl (-inf) (-inf) (-inf)) ps
+extrems ps = (s, b)
+  where
+    s = foldl' (\sp p -> minRGB sp p) (RGBdbl inf inf inf) ps
+    b = foldl' (\bp p -> maxRGB bp p) (RGBdbl (-inf) (-inf) (-inf)) ps
 
 volAndDims :: [RGBdbl] -> (Double, RGBdbl)
 volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
@@ -93,10 +121,11 @@ volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
     (dr, dg, db) = (br - sr, bg - sg, bb - sb)
 
 mkCluster :: [RGBdbl] -> Cluster
-mkCluster ps = Cluster m v ds ps
+mkCluster ps = Cluster m (v * l) ds ps
   where
     (v, ds) = volAndDims ps
     m = meanRGB ps
+    l = fromIntegral $ length ps
 
 maxAxis :: RGBdbl -> Axis
 maxAxis (RGBdbl r g b) =
@@ -126,8 +155,7 @@ split cs = cl1 : cl2 : cs'
   where
     (cl1, cl2) = subdivide c
     c = foldl' select unused cs
-    select c1@(Cluster _ v1 _ _) c2@(Cluster _ v2 _ _) =
-      if v1 > v2 then c1 else c2
+    select c1 c2 = if value c1 > value c2 then c1 else c2
     unused = Cluster dumb (-inf) dumb []
     dumb = RGBdbl 0 0 0
     cs' = filter (/= c) cs
@@ -149,61 +177,19 @@ paletteMap cs = L.fromList aList
   where
     aList = concatMap toAList cs
 
--------------------------------------------------------------------------------
-----            Dithering
--------------------------------------------------------------------------------
+mkPalette :: [Cluster] -> [PixelRGB8]
+mkPalette  = map (toRGB8 . meanColor)
 
--- The *a dither* algorithm of Øyvind Kolås, pippin@gimp.org in 2013.
--- See, http://pippin.gimp.org/a_dither/.
-
-type Mask = Int -> Int -> Int -> Double
-
--- No dithering.
-mask0 :: Mask
-mask0 _ _ _ = 0
-
--- Pattern 1.
-mask1 :: Mask
-mask1 _ x y = fromIntegral m / 511
+dist2Px :: PixelRGB8 -> PixelRGB8 -> Int
+dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
   where
-    m = (149 * 1234 * x ^ y) .&. 511
+    (dr, dg, db) =
+      ( fromIntegral r1 - fromIntegral r2
+      , fromIntegral g1 - fromIntegral g2
+      , fromIntegral b1 - fromIntegral b2 )
 
--- Pattern 2.
-mask2 :: Mask
-mask2 c x y = fromIntegral m / 511
+paletteColor :: PixelRGB8 -> [PixelRGB8] -> PixelRGB8
+paletteColor p ps = snd $ minimumBy comp ds
   where
-    m = (149 * 1234 * ((17 * c + x) ^ y)) .&. 511
-
--- Pattern 3.
-mask3 :: Mask
-mask3 _ x y = fromIntegral m / 255
-  where
-    m = (119 * (x + 237 * y)) .&. 255
-
--- \ Pattern 4.
-mask4 :: Mask
-mask4 c x y = fromIntegral m / 255
-  where
-    m = (119 * (x + (67 * c) + (236 * y))) .&. 255
-
--- Pattern 5.
-mask5 :: Mask
-mask5 _ _ _ = 0.5
-
-masks :: [Mask]
-masks = [mask0, mask1, mask2, mask3, mask4, mask5]
-
--- Apply a mask to a pixel's color component c, level l and coordinates x,y.
-appMask :: Word8 -> Int -> Double -> Int -> Int -> Mask -> Word8
-appMask v c l x y f = fromIntegral $ floor (z * 255)
-  where
-    z = (l * fromIntegral v / 255 + f c x y) / l
-
--- Dither an image using "a dither" with mask f and level l.
-aDither :: Mask -> Double -> Image PixelRGB8 -> Image PixelRGB8
-aDither f l = pixelMapXY maskFunction
-  where
-    maskFunction x y (PixelRGB8 r g b) =
-      PixelRGB8 (appMask r 0 l x y f)
-                (appMask g 1 l x y f)
-                (appMask b 2 l x y f)
+    ds = map (\px -> (dist2Px px p, px)) ps
+    comp a b = fst a `compare` fst b
