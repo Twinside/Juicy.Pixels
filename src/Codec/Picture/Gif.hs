@@ -5,6 +5,7 @@ module Codec.Picture.Gif ( -- * Reading
 
                            -- * Writing
                          , GifDelay
+                         , GifLooping( .. )
                          , encodeGifImage
                          , encodeGifImageWithPalette
                          , encodeGifImages
@@ -27,6 +28,7 @@ import Data.Bits( (.&.), (.|.)
 import Data.Word( Word8, Word16 )
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -53,6 +55,15 @@ import Codec.Picture.BitWriter
 -- | Delay to wait before showing the next Gif image.
 -- The delay is expressed in 100th of seconds.
 type GifDelay = Int
+
+-- | Help to control the behaviour of GIF animation looping.
+data GifLooping =
+      -- | The animation will stop once the end is reached
+      LoopingNever
+      -- | The animation will restart once the end is reached
+    | LoopingForever
+      -- | The animation will repeat n times before stoping
+    | LoopingRepeat Word16
 
 {-
    <GIF Data Stream> ::=     Header <Logical Screen> <Data>* Trailer
@@ -174,19 +185,19 @@ data ImageDescriptor = ImageDescriptor
   , gDescLocalColorTableSize    :: !Word8
   }
 
-imageSeparator, extensionIntroducer, gifTrailer :: Word8
+imageSeparator, extensionIntroducer, gifTrailer, applicationLabel :: Word8
 imageSeparator      = 0x2C
 extensionIntroducer = 0x21
 gifTrailer          = 0x3B
+applicationLabel    = 0xFF
 
 graphicControlLabel :: Word8
 graphicControlLabel = 0xF9
 
---commentLabel, graphicControlLabel, applicationLabel
+--commentLabel, graphicControlLabel, 
 --
 {-commentLabel        = 0xFE-}
 {-plainTextLabel      = 0x01-}
-{-applicationLabel    = 0xFF-}
 
 parseDataBlocks :: Get B.ByteString
 parseDataBlocks = B.concat <$> (getWord8 >>= aux)
@@ -383,9 +394,23 @@ instance Binary GifHeader where
             }
 
 data GifFile = GifFile
-    { gifHeader  :: !GifHeader
-    , gifImages  :: [(Maybe GraphicControlExtension, GifImage)]
+    { gifHeader      :: !GifHeader
+    , gifImages      :: [(Maybe GraphicControlExtension, GifImage)]
+    , gifLoopingBehaviour :: GifLooping
     }
+
+putLooping :: GifLooping -> Put
+putLooping LoopingNever = return ()
+putLooping LoopingForever = putLooping $ LoopingRepeat 0
+putLooping (LoopingRepeat count) = do
+    putWord8 extensionIntroducer
+    putWord8 applicationLabel
+    putWord8 11 -- the size
+    putByteString $ BC.pack "NETSCAPE2.0"
+    putWord8 3 -- size of sub block
+    putWord8 1
+    putWord16le count
+    putWord8 0
 
 associateDescr :: [Block] -> [(Maybe GraphicControlExtension, GifImage)]
 associateDescr [] = []
@@ -400,6 +425,7 @@ instance Binary GifFile where
         put $ gifHeader v
         let putter (Nothing, i) = put i
             putter (Just a, i) = put a >> put i
+        putLooping $ gifLoopingBehaviour v
         mapM_ putter $ gifImages v
         put gifTrailer
 
@@ -407,7 +433,9 @@ instance Binary GifFile where
         hdr <- get
         blocks <- parseGifBlocks
         return GifFile { gifHeader = hdr
-                       , gifImages = associateDescr blocks }
+                       , gifImages = associateDescr blocks
+                       , gifLoopingBehaviour = LoopingNever
+                       }
 
 substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
 substituteColors palette = pixelMap swaper
@@ -543,12 +571,13 @@ computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
 --
 -- * Every palette must have between one and 256 colors.
 --
-encodeGifImages :: [(Palette, GifDelay, Image Pixel8)] -> Either String L.ByteString
-encodeGifImages [] = Left "No image in list"
-encodeGifImages imageList
+encodeGifImages :: GifLooping -> [(Palette, GifDelay, Image Pixel8)]
+                -> Either String L.ByteString
+encodeGifImages _ [] = Left "No image in list"
+encodeGifImages _ imageList
     | not $ checkGifImageSizes imageList = Left "Gif images have different size"
     | not $ checkPaletteValidity imageList = Left "Invalid palette size"
-encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
+encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where
     allFile = GifFile
         { gifHeader = GifHeader
@@ -557,6 +586,7 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
             , gifGlobalMap = firstPalette
             }
         , gifImages = toSerialize
+        , gifLoopingBehaviour = looping
         }
 
     logicalScreen = LogicalScreenDescriptor
@@ -602,7 +632,7 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
 
 -- | Encode a greyscale image to a bytestring.
 encodeGifImage :: Image Pixel8 -> L.ByteString
-encodeGifImage img = case encodeGifImages [(greyPalette, 0, img)] of
+encodeGifImage img = case encodeGifImages LoopingNever [(greyPalette, 0, img)] of
     Left err -> error $ "Impossible:" ++ err
     Right v -> v
 
@@ -612,7 +642,8 @@ encodeGifImage img = case encodeGifImages [(greyPalette, 0, img)] of
 -- * A palette must have between 1 and 256 colors
 --
 encodeGifImageWithPalette :: Image Pixel8 -> Palette -> Either String L.ByteString
-encodeGifImageWithPalette img palette = encodeGifImages [(palette, 0, img)]
+encodeGifImageWithPalette img palette =
+    encodeGifImages LoopingNever [(palette, 0, img)]
 
 -- | Write a greyscale in a gif file on the disk.
 writeGifImage :: FilePath -> Image Pixel8 -> IO ()
@@ -624,14 +655,16 @@ writeGifImage file = L.writeFile file . encodeGifImage
 --
 -- * Every palette must have between one and 256 colors.
 --
-writeGifImages :: FilePath -> [(Palette, GifDelay, Image Pixel8)] -> Either String (IO ())
-writeGifImages file lst = L.writeFile file <$> encodeGifImages lst
+writeGifImages :: FilePath -> GifLooping -> [(Palette, GifDelay, Image Pixel8)]
+               -> Either String (IO ())
+writeGifImages file looping lst = L.writeFile file <$> encodeGifImages looping lst
 
 -- | Write a gif image with a palette to a file.
 --
 -- * A palette must have between 1 and 256 colors
 --
-writeGifImageWithPalette :: FilePath -> Image Pixel8 -> Palette -> Either String (IO ())
+writeGifImageWithPalette :: FilePath -> Image Pixel8 -> Palette
+                         -> Either String (IO ())
 writeGifImageWithPalette file img palette =
     L.writeFile file <$> encodeGifImageWithPalette img palette
 

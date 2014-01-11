@@ -81,7 +81,7 @@ greyScaleWitness offset = img 232 241
 
 gifAnimationTest :: IO ()
 gifAnimationTest =
-    case writeGifImages "Gifanim.gif" img of
+    case writeGifImages "Gifanim.gif" LoopingForever img of
       Left err -> putStrLn err
       Right w -> w
   where img = [(greyPalette, 20, greyScaleWitness (i * 10)) | i <- [0 .. 20]]
