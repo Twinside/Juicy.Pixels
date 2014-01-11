@@ -47,6 +47,13 @@ module Codec.Picture (
                      , decodeGif
                      , decodeGifImages
 
+                     , encodeGifImage
+                     , writeGifImage
+                     , encodeGifImageWithPalette
+                     , writeGifImageWithPalette
+                     , encodeGifImages
+                     , writeGifImages
+
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg
@@ -78,6 +85,7 @@ module Codec.Picture (
                      -- ** Image
                      , Image( .. )
                      , DynamicImage( .. )
+                     , Palette
                      -- ** Pixels
                      , Pixel( .. )
                      -- $graph
@@ -106,7 +114,18 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , encodeDynamicPng , writeDynamicPng )
-import Codec.Picture.Gif( decodeGif, decodeGifImages )
+
+import Codec.Picture.Gif( decodeGif
+                        , decodeGifImages
+                        , encodeGifImage
+                        , encodeGifImageWithPalette
+                        , encodeGifImages
+
+                        , writeGifImage
+                        , writeGifImageWithPalette
+                        , writeGifImages
+                        )
+
 import Codec.Picture.HDR( decodeHDR
                         , encodeHDR
                         , writeHDR
@@ -117,7 +136,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
-import Codec.Picture.ColorQuant
+{-import Codec.Picture.ColorQuant-}
 -- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
@@ -223,10 +242,10 @@ saveRadianceImage path = L.writeFile path . imageToRadiance
 -- >        Left _ -> return ()
 -- >        Right img -> savePngImage pathOut img
 --
-savePngImage :: String -> DynamicImage -> IO ()
+savePngImage :: FilePath -> DynamicImage -> IO ()
 savePngImage path img = L.writeFile path $ imageToPng img
 
 -- | Save an image to a '.bmp' file, will do everything it can to save an image.
-saveBmpImage :: String -> DynamicImage -> IO ()
+saveBmpImage :: FilePath -> DynamicImage -> IO ()
 saveBmpImage path img = L.writeFile path $ imageToBitmap img
 

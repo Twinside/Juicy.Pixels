@@ -1,8 +1,19 @@
 -- | Module implementing GIF decoding.
-module Codec.Picture.Gif ( decodeGif
+module Codec.Picture.Gif ( -- * Reading
+                           decodeGif
                          , decodeGifImages
+
+                           -- * Writing
+                         , GifDelay
+                         , GifLooping( .. )
                          , encodeGifImage
+                         , encodeGifImageWithPalette
+                         , encodeGifImages
+
                          , writeGifImage
+                         , writeGifImageWithPalette
+                         , writeGifImages
+                         , greyPalette
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -17,6 +28,7 @@ import Data.Bits( (.&.), (.|.)
 import Data.Word( Word8, Word16 )
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -39,6 +51,19 @@ import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
 import Codec.Picture.Gif.LZWEncoding
 import Codec.Picture.BitWriter
+
+-- | Delay to wait before showing the next Gif image.
+-- The delay is expressed in 100th of seconds.
+type GifDelay = Int
+
+-- | Help to control the behaviour of GIF animation looping.
+data GifLooping =
+      -- | The animation will stop once the end is reached
+      LoopingNever
+      -- | The animation will restart once the end is reached
+    | LoopingForever
+      -- | The animation will repeat n times before stoping
+    | LoopingRepeat Word16
 
 {-
    <GIF Data Stream> ::=     Header <Logical Screen> <Data>* Trailer
@@ -160,19 +185,19 @@ data ImageDescriptor = ImageDescriptor
   , gDescLocalColorTableSize    :: !Word8
   }
 
-imageSeparator, extensionIntroducer, gifTrailer :: Word8
+imageSeparator, extensionIntroducer, gifTrailer, applicationLabel :: Word8
 imageSeparator      = 0x2C
 extensionIntroducer = 0x21
 gifTrailer          = 0x3B
+applicationLabel    = 0xFF
 
 graphicControlLabel :: Word8
 graphicControlLabel = 0xF9
 
---commentLabel, graphicControlLabel, applicationLabel
+--commentLabel, graphicControlLabel, 
 --
 {-commentLabel        = 0xFE-}
 {-plainTextLabel      = 0x01-}
-{-applicationLabel    = 0xFF-}
 
 parseDataBlocks :: Get B.ByteString
 parseDataBlocks = B.concat <$> (getWord8 >>= aux)
@@ -200,6 +225,7 @@ data GraphicControlExtension = GraphicControlExtension
 instance Binary GraphicControlExtension where
     put v = do
         putWord8 extensionIntroducer
+        putWord8 graphicControlLabel
         putWord8 0x4  -- size
         let disposalField =
                 (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
@@ -247,9 +273,11 @@ data GifImage = GifImage
 instance Binary GifImage where
     put img = do
         put $ imgDescriptor img
-        case imgLocalPalette img of
-          Nothing -> return ()
-          Just p -> putPalette p
+        case ( imgLocalPalette img
+             , gDescHasLocalMap $ imgDescriptor img) of
+          (Nothing, _) -> return ()
+          (Just _, False) -> return ()
+          (Just p, True) -> putPalette p
         putWord8 $ imgLzwRootSize img
         putDataBlocks $ imgData img
 
@@ -333,8 +361,6 @@ instance Binary ImageDescriptor where
 --------------------------------------------------
 ----            Palette
 --------------------------------------------------
-type Palette = Image PixelRGB8
-
 getPalette :: Word8 -> Get Palette
 getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
@@ -368,9 +394,23 @@ instance Binary GifHeader where
             }
 
 data GifFile = GifFile
-    { gifHeader  :: !GifHeader
-    , gifImages  :: [(Maybe GraphicControlExtension, GifImage)]
+    { gifHeader      :: !GifHeader
+    , gifImages      :: [(Maybe GraphicControlExtension, GifImage)]
+    , gifLoopingBehaviour :: GifLooping
     }
+
+putLooping :: GifLooping -> Put
+putLooping LoopingNever = return ()
+putLooping LoopingForever = putLooping $ LoopingRepeat 0
+putLooping (LoopingRepeat count) = do
+    putWord8 extensionIntroducer
+    putWord8 applicationLabel
+    putWord8 11 -- the size
+    putByteString $ BC.pack "NETSCAPE2.0"
+    putWord8 3 -- size of sub block
+    putWord8 1
+    putWord16le count
+    putWord8 0
 
 associateDescr :: [Block] -> [(Maybe GraphicControlExtension, GifImage)]
 associateDescr [] = []
@@ -385,6 +425,7 @@ instance Binary GifFile where
         put $ gifHeader v
         let putter (Nothing, i) = put i
             putter (Just a, i) = put a >> put i
+        putLooping $ gifLoopingBehaviour v
         mapM_ putter $ gifImages v
         put gifTrailer
 
@@ -392,7 +433,9 @@ instance Binary GifFile where
         hdr <- get
         blocks <- parseGifBlocks
         return GifFile { gifHeader = hdr
-                       , gifImages = associateDescr blocks }
+                       , gifImages = associateDescr blocks
+                       , gifLoopingBehaviour = LoopingNever
+                       }
 
 substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
 substituteColors palette = pixelMap swaper
@@ -495,30 +538,60 @@ decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
 decodeGifImages img = decodeAllGifImages <$> decode img
 
+-- | Default palette to produce greyscale images.
 greyPalette :: Palette
-greyPalette = generateImage toGray 256 1
-  where toGray x _ = PixelRGB8 ix ix ix
+greyPalette = generateImage toGrey 256 1
+  where toGrey x _ = PixelRGB8 ix ix ix
            where ix = fromIntegral x
 
-writeGifImage :: FilePath -> Image Pixel8 -> IO ()
-writeGifImage file = L.writeFile file . encodeGifImage
+checkGifImageSizes :: [(a, b, Image px)] -> Bool
+checkGifImageSizes [] = False
+checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
+   where width = imageWidth img
+         height = imageHeight img
 
--- | Save a greyscale Gif image
-encodeGifImage :: Image Pixel8 -> L.ByteString
-encodeGifImage img = encode allFile
+         checkDimension (_,_,Image { imageWidth = w, imageHeight = h }) =
+             w == width && h == height
+
+checkPaletteValidity :: [(Palette, a, b)] -> Bool
+checkPaletteValidity [] = False
+checkPaletteValidity lst =
+    and [h == 1 && w > 0 && w <= 256 | (p, _, _) <- lst
+                                     , let w = imageWidth p
+                                           h = imageHeight p ]
+
+computeMinimumLzwKeySize :: Palette -> Int
+computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
+  where go k | 2 ^ k >= itemCount = k
+             | otherwise = go $ k + 1
+
+-- | Encode a gif animation to a bytestring.
+--
+-- * Every image must have the same size
+--
+-- * Every palette must have between one and 256 colors.
+--
+encodeGifImages :: GifLooping -> [(Palette, GifDelay, Image Pixel8)]
+                -> Either String L.ByteString
+encodeGifImages _ [] = Left "No image in list"
+encodeGifImages _ imageList
+    | not $ checkGifImageSizes imageList = Left "Gif images have different size"
+    | not $ checkPaletteValidity imageList = Left "Invalid palette size"
+encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where
     allFile = GifFile
         { gifHeader = GifHeader
             { gifVersion = GIF89a
             , gifScreenDescriptor = logicalScreen
-            , gifGlobalMap = greyPalette
+            , gifGlobalMap = firstPalette
             }
-        , gifImages = [(Nothing, toSerialize)]
+        , gifImages = toSerialize
+        , gifLoopingBehaviour = looping
         }
 
     logicalScreen = LogicalScreenDescriptor
-        { screenWidth        = fromIntegral $ imageWidth img
-        , screenHeight       = fromIntegral $ imageHeight img
+        { screenWidth        = fromIntegral $ imageWidth firstImage
+        , screenHeight       = fromIntegral $ imageHeight firstImage
         , backgroundIndex    = 0
         , hasGlobalMap       = True
         , colorResolution    = 8
@@ -526,22 +599,72 @@ encodeGifImage img = encode allFile
         , colorTableSize     = 8
         }
 
-    toSerialize = GifImage
-        { imgDescriptor = imageDescriptor
-        , imgLocalPalette = Nothing
-        , imgLzwRootSize = 8
-        , imgData = B.concat . L.toChunks . lzwEncode $ imageData img
+    paletteEqual p = imageData firstPalette == imageData p
+
+    controlExtension 0 palette | paletteEqual palette =  Nothing
+    controlExtension delay _ = Just GraphicControlExtension
+        { gceDisposalMethod        = 0
+        , gceUserInputFlag         = False
+        , gceTransparentFlag       = False
+        , gceDelay                 = fromIntegral delay
+        , gceTransparentColorIndex = 0
         }
 
-    imageDescriptor = ImageDescriptor
+    toSerialize = [(controlExtension delay palette, GifImage
+        { imgDescriptor = imageDescriptor lzwKeySize img
+        , imgLocalPalette = Just palette
+        , imgLzwRootSize = fromIntegral $ lzwKeySize
+        , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
+        }) | (palette, delay, img) <- imageList
+           , let lzwKeySize = computeMinimumLzwKeySize palette
+           ]
+
+    imageDescriptor paletteSize img = ImageDescriptor
         { gDescPixelsFromLeft         = 0
         , gDescPixelsFromTop          = 0
         , gDescImageWidth             = fromIntegral $ imageWidth img
         , gDescImageHeight            = fromIntegral $ imageHeight img
-        , gDescHasLocalMap            = False
+        , gDescHasLocalMap            = paletteSize > 0
         , gDescIsInterlaced           = False
         , gDescIsImgDescriptorSorted  = False
-        , gDescLocalColorTableSize    = 0
+        , gDescLocalColorTableSize    = fromIntegral paletteSize
         }
 
+-- | Encode a greyscale image to a bytestring.
+encodeGifImage :: Image Pixel8 -> L.ByteString
+encodeGifImage img = case encodeGifImages LoopingNever [(greyPalette, 0, img)] of
+    Left err -> error $ "Impossible:" ++ err
+    Right v -> v
+
+-- | Encode an image with a given palette.
+-- Can return errors if the palette is ill-formed.
+--
+-- * A palette must have between 1 and 256 colors
+--
+encodeGifImageWithPalette :: Image Pixel8 -> Palette -> Either String L.ByteString
+encodeGifImageWithPalette img palette =
+    encodeGifImages LoopingNever [(palette, 0, img)]
+
+-- | Write a greyscale in a gif file on the disk.
+writeGifImage :: FilePath -> Image Pixel8 -> IO ()
+writeGifImage file = L.writeFile file . encodeGifImage
+
+-- | Write a list of images as a gif animation in a file.
+--
+-- * Every image must have the same size
+--
+-- * Every palette must have between one and 256 colors.
+--
+writeGifImages :: FilePath -> GifLooping -> [(Palette, GifDelay, Image Pixel8)]
+               -> Either String (IO ())
+writeGifImages file looping lst = L.writeFile file <$> encodeGifImages looping lst
+
+-- | Write a gif image with a palette to a file.
+--
+-- * A palette must have between 1 and 256 colors
+--
+writeGifImageWithPalette :: FilePath -> Image Pixel8 -> Palette
+                         -> Either String (IO ())
+writeGifImageWithPalette file img palette =
+    L.writeFile file <$> encodeGifImageWithPalette img palette
 

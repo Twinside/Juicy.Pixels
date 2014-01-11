@@ -12,9 +12,6 @@ import qualified Data.Vector.Storable as V
 
 import Codec.Picture.BitWriter
 
-{-import Debug.Trace-}
-{-import Text.Printf-}
-
 type Trie = I.IntMap TrieNode
 
 data TrieNode = TrieNode
@@ -57,27 +54,36 @@ lookupUpdate vector freeIndex firstIndex trie =
       where val = fromIntegral $ vector `V.unsafeIndex` index
             newNode = emptyNode { trieIndex = freeIndex }
 
-lzwEncode :: V.Vector Word8 -> L.ByteString
-lzwEncode vec = runST $ do
+lzwEncode :: Int -> V.Vector Word8 -> L.ByteString
+lzwEncode initialKeySize vec = runST $ do
     bitWriter <- newWriteStateRef 
 
-    let go (codeSize, _) readIndex _ | readIndex >= maxi =
+    let updateCodeSize 12 writeIdx _
+            | writeIdx == 2 ^ (12 :: Int) - 1 = do
+               writeBitsGif bitWriter (fromIntegral clearCode) 12
+               return (startCodeSize, firstFreeIndex, initialTrie)
+
+        updateCodeSize codeSize writeIdx trie
+            | writeIdx == 2 ^ codeSize =
+                return (codeSize + 1, writeIdx + 1, trie)
+            | otherwise = return (codeSize, writeIdx + 1, trie)
+
+        go readIndex (codeSize, _, _) | readIndex >= maxi =
             writeBitsGif bitWriter (fromIntegral endOfInfo) codeSize
-        go (codeSize, writeIndex) readIndex trie = do
+        go !readIndex (!codeSize, !writeIndex, !trie) = do
             let (indexToWrite, endIndex, trie') =
                     lookuper writeIndex readIndex trie
             writeBitsGif bitWriter (fromIntegral indexToWrite) codeSize
-            go (updateCodeSize codeSize writeIndex)
-               endIndex trie'
+            updateCodeSize codeSize writeIndex trie'
+                >>= go endIndex 
 
     writeBitsGif bitWriter (fromIntegral clearCode) startCodeSize
-    go (startCodeSize, firstFreeIndex) 0 initialTrie
+    go 0 (startCodeSize, firstFreeIndex, initialTrie)
 
     finalizeBoolWriter bitWriter
   where
     maxi = V.length vec
 
-    initialKeySize = 8
     startCodeSize = initialKeySize + 1
 
     clearCode = 2 ^ initialKeySize :: Int
@@ -85,9 +91,3 @@ lzwEncode vec = runST $ do
     firstFreeIndex = endOfInfo + 1
     
     lookuper = lookupUpdate vec
-    updateCodeSize codeSize writeIdx
-        | writeIdx == 2 ^ codeSize =
-                (min 12 $ codeSize + 1, writeIdx + 1)
-        | otherwise = (codeSize, writeIdx + 1)
-
-

@@ -69,14 +69,23 @@ invalidTests = ["xc1n0g08.png", "xc9n2c08.png", "xcrn0g04.png", "xcsn0g01.png", 
           {-pixels w h = [((x,y), pixel x y) | y <- [0 .. h-1], x <- [0 .. w-1] ]-}
           {-pixel x y = PixelRGBA8 128 (fromIntegral x) (fromIntegral y) 255-}
 
-greyScaleWitness :: Image Pixel8
-greyScaleWitness = img 232 241
+greyScaleWitness :: Int -> Image Pixel8
+greyScaleWitness offset = img 232 241
     where img w h = Image w h $ V.fromListN (w * h) $ pixels w h
-          pixels w h = [pixel x y | y <- [0 .. h-1], x <- [0 .. w-1] ]
+          pixels w h = [pixel (x + offset) (y + offset)
+                                | y <- [0 .. h-1], x <- [0 .. w-1] ]
           pixel x y = truncate $ sqrt dist
                 where xf = fromIntegral $ x - 100 :: Int
                       yf = fromIntegral $ y - 100
                       dist = (fromIntegral $ xf * xf + yf * yf) :: Double
+
+gifAnimationTest :: IO ()
+gifAnimationTest =
+    case writeGifImages "Gifanim.gif" LoopingForever img of
+      Left err -> putStrLn err
+      Right w -> w
+  where img = [(greyPalette, 20, greyScaleWitness (i * 10)) | i <- [0 .. 20]]
+
 jpegValidTests :: [FilePath]
 jpegValidTests = [ "explore_jpeg.jpg"
                  , "16x16jpeg.jpg", "8x8jpeg.jpg", "avatar.jpg"
@@ -259,6 +268,7 @@ imgToImg path = do
                 jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng img
                 tiff = encodeTiff img
+                gif = encodeGifImage img
             putStrLn $ "Y8 : " ++ path
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromY8.bmp") bmp
@@ -268,10 +278,13 @@ imgToImg path = do
             L.writeFile (path ++ "._fromY8.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromY8.tiff") tiff
+            putStrLn "-> Gif"
+            L.writeFile (path ++ "._fromY8.gif") gif
 
         Right (ImageYA8 img) -> do
             let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng $ (promoteImage img :: Image PixelRGBA8)
+                gif = encodeGifImage $ (dropAlphaLayer img)
                 jpg = validationJpegEncode $ convertImage
                                 (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
             putStrLn $ "YA8 : " ++ path
@@ -281,6 +294,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYA8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYA8.png") png
+            putStrLn "-> Gif"
+            L.writeFile (path ++ "._fromYA8.gif") gif
 
         Left err ->
             putStrLn $ "Error loading " ++ path ++ " " ++ err
@@ -360,6 +375,7 @@ radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
 testSuite :: IO ()
 testSuite = do
+    gifAnimationTest 
     putStrLn ">>>> Valid instances"
     toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
     toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
@@ -452,15 +468,18 @@ benchMark = do
 
 debug :: IO ()
 debug = do
- forM_ ["Gif_pixel_cube.gif"
-
-       {-,"sheep.jpg"-}
+ forM_ ["tests/jpeg/" ++ "explore_jpeg.jpg"
+       {-,"tests/gif/" ++ "Gif_pixel_cube.gif"-}
        ] $ \file -> do
     putStrLn "========================================================="
     putStrLn $ "decoding " ++ file
-    img <- readImage $ "tests/gif/" ++ file
+    img <- readImage file
     putStrLn "========================================================="
     case img of
+        Right (ImageY8 i) -> do
+            writeGifImage (file ++ "_debug.gif") i
+            writePng (file ++ "_debug.png") i
+
         Right (ImageRGB8 i) -> do
             let luma = extractLumaPlane i
             writeGifImage (file ++ "_debug.gif") luma
@@ -475,13 +494,6 @@ debug = do
         Left err -> do
             putStrLn err
             {-error "Can't decompress img"-}
-    putStrLn "========================================================="
-    reread <- readImage (file ++ "_debug.gif")
-    case reread of
-        Left err -> putStrLn $ "reread file " ++ err
-        Right (ImageRGB8 iimg) ->
-            writePng (file ++ "_reread.png") iimg
-        Right _ -> putStrLn "Wrong color"
 
 myMain :: IO ()
 myMain = do

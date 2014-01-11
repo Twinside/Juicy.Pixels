@@ -14,6 +14,7 @@ module Codec.Picture.Types( -- * Types
                             Image( .. )
                           , MutableImage( .. )
                           , DynamicImage( .. )
+                          , Palette
 
                             -- ** Image functions
                           , createMutableImage
@@ -106,6 +107,9 @@ data Image a = Image
       -- you should use the helpers functions.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
+
+-- | Type for the palette used in Gif & PNG files.
+type Palette = Image PixelRGB8
 
 {-# INLINE (!!!) #-}
 (!!!) :: (Storable e) => V.Vector e -> Int -> e
