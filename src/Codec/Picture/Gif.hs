@@ -214,6 +214,7 @@ data GraphicControlExtension = GraphicControlExtension
 instance Binary GraphicControlExtension where
     put v = do
         putWord8 extensionIntroducer
+        putWord8 graphicControlLabel
         putWord8 0x4  -- size
         let disposalField =
                 (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
@@ -568,8 +569,10 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
         , colorTableSize     = 8
         }
 
-    controlExtension 0 = Nothing
-    controlExtension delay = Just GraphicControlExtension
+    paletteEqual p = imageData firstPalette == imageData p
+
+    controlExtension 0 palette | paletteEqual palette =  Nothing
+    controlExtension delay _ = Just GraphicControlExtension
         { gceDisposalMethod        = 0
         , gceUserInputFlag         = False
         , gceTransparentFlag       = False
@@ -577,7 +580,7 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
         , gceTransparentColorIndex = 0
         }
 
-    toSerialize = [(controlExtension delay, GifImage
+    toSerialize = [(controlExtension delay palette, GifImage
         { imgDescriptor = imageDescriptor lzwKeySize img
         , imgLocalPalette = Just palette
         , imgLzwRootSize = fromIntegral $ lzwKeySize
