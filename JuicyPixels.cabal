@@ -71,7 +71,7 @@ Library
                     Codec.Picture.HDR,
                     Codec.Picture.Tiff,
                     Codec.Picture.Saving,
-                    Codec.Picture.Types
+                    Codec.Picture.Types,
                     Codec.Picture.ColorQuant
 
   Ghc-options: -O3 -Wall
@@ -99,6 +99,7 @@ Library
                  Codec.Picture.Jpg.Common,
                  Codec.Picture.Jpg.Progressive,
                  Codec.Picture.Gif.LZW,
+                 Codec.Picture.Gif.LZWEncoding,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
                  Codec.Picture.BitWriter,

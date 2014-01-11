@@ -16,6 +16,7 @@ module Codec.Picture.BitWriter( BoolReader
                               , newWriteStateRef
                               , finalizeBoolWriter
                               , writeBits'
+                              , writeBitsGif
 
                               , initBoolState 
                               , initBoolStateJpg
@@ -258,6 +259,39 @@ writeBits' st d c = do
                     newCount = bitCount - leftBitCount :: Int
 
                     toWrite = fromIntegral $ prevPart .|. highPart :: Word8
+                in dumpByte toWrite >> serialize newData newCount 0 0
+
+              where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
+                    cleanData = bitData .&. cleanMask     :: Word32
+
+-- | Append some data bits to a Put monad.
+writeBitsGif :: BoolWriteStateRef s
+             -> Word32     -- ^ The real data to be stored. Actual data should be in the LSB
+             -> Int        -- ^ Number of bit to write from 1 to 32
+             -> ST s ()
+{-# INLINE writeBitsGif #-}
+writeBitsGif st d c = do
+    currWord <- readSTRef $ bwsBitAcc st
+    currCount <- readSTRef $  bwsBitReaded st
+    serialize d c currWord currCount
+  where dumpByte    i = pushByte' st i
+
+        serialize bitData bitCount currentWord count
+            | bitCount + count == 8 = do
+                     resetBitCount' st
+                     dumpByte (fromIntegral $ currentWord  .|.
+                                                (fromIntegral cleanData `unsafeShiftL` count))
+
+            | bitCount + count < 8 =
+                let newVal = fromIntegral cleanData `unsafeShiftL` count
+                in setBitCount' st (newVal .|. currentWord) $ count + bitCount
+
+            | otherwise =
+                let leftBitCount = 8 - count :: Int
+                    newData = cleanData `unsafeShiftR` leftBitCount :: Word32
+                    newCount = bitCount - leftBitCount :: Int
+                    toWrite = fromIntegral $ fromIntegral currentWord 
+                                            .|. (cleanData `unsafeShiftL` count) :: Word8
                 in dumpByte toWrite >> serialize newData newCount 0 0
 
               where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32

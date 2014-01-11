@@ -1,6 +1,8 @@
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( decodeGif
                          , decodeGifImages
+                         , encodeGifImage
+                         , writeGifImage
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -15,10 +17,11 @@ import Data.Bits( (.&.), (.|.)
 import Data.Word( Word8, Word16 )
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as L
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
-import Data.Binary( Binary(..) )
+import Data.Binary( Binary(..), encode )
 import Data.Binary.Get( Get
                       , getWord8
                       , getWord16le
@@ -66,8 +69,8 @@ gif87aSignature = B.pack $ map (fromIntegral . fromEnum) "GIF87a"
 gif89aSignature = B.pack $ map (fromIntegral . fromEnum) "GIF89a"
 
 instance Binary GifVersion where
-    put GIF87a = put gif87aSignature
-    put GIF89a = put gif89aSignature
+    put GIF87a = putByteString gif87aSignature
+    put GIF89a = putByteString gif89aSignature
 
     get = do
         sig <- getByteString (B.length gif87aSignature)
@@ -113,7 +116,7 @@ instance Binary LogicalScreenDescriptor where
 
           tableSizeField = (colorTableSize v - 1) .&. 7
 
-          colorResolutionField = 
+          colorResolutionField =
             ((colorResolution v - 1) .&. 7) `unsafeShiftL` 5
 
           packedField = globalMapField
@@ -184,7 +187,7 @@ putDataBlocks wholeString = putSlices wholeString >> putWord8 0
             putWord8 0xFF >> putByteString before >> putSlices after
         putSlices str =
             putWord8 (fromIntegral $ B.length str) >> putByteString str
-     
+
 
 data GraphicControlExtension = GraphicControlExtension
     { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
@@ -201,12 +204,12 @@ instance Binary GraphicControlExtension where
         let disposalField =
                 (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
 
-            userInputField 
+            userInputField
                 | gceUserInputFlag v = 0 `setBit` 1
                 | otherwise = 0
 
             transparentField
-                | gceTransparentFlag v = 0 `setBit` 0 
+                | gceTransparentFlag v = 0 `setBit` 0
                 | otherwise = 0
 
             packedFields =  disposalField
@@ -283,7 +286,7 @@ instance Binary ImageDescriptor where
         putWord16le $ gDescPixelsFromTop v
         putWord16le $ gDescImageWidth v
         putWord16le $ gDescImageHeight v
-        let localMapField 
+        let localMapField
                 | gDescHasLocalMap v = 0 `setBit` 7
                 | otherwise = 0
 
@@ -384,7 +387,7 @@ instance Binary GifFile where
             putter (Just a, i) = put a >> put i
         mapM_ putter $ gifImages v
         put gifTrailer
-        
+
     get = do
         hdr <- get
         blocks <- parseGifBlocks
@@ -491,4 +494,54 @@ decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 -- all the images of an animation.
 decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
 decodeGifImages img = decodeAllGifImages <$> decode img
+
+greyPalette :: Palette
+greyPalette = generateImage toGray 256 1
+  where toGray x _ = PixelRGB8 ix ix ix
+           where ix = fromIntegral x
+
+writeGifImage :: FilePath -> Image Pixel8 -> IO ()
+writeGifImage file = L.writeFile file . encodeGifImage
+
+-- | Save a greyscale Gif image
+encodeGifImage :: Image Pixel8 -> L.ByteString
+encodeGifImage img = encode allFile
+  where
+    allFile = GifFile
+        { gifHeader = GifHeader
+            { gifVersion = GIF89a
+            , gifScreenDescriptor = logicalScreen
+            , gifGlobalMap = greyPalette
+            }
+        , gifImages = [(Nothing, toSerialize)]
+        }
+
+    logicalScreen = LogicalScreenDescriptor
+        { screenWidth        = fromIntegral $ imageWidth img
+        , screenHeight       = fromIntegral $ imageHeight img
+        , backgroundIndex    = 0
+        , hasGlobalMap       = True
+        , colorResolution    = 8
+        , isColorTableSorted = False
+        , colorTableSize     = 8
+        }
+
+    toSerialize = GifImage
+        { imgDescriptor = imageDescriptor
+        , imgLocalPalette = Nothing
+        , imgLzwRootSize = 8
+        , imgData = B.concat . L.toChunks . lzwEncode $ imageData img
+        }
+
+    imageDescriptor = ImageDescriptor
+        { gDescPixelsFromLeft         = 0
+        , gDescPixelsFromTop          = 0
+        , gDescImageWidth             = fromIntegral $ imageWidth img
+        , gDescImageHeight            = fromIntegral $ imageHeight img
+        , gDescHasLocalMap            = False
+        , gDescIsInterlaced           = False
+        , gDescIsImgDescriptorSorted  = False
+        , gDescLocalColorTableSize    = 0
+        }
+
 

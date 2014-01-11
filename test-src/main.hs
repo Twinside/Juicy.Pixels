@@ -452,21 +452,36 @@ benchMark = do
 
 debug :: IO ()
 debug = do
- forM_ ["MCU0.jpg", "MCU1.jpg", "MCU5.jpg", "MCU10.jpg"
-       ,"MCU35.jpg"
-       ,"mand_prgrsv.jpg"
-       ,"sheep.jpg"
-       ,"20100713-0107-interleaved2.jpg"
+ forM_ ["Gif_pixel_cube.gif"
+
+       {-,"sheep.jpg"-}
        ] $ \file -> do
     putStrLn "========================================================="
-    putStrLn "========================================================="
     putStrLn $ "decoding " ++ file
-    img <- readImage $ "tests/jpeg/" ++ file
+    img <- readImage $ "tests/gif/" ++ file
+    putStrLn "========================================================="
     case img of
-        Right i -> savePngImage (file ++ "_debug.png") i
+        Right (ImageRGB8 i) -> do
+            let luma = extractLumaPlane i
+            writeGifImage (file ++ "_debug.gif") luma
+            writePng (file ++ "_debug.png") luma
+
+        Right (ImageYCbCr8 i) -> do
+            let luma = extractLumaPlane i
+            writeGifImage (file ++ "_debug.gif") luma
+            writePng (file ++ "_debug.png") luma
+
+        Right _ -> return ()
         Left err -> do
             putStrLn err
             {-error "Can't decompress img"-}
+    putStrLn "========================================================="
+    reread <- readImage (file ++ "_debug.gif")
+    case reread of
+        Left err -> putStrLn $ "reread file " ++ err
+        Right (ImageRGB8 iimg) ->
+            writePng (file ++ "_reread.png") iimg
+        Right _ -> putStrLn "Wrong color"
 
 myMain :: IO ()
 myMain = do

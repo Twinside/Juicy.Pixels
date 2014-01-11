@@ -1,22 +1,19 @@
 {-# LANGUAGE BangPatterns #-}
-module Codec.Picture.Gif.LZWEncoding where
+module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
 
 import Control.Applicative( (<$>) )
 import Control.Monad.ST( runST )
-import Data.Bits( (.|.), (.&.)
-                , unsafeShiftL
-                , unsafeShiftR
-                , testBit, setBit
-                )
 import qualified Data.ByteString.Lazy as L
-import Data.List( foldl' )
 import Data.Maybe( fromMaybe )
 import Data.Monoid( mempty )
-import Data.Word( Word8, Word32 )
+import Data.Word( Word8 )
 import qualified Data.IntMap.Strict as I
 import qualified Data.Vector.Storable as V
 
 import Codec.Picture.BitWriter
+
+{-import Debug.Trace-}
+{-import Text.Printf-}
 
 type Trie = I.IntMap TrieNode
 
@@ -35,21 +32,6 @@ initialTrie :: Trie
 initialTrie = I.fromList
     [(i, emptyNode { trieIndex = i }) | i <- [0 .. 255]]
 
-byteReverseTable :: V.Vector Word32
-byteReverseTable = V.generate 256 inverseBits
-  where inverseBits v = foldl' (shift v) 0 [0 .. 7]
-        shift v acc ix
-          | v `testBit` ix = acc `setBit` (7 - ix)
-          | otherwise = acc
-
-reverseIndex :: Word32 -> Word32
-reverseIndex v = (rb1 `unsafeShiftL` 8) .|. rb2
-  where b1 = fromIntegral $ v .&. 0xFF
-        b2 = fromIntegral $ (v `unsafeShiftR` 8) .&. 0xFF
-
-        rb1 = byteReverseTable `V.unsafeIndex` b1
-        rb2 = byteReverseTable `V.unsafeIndex` b2
-
 lookupUpdate :: V.Vector Word8 -> Int -> Int -> Trie -> (Int, Int, Trie)
 lookupUpdate vector freeIndex firstIndex trie =
     matchUpdate $ go trie 0 firstIndex 
@@ -58,43 +40,54 @@ lookupUpdate vector freeIndex firstIndex trie =
         (lzwOutputIndex, nextReadIndex, fromMaybe trie sub)
 
     maxi = V.length vector
-    go !prev !prevIndex !index
+    go !currentTrie !prevIndex !index
       | index >= maxi = (prevIndex, index, Nothing)
-      | otherwise = case I.lookup val prev of
+      | otherwise = case I.lookup val currentTrie of
           Just (TrieNode ix subTable) ->
-              let (lzwOutputIndex, nextReadIndex, subTable') =
-                        go subTable ix $ index + 1 in
-              (lzwOutputIndex, nextReadIndex, updateNode val . TrieNode ix <$> subTable')
-          Nothing | index == maxi -> (prevIndex, index, Nothing)
-                  | otherwise ->
-                    (prevIndex, index, Just $ updateNode nextVal newNode)
-      where val = fromIntegral $ vector `V.unsafeIndex` index
-            nextVal = fromIntegral $ vector `V.unsafeIndex` (index + 1)
-            newNode = emptyNode { trieIndex = freeIndex }
-            updateNode at node = I.insert at node prev 
+              let (lzwOutputIndex, nextReadIndex, newTable) =
+                        go subTable ix $ index + 1
+                  tableUpdater t =
+                      I.insert val (TrieNode ix t) currentTrie
+              in
+              (lzwOutputIndex, nextReadIndex, tableUpdater <$> newTable)
 
--- Untested? untested.
+          Nothing | index == maxi -> (prevIndex, index, Nothing)
+                  | otherwise -> (prevIndex, index, Just $ I.insert val newNode currentTrie)
+
+      where val = fromIntegral $ vector `V.unsafeIndex` index
+            newNode = emptyNode { trieIndex = freeIndex }
+
 lzwEncode :: V.Vector Word8 -> L.ByteString
 lzwEncode vec = runST $ do
     bitWriter <- newWriteStateRef 
 
-    let go _ _ readIndex _ | readIndex >= maxi = return ()
-        go codeSize writeIndex readIndex trie = do
+    let go (codeSize, _) readIndex _ | readIndex >= maxi =
+            writeBitsGif bitWriter (fromIntegral endOfInfo) codeSize
+        go (codeSize, writeIndex) readIndex trie = do
             let (indexToWrite, endIndex, trie') =
                     lookuper writeIndex readIndex trie
-                reversedBits = reverseIndex $ fromIntegral indexToWrite
-            writeBits' bitWriter reversedBits codeSize
+            writeBitsGif bitWriter (fromIntegral indexToWrite) codeSize
             go (updateCodeSize codeSize writeIndex)
-               (writeIndex + 1) endIndex trie'
+               endIndex trie'
 
-    go 9 0x100 0 mempty
+    writeBitsGif bitWriter (fromIntegral clearCode) startCodeSize
+    go (startCodeSize, firstFreeIndex) 0 initialTrie
+
     finalizeBoolWriter bitWriter
   where
     maxi = V.length vec
+
+    initialKeySize = 8
+    startCodeSize = initialKeySize + 1
+
+    clearCode = 2 ^ initialKeySize :: Int
+    endOfInfo = clearCode + 1
+    firstFreeIndex = endOfInfo + 1
     
     lookuper = lookupUpdate vec
     updateCodeSize codeSize writeIdx
-        | writeIdx == 2 ^ codeSize = min 12 $ codeSize + 1
-        | otherwise = codeSize
+        | writeIdx == 2 ^ codeSize =
+                (min 12 $ codeSize + 1, writeIdx + 1)
+        | otherwise = (codeSize, writeIdx + 1)
 
 
