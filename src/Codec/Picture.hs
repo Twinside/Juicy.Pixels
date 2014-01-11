@@ -19,6 +19,11 @@ module Codec.Picture (
                      , generateFoldImage
                      , withImage
 
+                     -- ** Color Quantization
+                     , colorCount
+                     , colorQuantUQ
+                     , colorQuantMMC
+
                      -- * Generic image writing
                      , saveBmpImage
                      , saveJpgImage
