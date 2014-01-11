@@ -1,10 +1,26 @@
 module Codec.Picture.ColorQuant where
 
 import           Codec.Picture.Types
-import           Data.Bits            ((.&.))
-import           Data.List            (foldl', foldl1', partition, minimumBy)
-import           Data.Map.Lazy        (Map)
+import           Data.Bits                 ((.&.), shiftL, shiftR)
+import           Data.List                 (foldl', foldl1', partition, minimumBy)
+import           Data.Map.Lazy             (Map)
 import qualified Data.Map.Lazy as L
+import qualified Data.Set as Set
+import qualified Data.MemoCombinators as Memo
+
+type Palette = Image PixelRGB8
+
+pixelColorMap :: Image PixelRGB8 -> Map PixelRGB8 PixelRGB8
+pixelColorMap img = pixelFold f L.empty img
+  where
+    f xs _ _ p = L.insert p (paletteColor p ps) xs
+    ps = mkPalette . clusters $ img
+
+colorCount :: Image PixelRGB8 -> Int
+colorCount img = Set.size s
+  where
+    s = pixelFold f Set.empty img
+    f xs _ _ p = Set.insert p xs
 
 -------------------------------------------------------------------------------
 ----            Single Pass Algorithm
@@ -28,7 +44,9 @@ onePassCQ = pixelMap maskFunction
 --  http://rosettacode.org/wiki/Color_quantization
 --  which was in turn based on: www.leptonica.com/papers/mediancut.pdf.
 --  We use the product of volume and population to determine the next cluster
---  to split and assign the color of each cluster to its mean color.
+--  to split and assign the color of each cluster to its *mean* color. So
+--  median cut is a bit of a misnomer, since one of the modifiations is to use
+--  the mean.
 
 -- | Modified median cut algorithm without dithering.
 mmcCQ :: Image PixelRGB8 -> Image PixelRGB8
@@ -58,11 +76,18 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
 
 -- | Modified median cut algorithm with ordered dithering.
 dmmcCQ :: Image PixelRGB8 -> Image PixelRGB8
-dmmcCQ img = pixelMap paletteFunc dImg
+dmmcCQ img = if colorCount img > 256
+             then pixelMap paletteFunc dImg
+             else img
   where
-    paletteFunc p = paletteColor p pal
-    pal = mkPalette . clusters $ img
+    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p pal --paletteColor p pal
+    pal = pixelColorMap dImg --mkPalette . clusters $ img
     dImg = pixelMapXY dither img
+
+mkPaletteMMC :: Image PixelRGB8 -> Palette
+mkPaletteMMC img = generateImage (\x _ -> ps !! x) (length ps) 1
+  where
+    ps = map (toRGB8 . meanColor) (clusters img)
 
 -- Much room for optimization / better implementation, this is a pretty direct
 -- port. E.g. use Vectors not lists and perhaps a priority queue to choose the
@@ -80,6 +105,23 @@ data Axis = RAxis | GAxis | BAxis
 
 inf :: Double
 inf = read "Infinity"
+
+toInt :: PixelRGB8 -> Int
+toInt (PixelRGB8 r g b) = r' + g' + b'
+  where
+    r' = shiftL (fromIntegral r) 16
+    g' = shiftL (fromIntegral g) 8
+    b' = fromIntegral b
+
+fromInt :: Int -> PixelRGB8
+fromInt n = PixelRGB8 r g b
+  where
+    r = fromIntegral $ shiftR n 16
+    g = fromIntegral $ shiftR n 8
+    b = fromIntegral n
+
+memoPixelRGB8 :: Memo.Memo PixelRGB8
+memoPixelRGB8 = Memo.wrap fromInt toInt Memo.integral
 
 fromRGB8 :: PixelRGB8 -> RGBdbl
 fromRGB8 (PixelRGB8 r g b) =
@@ -192,4 +234,11 @@ paletteColor :: PixelRGB8 -> [PixelRGB8] -> PixelRGB8
 paletteColor p ps = snd $ minimumBy comp ds
   where
     ds = map (\px -> (dist2Px px p, px)) ps
+    comp a b = fst a `compare` fst b
+
+nearestColor :: PixelRGB8 -> Palette -> PixelRGB8
+nearestColor p pal = snd $ minimumBy comp ds
+  where
+    ds = pixelFold f [] pal
+    f xs _ _ x = (dist2Px x p, x) : xs
     comp a b = fst a `compare` fst b

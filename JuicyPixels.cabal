@@ -84,7 +84,8 @@ Library
                  vector              >= 0.9    && < 0.11,
                  primitive           >= 0.5     && < 0.6,
                  deepseq             >= 1.1     && < 1.4,
-                 containers          >= 0.5     && < 0.6
+                 containers          >= 0.5     && < 0.6,
+                 data-memocombinators >= 0.5    && < 0.6
 
   if flag(Mmap)
     Build-depends: mmap
