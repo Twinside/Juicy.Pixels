@@ -20,7 +20,6 @@ module Codec.Picture (
                      , withImage
 
                      -- ** Color Quantization
-                     , colorCount
                      , colorQuantUQ
                      , colorQuantMMC
 
@@ -136,7 +135,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
-{-import Codec.Picture.ColorQuant-}
+import Codec.Picture.ColorQuant
 -- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )

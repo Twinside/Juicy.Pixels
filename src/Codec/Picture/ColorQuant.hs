@@ -1,4 +1,7 @@
-module Codec.Picture.ColorQuant where
+module Codec.Picture.ColorQuant (
+                                  colorQuantUQ
+                                , colorQuantMMC
+                                ) where
 
 import           Codec.Picture.Types
 import           Data.Bits                 ((.&.))
@@ -9,13 +12,37 @@ import qualified Data.Set as Set
 import           Data.Vector               (Vector, minimumBy)
 import qualified Data.Vector as V
 
-type Palette = Image PixelRGB8
+
+-------------------------------------------------------------------------------
+----            Utility functions
+-------------------------------------------------------------------------------
 
 colorCount :: Image PixelRGB8 -> Int
 colorCount img = Set.size s
   where
     s = pixelFold f Set.empty img
     f xs _ _ p = Set.insert p xs
+
+-------------------------------------------------------------------------------
+----            Dithering
+-------------------------------------------------------------------------------
+
+-- Add a dither mask to an image for ordered dithering.
+-- Using a small, spatially stable dithering algorithm based on magic numbers
+-- and arithmetic inspired by the *a dither* algorithm of Øyvind Kolås,
+-- pippin@gimp.org, 2013. See, http://pippin.gimp.org/a_dither/.
+dither :: Int -> Int -> PixelRGB8 -> PixelRGB8
+dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
+                                         (fromIntegral g')
+                                         (fromIntegral b')
+  where
+    -- Should view 16 as a parameter that can be optimized for best looking
+    -- results
+    r' = min 255 (fromIntegral r + (x' + y') .&. 16)
+    g' = min 255 (fromIntegral g + (x' + y' + 7973) .&. 16)
+    b' = min 255 (fromIntegral b + (x' + y' + 15946) .&. 16)
+    x' = 119 * x
+    y' = 28084 * y
 
 -------------------------------------------------------------------------------
 ----            Single Pass Algorithm
@@ -26,6 +53,7 @@ colorCount img = Set.size s
 --   significant bits of blue.
 colorQuantUQ :: Image PixelRGB8 -> Bool -> Image PixelRGB8
 colorQuantUQ img dithering
+  | colorCount img <= 256 = img
   | dithering = pixelMap maskFunction (pixelMapXY dither img)
   | otherwise = pixelMap maskFunction img
   where maskFunction (PixelRGB8 r g b) =
@@ -56,23 +84,6 @@ colorQuantMMC img dithering
     pal = mkPalette . clusters $ img
     img' = if dithering then pixelMapXY dither img else img
 
--- Add a dither mask to an image for ordered dithering.
--- Using a small, spatially stable dithering algorithm based on magic numbers
--- and arithmetic inspired by the *a dither* algorithm of Øyvind Kolås,
--- pippin@gimp.org, 2013. See, http://pippin.gimp.org/a_dither/.
-dither :: Int -> Int -> PixelRGB8 -> PixelRGB8
-dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
-                                         (fromIntegral g')
-                                         (fromIntegral b')
-  where
-    -- Should view 16 as a parameter that can be optimized for best looking
-    -- results
-    r' = min 255 (fromIntegral r + (x' + y') .&. 16)
-    g' = min 255 (fromIntegral g + (x' + y' + 7973) .&. 16)
-    b' = min 255 (fromIntegral b + (x' + y' + 15946) .&. 16)
-    x' = 119 * x
-    y' = 28084 * y
-
 pixelColorMap :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
 pixelColorMap img pal = pixelFold f L.empty img
   where
@@ -80,10 +91,6 @@ pixelColorMap img pal = pixelFold f L.empty img
 
 toPalette :: [PixelRGB8] -> Palette
 toPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
-
--- Much room for optimization / better implementation, this is a pretty direct
--- port. E.g. use Vectors not lists and perhaps a priority queue to choose the
--- next cluster to split.
 
 data RGBdbl = RGBdbl !Double !Double !Double deriving Eq
 
@@ -182,17 +189,6 @@ clusters img = cs !! 255
   where
     cs = iterate split [c]
     c = initCluster img
-
-toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
-toAList (Cluster m _ _ cs) = foldr f [] cs
-  where
-    f p = ((toRGB8 p, m') :)
-    m' = toRGB8 m
-
-paletteMap :: [Cluster] -> Map PixelRGB8 PixelRGB8
-paletteMap cs = L.fromList aList
-  where
-    aList = concatMap toAList cs
 
 mkPalette :: [Cluster] -> Vector PixelRGB8
 mkPalette  = V.fromList . map (toRGB8 . meanColor)
