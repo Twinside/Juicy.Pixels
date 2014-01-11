@@ -2,11 +2,11 @@ module Codec.Picture.ColorQuant where
 
 import           Codec.Picture.Types
 import           Data.Bits                 ((.&.))
-import           Data.List                 (foldl', foldl1', partition, minimumBy)
+import           Data.List                 (foldl', foldl1', partition)
 import           Data.Map.Lazy             (Map)
 import qualified Data.Map.Lazy as L
 import qualified Data.Set as Set
-import           Data.Vector               (Vector)
+import           Data.Vector               (Vector, minimumBy)
 import qualified Data.Vector as V
 
 type Palette = Image PixelRGB8
@@ -206,7 +206,7 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
       , fromIntegral b1 - fromIntegral b2 )
 
 nearestColor :: PixelRGB8 -> Vector PixelRGB8 -> PixelRGB8
-nearestColor p ps = snd $ V.minimumBy comp ds
+nearestColor p ps = snd $ minimumBy comp ds
   where
     ds = V.map (\px -> (dist2Px px p, px)) ps
     comp a b = fst a `compare` fst b
