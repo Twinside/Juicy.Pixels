@@ -1,8 +1,17 @@
 -- | Module implementing GIF decoding.
-module Codec.Picture.Gif ( decodeGif
+module Codec.Picture.Gif ( -- * Reading
+                           decodeGif
                          , decodeGifImages
+
+                           -- * Writing
+                         , GifDelay
                          , encodeGifImage
+                         , encodeGifImageWithPalette
+                         , encodeGifImages
+
                          , writeGifImage
+                         , writeGifImageWithPalette
+                         , writeGifImages
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -39,6 +48,10 @@ import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
 import Codec.Picture.Gif.LZWEncoding
 import Codec.Picture.BitWriter
+
+-- | Delay to wait before showing the next Gif image.
+-- The delay is expressed in 100th of seconds.
+type GifDelay = Int
 
 {-
    <GIF Data Stream> ::=     Header <Logical Screen> <Data>* Trailer
@@ -333,8 +346,6 @@ instance Binary ImageDescriptor where
 --------------------------------------------------
 ----            Palette
 --------------------------------------------------
-type Palette = Image PixelRGB8
-
 getPalette :: Word8 -> Get Palette
 getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
@@ -500,25 +511,52 @@ greyPalette = generateImage toGray 256 1
   where toGray x _ = PixelRGB8 ix ix ix
            where ix = fromIntegral x
 
-writeGifImage :: FilePath -> Image Pixel8 -> IO ()
-writeGifImage file = L.writeFile file . encodeGifImage
+checkGifImageSizes :: [(a, b, Image px)] -> Bool
+checkGifImageSizes [] = False
+checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
+   where width = imageWidth img
+         height = imageHeight img
 
--- | Save a greyscale Gif image
-encodeGifImage :: Image Pixel8 -> L.ByteString
-encodeGifImage img = encode allFile
+         checkDimension (_,_,Image { imageWidth = w, imageHeight = h }) =
+             w == width && h == height
+
+checkPaletteValidity :: [(Palette, a, b)] -> Bool
+checkPaletteValidity [] = False
+checkPaletteValidity lst =
+    and [h == 1 && w > 0 && w < 256 | (p, _, _) <- lst
+                                    , let w = imageWidth p
+                                          h = imageHeight p ]
+
+computeMinimumLzwKeySize :: Palette -> Int
+computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
+  where go k | 2 ^ k >= itemCount = k
+             | otherwise = go $ k + 1
+
+-- | Encode a gif animation to a bytestring.
+--
+-- * Every image must have the same size
+--
+-- * Every palette must have between one and 256 colors.
+--
+encodeGifImages :: [(Palette, GifDelay, Image Pixel8)] -> Either String L.ByteString
+encodeGifImages [] = Left "No image in list"
+encodeGifImages imageList
+    | not $ checkGifImageSizes imageList = Left "Gif images have different size"
+    | not $ checkPaletteValidity imageList = Left "Invalid palette size"
+encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where
     allFile = GifFile
         { gifHeader = GifHeader
             { gifVersion = GIF89a
             , gifScreenDescriptor = logicalScreen
-            , gifGlobalMap = greyPalette
+            , gifGlobalMap = firstPalette
             }
-        , gifImages = [(Nothing, toSerialize)]
+        , gifImages = toSerialize
         }
 
     logicalScreen = LogicalScreenDescriptor
-        { screenWidth        = fromIntegral $ imageWidth img
-        , screenHeight       = fromIntegral $ imageHeight img
+        { screenWidth        = fromIntegral $ imageWidth firstImage
+        , screenHeight       = fromIntegral $ imageHeight firstImage
         , backgroundIndex    = 0
         , hasGlobalMap       = True
         , colorResolution    = 8
@@ -526,22 +564,67 @@ encodeGifImage img = encode allFile
         , colorTableSize     = 8
         }
 
-    toSerialize = GifImage
-        { imgDescriptor = imageDescriptor
-        , imgLocalPalette = Nothing
-        , imgLzwRootSize = 8
-        , imgData = B.concat . L.toChunks . lzwEncode $ imageData img
+    controlExtension 0 = Nothing
+    controlExtension delay = Just GraphicControlExtension
+        { gceDisposalMethod        = 0
+        , gceUserInputFlag         = False
+        , gceTransparentFlag       = False
+        , gceDelay                 = fromIntegral delay
+        , gceTransparentColorIndex = 0
         }
+
+    toSerialize = [(controlExtension delay, GifImage
+        { imgDescriptor = imageDescriptor
+        , imgLocalPalette = Just palette
+        , imgLzwRootSize = fromIntegral $ lzwKeySize
+        , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
+        }) | (palette, delay, img) <- imageList
+           , let lzwKeySize = computeMinimumLzwKeySize palette
+           ]
 
     imageDescriptor = ImageDescriptor
         { gDescPixelsFromLeft         = 0
         , gDescPixelsFromTop          = 0
-        , gDescImageWidth             = fromIntegral $ imageWidth img
-        , gDescImageHeight            = fromIntegral $ imageHeight img
+        , gDescImageWidth             = fromIntegral $ imageWidth firstImage
+        , gDescImageHeight            = fromIntegral $ imageHeight firstImage
         , gDescHasLocalMap            = False
         , gDescIsInterlaced           = False
         , gDescIsImgDescriptorSorted  = False
         , gDescLocalColorTableSize    = 0
         }
 
+-- | Encode a greyscale image to a bytestring.
+encodeGifImage :: Image Pixel8 -> L.ByteString
+encodeGifImage img = case encodeGifImages [(greyPalette, 0, img)] of
+    Left _ -> error "Impossible"
+    Right v -> v
+
+-- | Encode an image with a given palette.
+-- Can return errors if the palette is ill-formed.
+--
+-- * A palette must have between 1 and 256 colors
+--
+encodeGifImageWithPalette :: Image Pixel8 -> Palette -> Either String L.ByteString
+encodeGifImageWithPalette img palette = encodeGifImages [(palette, 0, img)]
+
+-- | Write a greyscale in a gif file on the disk.
+writeGifImage :: FilePath -> Image Pixel8 -> IO ()
+writeGifImage file = L.writeFile file . encodeGifImage
+
+-- | Write a list of images as a gif animation in a file.
+--
+-- * Every image must have the same size
+--
+-- * Every palette must have between one and 256 colors.
+--
+writeGifImages :: FilePath -> [(Palette, GifDelay, Image Pixel8)] -> Either String (IO ())
+writeGifImages file lst = L.writeFile file <$> encodeGifImages lst
+
+-- | Write a gif image with a palette to a file.
+--
+-- * A palette must have between 1 and 256 colors
+--
+writeGifImageWithPalette :: FilePath -> Image Pixel8 -> Palette -> Either String (IO ())
+writeGifImageWithPalette file img palette =
+    L.writeFile file <$> encodeGifImageWithPalette img palette
 

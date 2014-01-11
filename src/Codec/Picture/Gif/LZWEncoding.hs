@@ -57,8 +57,8 @@ lookupUpdate vector freeIndex firstIndex trie =
       where val = fromIntegral $ vector `V.unsafeIndex` index
             newNode = emptyNode { trieIndex = freeIndex }
 
-lzwEncode :: V.Vector Word8 -> L.ByteString
-lzwEncode vec = runST $ do
+lzwEncode :: Int -> V.Vector Word8 -> L.ByteString
+lzwEncode initialKeySize vec = runST $ do
     bitWriter <- newWriteStateRef 
 
     let go (codeSize, _) readIndex _ | readIndex >= maxi =
@@ -77,7 +77,6 @@ lzwEncode vec = runST $ do
   where
     maxi = V.length vec
 
-    initialKeySize = 8
     startCodeSize = initialKeySize + 1
 
     clearCode = 2 ^ initialKeySize :: Int
@@ -89,5 +88,4 @@ lzwEncode vec = runST $ do
         | writeIdx == 2 ^ codeSize =
                 (min 12 $ codeSize + 1, writeIdx + 1)
         | otherwise = (codeSize, writeIdx + 1)
-
 
