@@ -6,7 +6,8 @@ import           Data.List                 (foldl', foldl1', partition, minimumB
 import           Data.Map.Lazy             (Map)
 import qualified Data.Map.Lazy as L
 import qualified Data.Set as Set
-import qualified Data.Vector.Unboxed as U
+import           Data.Vector               (Vector)
+import qualified Data.Vector as V
 
 type Palette = Image PixelRGB8
 
@@ -72,7 +73,7 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
     x' = 119 * x
     y' = 28084 * y
 
-pixelColorMap :: Image PixelRGB8 -> [PixelRGB8] -> Map PixelRGB8 PixelRGB8
+pixelColorMap :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
 pixelColorMap img pal = pixelFold f L.empty img
   where
     f xs _ _ p = L.insert p (nearestColor p pal) xs
@@ -193,8 +194,8 @@ paletteMap cs = L.fromList aList
   where
     aList = concatMap toAList cs
 
-mkPalette :: [Cluster] -> [PixelRGB8]
-mkPalette  = map (toRGB8 . meanColor)
+mkPalette :: [Cluster] -> Vector PixelRGB8
+mkPalette  = V.fromList . map (toRGB8 . meanColor)
 
 dist2Px :: PixelRGB8 -> PixelRGB8 -> Int
 dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
@@ -204,8 +205,8 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
       , fromIntegral g1 - fromIntegral g2
       , fromIntegral b1 - fromIntegral b2 )
 
-nearestColor :: PixelRGB8 -> [PixelRGB8] -> PixelRGB8
-nearestColor p ps = snd $ minimumBy comp ds
+nearestColor :: PixelRGB8 -> Vector PixelRGB8 -> PixelRGB8
+nearestColor p ps = snd $ V.minimumBy comp ds
   where
-    ds = map (\px -> (dist2Px px p, px)) ps
+    ds = V.map (\px -> (dist2Px px p, px)) ps
     comp a b = fst a `compare` fst b
