@@ -12,6 +12,7 @@ module Codec.Picture.Gif ( -- * Reading
                          , writeGifImage
                          , writeGifImageWithPalette
                          , writeGifImages
+                         , greyPalette
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
@@ -260,9 +261,11 @@ data GifImage = GifImage
 instance Binary GifImage where
     put img = do
         put $ imgDescriptor img
-        case imgLocalPalette img of
-          Nothing -> return ()
-          Just p -> putPalette p
+        case ( imgLocalPalette img
+             , gDescHasLocalMap $ imgDescriptor img) of
+          (Nothing, _) -> return ()
+          (Just _, False) -> return ()
+          (Just p, True) -> putPalette p
         putWord8 $ imgLzwRootSize img
         putDataBlocks $ imgData img
 
@@ -506,9 +509,10 @@ decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
 decodeGifImages img = decodeAllGifImages <$> decode img
 
+-- | Default palette to produce greyscale images.
 greyPalette :: Palette
-greyPalette = generateImage toGray 256 1
-  where toGray x _ = PixelRGB8 ix ix ix
+greyPalette = generateImage toGrey 256 1
+  where toGrey x _ = PixelRGB8 ix ix ix
            where ix = fromIntegral x
 
 checkGifImageSizes :: [(a, b, Image px)] -> Bool
@@ -523,9 +527,9 @@ checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
 checkPaletteValidity :: [(Palette, a, b)] -> Bool
 checkPaletteValidity [] = False
 checkPaletteValidity lst =
-    and [h == 1 && w > 0 && w < 256 | (p, _, _) <- lst
-                                    , let w = imageWidth p
-                                          h = imageHeight p ]
+    and [h == 1 && w > 0 && w <= 256 | (p, _, _) <- lst
+                                     , let w = imageWidth p
+                                           h = imageHeight p ]
 
 computeMinimumLzwKeySize :: Palette -> Int
 computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
@@ -574,7 +578,7 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
         }
 
     toSerialize = [(controlExtension delay, GifImage
-        { imgDescriptor = imageDescriptor
+        { imgDescriptor = imageDescriptor lzwKeySize img
         , imgLocalPalette = Just palette
         , imgLzwRootSize = fromIntegral $ lzwKeySize
         , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
@@ -582,21 +586,21 @@ encodeGifImages imageList@((firstPalette, _,firstImage):_) = Right $ encode allF
            , let lzwKeySize = computeMinimumLzwKeySize palette
            ]
 
-    imageDescriptor = ImageDescriptor
+    imageDescriptor paletteSize img = ImageDescriptor
         { gDescPixelsFromLeft         = 0
         , gDescPixelsFromTop          = 0
-        , gDescImageWidth             = fromIntegral $ imageWidth firstImage
-        , gDescImageHeight            = fromIntegral $ imageHeight firstImage
-        , gDescHasLocalMap            = False
+        , gDescImageWidth             = fromIntegral $ imageWidth img
+        , gDescImageHeight            = fromIntegral $ imageHeight img
+        , gDescHasLocalMap            = paletteSize > 0
         , gDescIsInterlaced           = False
         , gDescIsImgDescriptorSorted  = False
-        , gDescLocalColorTableSize    = 0
+        , gDescLocalColorTableSize    = fromIntegral paletteSize
         }
 
 -- | Encode a greyscale image to a bytestring.
 encodeGifImage :: Image Pixel8 -> L.ByteString
 encodeGifImage img = case encodeGifImages [(greyPalette, 0, img)] of
-    Left _ -> error "Impossible"
+    Left err -> error $ "Impossible:" ++ err
     Right v -> v
 
 -- | Encode an image with a given palette.
