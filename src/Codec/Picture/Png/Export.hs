@@ -1,12 +1,14 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
                                , writePng
                                , encodeDynamicPng
                                , writeDynamicPng
+                               , encodePalettedPng
                                ) where
 
 import Control.Monad( forM_ )
@@ -23,7 +25,7 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
-import Codec.Picture.VectorByteConversion( blitVector )
+import Codec.Picture.VectorByteConversion( blitVector, toByteString )
 
 -- | Encode an image into a png if possible.
 class PngSavable a where
@@ -62,17 +64,18 @@ prepareIDatChunk imgData = PngRawChunk
     , chunkData   = imgData
     }
 
-genericEncode16BitsPng :: (PixelBaseComponent a ~ Word16)
-                       => PngImageType -> Int -> Image a -> Lb.ByteString
-genericEncode16BitsPng imgKind compCount 
+genericEncode16BitsPng :: forall px. (Pixel px, PixelBaseComponent px ~ Word16)
+                       => PngImageType -> Image px -> Lb.ByteString
+genericEncode16BitsPng imgKind
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr, chunks = [prepareIDatChunk imgEncodedData, endChunk]}
     where hdr = preparePngHeader image imgKind 16
           zero = B.singleton 0
+          compCount = componentCount (undefined :: px)
 
           lineSize = compCount * w
-          toByteString vec = blitVector vec 0 (lineSize * 2)
-          encodeLine line = toByteString $ runST $ do
+          blitToByteString vec = blitVector vec 0 (lineSize * 2)
+          encodeLine line = blitToByteString $ runST $ do
               finalVec <- M.new $ lineSize * 2 :: ST s (M.STVector s Word8)
               let baseIndex = line * lineSize
               forM_ [0 ..  lineSize - 1] $ \ix -> do
@@ -88,14 +91,28 @@ genericEncode16BitsPng imgKind compCount
           imgEncodedData = Z.compress . Lb.fromChunks
                         $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
+preparePalette :: Palette -> PngRawChunk
+preparePalette pal = PngRawChunk
+  { chunkLength = fromIntegral $ imageWidth pal * 3
+  , chunkType   = pLTESignature
+  , chunkCRC    = pngComputeCrc [pLTESignature, binaryData]
+  , chunkData   = binaryData
+  }
+   where binaryData = Lb.fromChunks [toByteString $ imageData pal]
 
-genericEncodePng :: (PixelBaseComponent a ~ Word8)
-                 => PngImageType -> Int -> Image a -> Lb.ByteString
-genericEncodePng imgKind compCount 
+genericEncodePng :: forall px. (Pixel px, PixelBaseComponent px ~ Word8)
+                 => Maybe Palette -> PngImageType -> Image px
+                 -> Lb.ByteString
+genericEncodePng palette imgKind
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
-  encode PngRawImage { header = hdr, chunks = [prepareIDatChunk imgEncodedData, endChunk]}
+  encode PngRawImage { header = hdr
+                     , chunks = prependPalette palette [prepareIDatChunk imgEncodedData, endChunk]}
     where hdr = preparePngHeader image imgKind 8
           zero = B.singleton 0
+          compCount = componentCount (undefined :: px)
+
+          prependPalette Nothing l = l
+          prependPalette (Just p) l = preparePalette p : l
 
           lineSize = compCount * w
           encodeLine line = blitVector arr (line * lineSize) lineSize
@@ -103,28 +120,28 @@ genericEncodePng imgKind compCount
                         $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
 instance PngSavable PixelRGBA8 where
-    encodePng = genericEncodePng PngTrueColourWithAlpha 4
-        
+    encodePng = genericEncodePng Nothing PngTrueColourWithAlpha
+
 instance PngSavable PixelRGB8 where
-    encodePng = genericEncodePng PngTrueColour 3
+    encodePng = genericEncodePng Nothing PngTrueColour
 
 instance PngSavable Pixel8 where
-    encodePng = genericEncodePng PngGreyscale 1
+    encodePng = genericEncodePng Nothing PngGreyscale
 
 instance PngSavable PixelYA8 where
-    encodePng = genericEncodePng PngGreyscaleWithAlpha 2
+    encodePng = genericEncodePng Nothing PngGreyscaleWithAlpha
 
 instance PngSavable PixelYA16 where
-    encodePng = genericEncode16BitsPng PngGreyscaleWithAlpha 2
+    encodePng = genericEncode16BitsPng PngGreyscaleWithAlpha
 
 instance PngSavable Pixel16 where
-    encodePng = genericEncode16BitsPng PngGreyscale 1
+    encodePng = genericEncode16BitsPng PngGreyscale
 
 instance PngSavable PixelRGB16 where
-    encodePng = genericEncode16BitsPng PngTrueColour 3
+    encodePng = genericEncode16BitsPng PngTrueColour
 
 instance PngSavable PixelRGBA16 where
-    encodePng = genericEncode16BitsPng PngTrueColourWithAlpha 4
+    encodePng = genericEncode16BitsPng PngTrueColourWithAlpha
 
 -- | Write a dynamic image in a .png image file if possible.
 -- The same restriction as encodeDynamicPng apply.
@@ -132,6 +149,18 @@ writeDynamicPng :: FilePath -> DynamicImage -> IO (Either String Bool)
 writeDynamicPng path img = case encodeDynamicPng img of
         Left err -> return $ Left err
         Right b  -> Lb.writeFile path b >> return (Right True)
+
+-- | Encode a paletted image as a color indexed 8-bit PNG.
+-- the palette must have between 1 and 256 values in it.
+encodePalettedPng :: Palette -> Image Pixel8 -> Either String Lb.ByteString
+encodePalettedPng pal img
+    | w <= 0 || w > 256 || h /= 1 = Left "Invalid palette"
+    | VS.any isTooBig $ imageData img =
+        Left "Image contains indexes absent from the palette"
+    | otherwise = Right $ genericEncodePng (Just pal) PngIndexedColor img
+      where w = imageWidth pal
+            h = imageHeight pal
+            isTooBig v = fromIntegral v >= w
 
 -- | Encode a dynamic image in bmp if possible, supported pixel type are :
 --
