@@ -11,6 +11,8 @@ import qualified Data.Map.Lazy as L
 import qualified Data.Set as Set
 import           Data.Vector               (Vector, minimumBy)
 import qualified Data.Vector as V
+import           Data.PQueue.Max           (MaxQueue)
+import qualified Data.PQueue.Max as PQ
 
 
 -------------------------------------------------------------------------------
@@ -77,17 +79,34 @@ colorQuantUQ img dithering
 colorQuantMMC :: Image PixelRGB8 -> Bool -> Image PixelRGB8
 colorQuantMMC img dithering
   | colorCount img <= 256 = img
-  | otherwise = pixelMap paletteFunc img'
+  | dithering = pixelMap paletteFunc dImg
+  | otherwise = pixelMap paletteFunc img
   where
     paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p palMap
-    palMap = pixelColorMap img' pal
-    pal = mkPalette . clusters $ img
-    img' = if dithering then pixelMapXY dither img else img
+    palMap = if dithering
+             then ditherColorDict dImg (mkPalette cs)
+             else colorDict cs
+    cs =  PQ.toList . clusters $ img
+    dImg = pixelMapXY dither img
 
-pixelColorMap :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
-pixelColorMap img pal = pixelFold f L.empty img
+ditherColorDict :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
+ditherColorDict img pal = pixelFold f L.empty img
   where
     f xs _ _ p = L.insert p (nearestColor p pal) xs
+
+toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
+toAList (Cluster m _ _ cs) = foldr f [] cs
+  where
+    f p = ((toRGB8 p, m') :)
+    m' = toRGB8 m
+
+colorDict :: [Cluster] -> Map PixelRGB8 PixelRGB8
+colorDict cs = L.fromList aList
+  where
+    aList = concatMap toAList cs
+
+mkPalette :: [Cluster] -> Vector PixelRGB8
+mkPalette  = V.fromList . map (toRGB8 . meanColor)
 
 toPalette :: [PixelRGB8] -> Palette
 toPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
@@ -99,6 +118,9 @@ data Cluster = Cluster { meanColor :: RGBdbl
                        , dims      :: RGBdbl
                        , colors    ::[RGBdbl]
                        } deriving Eq
+
+instance Ord Cluster where
+  c1 `compare` c2 = value c1 `compare` value c2
 
 data Axis = RAxis | GAxis | BAxis
 
@@ -160,6 +182,8 @@ maxAxis (RGBdbl r g b) =
     (LT, LT, GT) -> GAxis
     (_,  _,  _)  -> BAxis
 
+-- Split a cluster about its largest axis using the mean to divide up the
+-- pixels.
 subdivide :: Cluster -> (Cluster, Cluster)
 subdivide (Cluster (RGBdbl mr mg mb) _ vol ps) = (mkCluster px1, mkCluster px2)
   where
@@ -169,29 +193,30 @@ subdivide (Cluster (RGBdbl mr mg mb) _ vol ps) = (mkCluster px1, mkCluster px2)
       GAxis -> (\(RGBdbl _ g _) -> g < mg)
       BAxis -> (\(RGBdbl _ _ b) -> b < mb)
 
+-- Put all of the pixels in the initial cluster.
 initCluster :: Image PixelRGB8 -> Cluster
 initCluster img = mkCluster $ pixelFold f [] img
   where
     f xs _ _ p = fromRGB8 p : xs
 
-split :: [Cluster] -> [Cluster]
-split cs = cl1 : cl2 : cs'
+-- Take the cluster with the largest value = (volume * population) and remove it
+-- from the priority queue. Then subdivide it about its largest axis and put the
+-- two new clusters on the queue.
+split :: MaxQueue Cluster -> MaxQueue Cluster
+split cs = PQ.insert c1 . PQ.insert c2  $ cs'
   where
-    (cl1, cl2) = subdivide c
-    c = foldl' select unused cs
-    select c1 c2 = if value c1 > value c2 then c1 else c2
-    unused = Cluster dumb (-inf) dumb []
-    dumb = RGBdbl 0 0 0
-    cs' = filter (/= c) cs
+    (c, cs') = PQ.deleteFindMax cs
+    (c1, c2) = subdivide c
 
-clusters :: Image PixelRGB8 -> [Cluster]
-clusters img = cs !! 255
+-- Keep splitting the initial cluster until there are 256 clusters, then return
+-- a priority queue containing all 256.
+clusters :: Image PixelRGB8 -> MaxQueue Cluster
+clusters img = clusters' 255
   where
-    cs = iterate split [c]
+    clusters' :: Int -> MaxQueue Cluster
+    clusters' 0 = PQ.singleton c
+    clusters' n = split (clusters' (n-1))
     c = initCluster img
-
-mkPalette :: [Cluster] -> Vector PixelRGB8
-mkPalette  = V.fromList . map (toRGB8 . meanColor)
 
 dist2Px :: PixelRGB8 -> PixelRGB8 -> Int
 dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
