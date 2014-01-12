@@ -17,7 +17,7 @@ module Codec.Picture.Gif ( -- * Reading
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( replicateM )
+import Control.Monad( replicateM, replicateM_ )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
@@ -272,12 +272,14 @@ data GifImage = GifImage
 
 instance Binary GifImage where
     put img = do
-        put $ imgDescriptor img
+        let descriptor = imgDescriptor img
+        put descriptor
         case ( imgLocalPalette img
              , gDescHasLocalMap $ imgDescriptor img) of
           (Nothing, _) -> return ()
           (Just _, False) -> return ()
-          (Just p, True) -> putPalette p
+          (Just p, True) ->
+              putPalette (fromIntegral $ gDescLocalColorTableSize descriptor) p
         putWord8 $ imgLzwRootSize img
         putDataBlocks $ imgData img
 
@@ -365,8 +367,12 @@ getPalette :: Word8 -> Get Palette
 getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
-putPalette :: Palette -> Put
-putPalette = mapM_ putWord8 . V.toList . imageData
+putPalette :: Int -> Palette -> Put
+putPalette size pal = do
+    V.mapM_ putWord8 (imageData pal)
+    replicateM_ missingColorComponent (putWord8 0)
+  where elemCount = 2 ^ size
+        missingColorComponent = (elemCount - imageWidth pal) * 3
 
 --------------------------------------------------
 ----            GifImage
@@ -380,8 +386,9 @@ data GifHeader = GifHeader
 instance Binary GifHeader where
     put v = do
       put $ gifVersion v
-      put $ gifScreenDescriptor v
-      putPalette $ gifGlobalMap v
+      let descr = gifScreenDescriptor v
+      put $ descr
+      putPalette (fromIntegral $ colorTableSize descr) $ gifGlobalMap v
 
     get = do
         version    <- get
@@ -415,7 +422,8 @@ putLooping (LoopingRepeat count) = do
 associateDescr :: [Block] -> [(Maybe GraphicControlExtension, GifImage)]
 associateDescr [] = []
 associateDescr [BlockGraphicControl _] = []
-associateDescr (BlockGraphicControl _ : rest@(BlockGraphicControl _ : _)) = associateDescr rest
+associateDescr (BlockGraphicControl _ : rest@(BlockGraphicControl _ : _)) =
+    associateDescr rest
 associateDescr (BlockImage img:xs) = (Nothing, img) : associateDescr xs
 associateDescr (BlockGraphicControl ctrl : BlockImage img : xs) =
     (Just ctrl, img) : associateDescr xs
