@@ -7,7 +7,7 @@
 -- Palette generation and dithering.
 --
 -----------------------------------------------------------------------------
-
+{-# LANGUAGE ExistentialQuantification #-}
 module Codec.Picture.ColorQuant (
                                   PaletteCreationMethod(..)
                                 , PaletteOpts(..)
@@ -15,15 +15,22 @@ module Codec.Picture.ColorQuant (
                                 , withPalette
                                 ) where
 
-import           Codec.Picture.Types
-import           Data.Bits                 ( (.&.) )
-import           Data.List                 ( foldl', foldl1'
-                                           , partition, elemIndex )
+import           Control.Applicative( Applicative( .. ), (<$>) )
+import Data.Bits
+        ( (.&.), (.|.)
+        , unsafeShiftL
+        , unsafeShiftR )
+import           Data.List                 ( elemIndex )
 import           Data.Maybe                ( fromMaybe )
 import           Data.Set                  ( Set )
 import qualified Data.Set as Set
+import Data.Word( Word32 )
+
 import           Data.Vector               ( Vector, (!) )
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
+
+import           Codec.Picture.Types
 
 -------------------------------------------------------------------------------
 ----            Palette Creation and Dithering
@@ -151,6 +158,54 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
     y' = 28084 * y
 
 -------------------------------------------------------------------------------
+----            Small modification of fold
+-------------------------------------------------------------------------------
+{-| Efficient representation of a left fold that preserves the fold's step
+    function, initial accumulator, and extraction function
+
+    This allows the 'Applicative' instance to assemble derived folds that
+    traverse the container only once
+-}
+data Fold a b = forall x . Fold (x -> a -> x) x (x -> b)
+
+{-| Apply a strict left 'Fold' to a 'Foldable' container
+
+    Much slower than 'fold' on lists because 'Foldable' operations currently do
+    not trigger @build/foldr@ fusion
+-}
+fold :: Fold PackedRGB b -> VU.Vector PackedRGB -> b
+fold (Fold step begin done) = done . VU.foldl' step begin
+{-# INLINE fold #-}
+
+{- 
+F.foldr :: (a -> b -> b) -> b -> t a -> b
+
+fold :: (Foldable f) => Fold a b -> f a -> b
+fold (Fold step begin done) as = F.foldr step' done as begin
+  where step' x k z = k $! step z x
+ -}
+
+data Pair a b = Pair !a !b
+
+instance Functor (Fold a) where
+    fmap f (Fold step begin done) = Fold step begin (f . done)
+    {-# INLINABLE fmap #-}
+
+instance Applicative (Fold a) where
+    pure b    = Fold (\() _ -> ()) () (\() -> b)
+    {-# INLINABLE pure #-}
+    (Fold stepL beginL doneL) <*> (Fold stepR beginR doneR) =
+        let step (Pair xL xR) a = Pair (stepL xL a) (stepR xR a)
+            begin = Pair beginL beginR
+            done (Pair xL xR) = (doneL xL) (doneR xR)
+        in  Fold step begin done
+    {-# INLINABLE (<*>) #-}
+
+-- | Like 'length', except with a more general 'Num' return value
+intLength :: Fold a Int
+intLength = Fold (\n _ -> n + 1) 0 id
+
+-------------------------------------------------------------------------------
 ----            Modified Median Cut Algorithm
 -------------------------------------------------------------------------------
 
@@ -165,68 +220,77 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
 mkPaletteVec :: [Cluster] -> Vector PixelRGB8
 mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)
 
+type PackedRGB = Word32
 
-data RGBdbl = RGBdbl !Double !Double !Double deriving (Eq, Ord)
+data Cluster = Cluster
+    { value       :: {-# UNPACK #-} !Float
+    , meanColor   :: !PixelRGBF
+    , dims        :: !PixelRGBF
+    , colors      :: VU.Vector PackedRGB
+    }
 
-data Cluster = Cluster { value     :: Double
-                       , meanColor :: RGBdbl
-                       , dims      :: RGBdbl
-                       , colors    ::[RGBdbl]
-                       } deriving (Eq, Ord)
+instance Eq Cluster where
+    a == b =
+        (value a, meanColor a, dims a) == (value b, meanColor b, dims b)
+
+instance Ord Cluster where
+    compare a b =
+        compare (value a, meanColor a, dims a) (value b, meanColor b, dims b)
 
 data Axis = RAxis | GAxis | BAxis
 
-inf :: Double
+inf :: Float
 inf = read "Infinity"
 
-fromRGB8 :: PixelRGB8 -> RGBdbl
+fromRGB8 :: PixelRGB8 -> PixelRGBF
 fromRGB8 (PixelRGB8 r g b) =
-  RGBdbl (fromIntegral r) (fromIntegral g) (fromIntegral b)
+  PixelRGBF (fromIntegral r) (fromIntegral g) (fromIntegral b)
 
-toRGB8 :: RGBdbl -> PixelRGB8
-toRGB8 (RGBdbl r g b) =
+toRGB8 :: PixelRGBF -> PixelRGB8
+toRGB8 (PixelRGBF r g b) =
   PixelRGB8 (round r) (round g) (round b)
 
-addRGB :: RGBdbl -> RGBdbl -> RGBdbl
-addRGB (RGBdbl r1 g1 b1) (RGBdbl r2 g2 b2) =
-  RGBdbl (r1 + r2) (g1 + g2) (b1 + b2)
-
-meanRGB :: [RGBdbl] -> RGBdbl
-meanRGB ps = RGBdbl r g b
+meanRGB :: Fold PixelRGBF PixelRGBF
+meanRGB = mean <$> intLength <*> pixelSum
   where
-    n = fromIntegral $ length ps
-    RGBdbl rs gs bs = foldl1' addRGB ps
-    (r, g, b) = (rs / n, gs / n, bs / n)
+    pixelSum = Fold (mixWith $ const (+)) (PixelRGBF 0 0 0) id
+    mean n = colorMap (/ nf)
+      where nf = fromIntegral n
 
-maxRGB :: RGBdbl -> RGBdbl -> RGBdbl
-maxRGB (RGBdbl r1 g1 b1) (RGBdbl r2 g2 b2) =
-  RGBdbl (max r1 r2) (max g1 g2) (max b1 b2)
+minimal :: Fold PixelRGBF PixelRGBF
+minimal = Fold mini (PixelRGBF inf inf inf) id
+  where mini = mixWith $ const min
 
-minRGB :: RGBdbl -> RGBdbl -> RGBdbl
-minRGB (RGBdbl r1 g1 b1) (RGBdbl r2 g2 b2) =
-  RGBdbl (min r1 r2) (min g1 g2) (min b1 b2)
+maximal :: Fold PixelRGBF PixelRGBF
+maximal = Fold maxi (PixelRGBF (-inf) (-inf) (-inf)) id
+  where maxi = mixWith $ const max
 
-extrems :: [RGBdbl] -> (RGBdbl, RGBdbl)
-extrems ps = (s, b)
+extrems :: Fold PixelRGBF (PixelRGBF, PixelRGBF)
+extrems = (,) <$> minimal <*> maximal
+
+volAndDims :: Fold PixelRGBF (Float, PixelRGBF)
+volAndDims = deltify <$> extrems
+  where deltify (mini, maxi) = (dr * dg * db, delta)
+          where delta@(PixelRGBF dr dg db) =
+                        mixWith (const (-)) maxi mini
+
+unpackFold :: Fold PixelRGBF a -> Fold PackedRGB a
+unpackFold (Fold step start done) = Fold (\acc -> step acc . transform) start done
+  where transform = fromRGB8 . rgbIntUnpack
+
+mkCluster :: VU.Vector PackedRGB -> Cluster
+mkCluster ps = Cluster
+    { value = v * fromIntegral l
+    , meanColor = m
+    , dims = ds
+    , colors = ps
+    }
   where
-    s = foldl' (\sp p -> minRGB sp p) (RGBdbl inf inf inf) ps
-    b = foldl' (\bp p -> maxRGB bp p) (RGBdbl (-inf) (-inf) (-inf)) ps
+    worker = (,,) <$> volAndDims <*> meanRGB <*> intLength
+    ((v, ds), m, l) = fold (unpackFold worker) ps
 
-volAndDims :: [RGBdbl] -> (Double, RGBdbl)
-volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
-  where
-    (RGBdbl sr sg sb, RGBdbl br bg bb) = extrems ps
-    (dr, dg, db) = (br - sr, bg - sg, bb - sb)
-
-mkCluster :: [RGBdbl] -> Cluster
-mkCluster ps = Cluster {value=(v * l), meanColor=m, dims=ds, colors=ps}
-  where
-    (v, ds) = volAndDims ps
-    m = meanRGB ps
-    l = fromIntegral $ length ps
-
-maxAxis :: RGBdbl -> Axis
-maxAxis (RGBdbl r g b) =
+maxAxis :: PixelRGBF -> Axis
+maxAxis (PixelRGBF r g b) =
   case (r `compare` g, r `compare` b, g `compare` b) of
     (GT, GT, _)  -> RAxis
     (LT, GT, _)  -> GAxis
@@ -237,19 +301,39 @@ maxAxis (RGBdbl r g b) =
 -- Split a cluster about its largest axis using the mean to divide up the
 -- pixels.
 subdivide :: Cluster -> (Cluster, Cluster)
-subdivide (Cluster _ (RGBdbl mr mg mb) vol ps) = (mkCluster px1, mkCluster px2)
+subdivide cluster = (mkCluster px1, mkCluster px2)
   where
-    (px1, px2) = partition cond ps
-    cond = case maxAxis vol of
-      RAxis -> (\(RGBdbl r _ _) -> r < mr)
-      GAxis -> (\(RGBdbl _ g _) -> g < mg)
-      BAxis -> (\(RGBdbl _ _ b) -> b < mb)
+    (PixelRGBF mr mg mb) = meanColor cluster
+    (px1, px2) = VU.partition (cond . rgbIntUnpack) $ colors cluster
+    cond = case maxAxis $ dims cluster of
+      RAxis -> (\(PixelRGB8 r _ _) -> fromIntegral r < mr)
+      GAxis -> (\(PixelRGB8 _ g _) -> fromIntegral g < mg)
+      BAxis -> (\(PixelRGB8 _ _ b) -> fromIntegral b < mb)
 
--- Put 1/9th of the pixels in the initial cluster.
-initCluster :: Image PixelRGB8 -> Cluster
-initCluster img = mkCluster $ pixelFoldSample f 3 [] img
+rgbIntPack :: PixelRGB8 -> PackedRGB
+rgbIntPack (PixelRGB8 r g b) = 
+    wr `unsafeShiftL` (2 * 8) .|. wg `unsafeShiftL` 8 .|. wb
+  where wr = fromIntegral r
+        wg = fromIntegral g
+        wb = fromIntegral b
+
+rgbIntUnpack :: PackedRGB -> PixelRGB8
+rgbIntUnpack v = PixelRGB8 r g b
   where
-    f xs p = fromRGB8 p : xs
+    r = fromIntegral $ v `unsafeShiftR` (2 * 8)
+    g = fromIntegral $ v `unsafeShiftR` 8
+    b = fromIntegral $ v
+
+initCluster :: Image PixelRGB8 -> Cluster
+initCluster img = mkCluster $ VU.generate (w * h) packer
+  where samplingFactor = 3
+        compCount = componentCount (undefined :: PixelRGB8)
+        w = imageWidth img `div` samplingFactor
+        h = imageWidth img `div` samplingFactor
+        rawData = imageData img
+        packer ix = rgbIntPack . unsafePixelAt rawData
+                  $ ix * compCount * samplingFactor
+
 
 -- Take the cluster with the largest value = (volume * population) and remove it
 -- from the priority queue. Then subdivide it about its largest axis and put the
@@ -281,3 +365,4 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
 
 nearestColorIdx :: PixelRGB8 -> Vector PixelRGB8 -> Pixel8
 nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (\px -> dist2Px px p) ps)
+
