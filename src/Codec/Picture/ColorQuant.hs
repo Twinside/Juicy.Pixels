@@ -150,7 +150,7 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
 -- of the modifiations is to use the mean.
 
 toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
-toAList (Cluster m _ _ cs) = foldr f [] cs
+toAList (Cluster _ m _ cs) = foldr f [] cs
   where
     f p = ((toRGB8 p, m') :)
     m' = toRGB8 m
@@ -164,16 +164,13 @@ mkPaletteVec :: [Cluster] -> Vector PixelRGB8
 mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)
 
 
-data RGBdbl = RGBdbl !Double !Double !Double deriving Eq
+data RGBdbl = RGBdbl !Double !Double !Double deriving (Eq, Ord)
 
-data Cluster = Cluster { meanColor :: RGBdbl
-                       , value     :: Double
+data Cluster = Cluster { value     :: Double
+                       , meanColor :: RGBdbl
                        , dims      :: RGBdbl
                        , colors    ::[RGBdbl]
-                       } deriving Eq
-
-instance Ord Cluster where
-  c1 `compare` c2 = value c1 `compare` value c2
+                       } deriving (Eq, Ord)
 
 data Axis = RAxis | GAxis | BAxis
 
@@ -220,7 +217,7 @@ volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
     (dr, dg, db) = (br - sr, bg - sg, bb - sb)
 
 mkCluster :: [RGBdbl] -> Cluster
-mkCluster ps = Cluster m (v * l) ds ps
+mkCluster ps = Cluster (v * l) m ds ps
   where
     (v, ds) = volAndDims ps
     m = meanRGB ps
@@ -238,7 +235,7 @@ maxAxis (RGBdbl r g b) =
 -- Split a cluster about its largest axis using the mean to divide up the
 -- pixels.
 subdivide :: Cluster -> (Cluster, Cluster)
-subdivide (Cluster (RGBdbl mr mg mb) _ vol ps) = (mkCluster px1, mkCluster px2)
+subdivide (Cluster _ (RGBdbl mr mg mb) vol ps) = (mkCluster px1, mkCluster px2)
   where
     (px1, px2) = partition cond ps
     cond = case maxAxis vol of
