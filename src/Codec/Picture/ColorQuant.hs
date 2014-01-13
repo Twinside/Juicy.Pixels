@@ -1,6 +1,8 @@
 module Codec.Picture.ColorQuant (
-                                  colorQuantUQ
-                                , colorQuantMMC
+                                  PaletteCreationMethod(..)
+                                , PaletteOpts(..)
+                                , palettize
+                                , withPalette
                                 ) where
 
 import           Codec.Picture.Types
@@ -8,22 +10,111 @@ import           Data.Bits                 ((.&.))
 import           Data.List                 (foldl', foldl1', partition)
 import           Data.Map.Lazy             (Map)
 import qualified Data.Map.Lazy as L
+import           Data.Set                  (Set)
 import qualified Data.Set as Set
-import           Data.Vector               (Vector, minimumBy)
+import           Data.Vector               (Vector, minimumBy, (!))
 import qualified Data.Vector as V
-import           Data.PQueue.Max           (MaxQueue)
-import qualified Data.PQueue.Max as PQ
 
 
 -------------------------------------------------------------------------------
-----            Utility functions
+----            Palette Creation and Dithering
 -------------------------------------------------------------------------------
+
+-- | Use either a modified median cut two pass algorithm or a uniform
+--   quantiation one pass algorithm. The medain cut algorithm produces much
+--   better results, but the unfiorm qunatization algorithm is much faster.
+data PaletteCreationMethod = ModMedianCut | Uniform
+
+-- | To specify how the palette will be created.
+data PaletteOpts =
+  PaletteOpts { createMethod :: PaletteCreationMethod
+              , dithering    :: Bool
+              , maxColors    :: Int
+              }
+
+-- A version of `pixelFold` that does not depend on the pixel coordinates.
+foldPx :: Pixel pixel => (acc -> pixel -> acc) -> acc -> Image pixel -> acc
+foldPx f acc = pixelFold g acc
+  where g ps _ _ p = f ps p
+
+palettize :: PaletteOpts -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+palettize opts img =
+  case createMethod opts of
+    ModMedianCut -> colorQuantMMC (dithering opts) (maxColors opts) img
+    Uniform      -> colorQuantUQ  (dithering opts) (maxColors opts) img
+
+withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image PixelRGB8
+withPalette palette ditherOn img = pixelMap paletteFunc img'
+  where
+    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p paletteDict
+    paletteDict = toColorDict img' (V.fromList paletteList)
+    paletteList = foldPx (flip (:)) [] palette
+    img' = if ditherOn then pixelMapXY dither img else img
+
+-- Modified median cut algorithm with optional ordered dithering.
+colorQuantMMC :: Bool -> Int -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+colorQuantMMC ditherOn maxCols img
+  | colorCount img <= maxCols = (img, fullPalette img)
+  | ditherOn = (pixelMap paletteFunc dImg, palette)
+  | otherwise = (pixelMap paletteFunc img, palette)
+  where
+    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p paletteDict
+    paletteDict = if ditherOn
+                  then toColorDict dImg paletteVec
+                  else colorDict cs
+    paletteVec = mkPaletteVec cs
+    palette = vecToPalette paletteVec
+    cs =  Set.toList . clusters maxCols $ img
+    dImg = pixelMapXY dither img
+
+-- A naive one pass Color Quantiation algorithm - Uniform Quantization.
+-- Simply take the most significant bits.
+colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+colorQuantUQ ditherOn maxCols img
+  | colorCount img <= maxCols = (img, fullPalette img)
+  | ditherOn = (pixelMap paletteFunc (pixelMapXY dither img), palette)
+  | otherwise = (pixelMap paletteFunc img, palette)
+  where
+    palette = listToPalette paletteList
+    paletteList = [PixelRGB8 r g b | r <- [0,dr..255], g <- [0,dg..255], b <- [0,db..255]]
+    (bg, br, bb) = bitDiv3 maxCols -- give the most bits to green, least to blue
+    (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
+    paletteFunc (PixelRGB8 r g b) =
+      PixelRGB8 (r .&. (256 - dr))
+                (g .&. (256 - dg))
+                (b .&. (256 - db))
+
+toColorDict :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
+toColorDict img pal = pixelFold f L.empty img
+  where
+    f xs _ _ p = L.insert p (nearestColor p pal) xs
 
 colorCount :: Image PixelRGB8 -> Int
 colorCount img = Set.size s
   where
     s = pixelFold f Set.empty img
     f xs _ _ p = Set.insert p xs
+
+vecToPalette :: Vector PixelRGB8 -> Palette
+vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
+
+listToPalette :: [PixelRGB8] -> Palette
+listToPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
+
+fullPalette :: Image PixelRGB8 -> Palette
+fullPalette img = listToPalette cs
+  where
+    cs = foldPx (\ps p -> p : ps) [] img
+
+bitDiv3 :: Int -> (Int, Int, Int)
+bitDiv3 n = case r of
+            0 -> (q, q, q)
+            1 -> (q+1, q, q)
+            _ -> (q+1, q+1, q)
+  where
+    r = m `mod` 3
+    q = m `div` 3
+    m = floor . logBase 2 $ fromIntegral n
 
 -------------------------------------------------------------------------------
 ----            Dithering
@@ -47,52 +138,16 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
     y' = 28084 * y
 
 -------------------------------------------------------------------------------
-----            Single Pass Algorithm
--------------------------------------------------------------------------------
-
--- | A naive one pass Color Quantiation algorithm - Uniform Quantization.
---   Simply take the 3 most significant bits of red and green. Take the 2 most
---   significant bits of blue.
-colorQuantUQ :: Image PixelRGB8 -> Bool -> Image PixelRGB8
-colorQuantUQ img dithering
-  | colorCount img <= 256 = img
-  | dithering = pixelMap maskFunction (pixelMapXY dither img)
-  | otherwise = pixelMap maskFunction img
-  where maskFunction (PixelRGB8 r g b) =
-          PixelRGB8 (r .&. 224)
-                    (g .&. 224)
-                    (b .&. 192)
-
--------------------------------------------------------------------------------
 ----            Modified Median Cut Algorithm
 -------------------------------------------------------------------------------
 
---  Based on the OCaml implementation:
---  http://rosettacode.org/wiki/Color_quantization
---  which was in turn based on: www.leptonica.com/papers/mediancut.pdf.
---  We use the product of volume and population to determine the next cluster
---  to split and assign the color of each cluster to its *mean* color. So
---  median cut is a bit of a misnomer, since one of the modifiations is to use
---  the mean.
-
--- | Modified median cut algorithm with optional ordered dithering.
-colorQuantMMC :: Image PixelRGB8 -> Bool -> Image PixelRGB8
-colorQuantMMC img dithering
-  | colorCount img <= 256 = img
-  | dithering = pixelMap paletteFunc dImg
-  | otherwise = pixelMap paletteFunc img
-  where
-    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p palMap
-    palMap = if dithering
-             then ditherColorDict dImg (mkPalette cs)
-             else colorDict cs
-    cs =  PQ.toList . clusters $ img
-    dImg = pixelMapXY dither img
-
-ditherColorDict :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
-ditherColorDict img pal = pixelFold f L.empty img
-  where
-    f xs _ _ p = L.insert p (nearestColor p pal) xs
+-- Based on the OCaml implementation:
+-- http://rosettacode.org/wiki/Color_quantization
+-- which is in turn based on: www.leptonica.com/papers/mediancut.pdf.
+-- We use the product of volume and population to determine the next cluster
+-- to split and determine the placement of each color by compating it to the
+-- mean of the parent cluster. So median cut is a bit of a misnomer, since one
+-- of the modifiations is to use the mean.
 
 toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
 toAList (Cluster m _ _ cs) = foldr f [] cs
@@ -105,11 +160,9 @@ colorDict cs = L.fromList aList
   where
     aList = concatMap toAList cs
 
-mkPalette :: [Cluster] -> Vector PixelRGB8
-mkPalette  = V.fromList . map (toRGB8 . meanColor)
+mkPaletteVec :: [Cluster] -> Vector PixelRGB8
+mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)
 
-toPalette :: [PixelRGB8] -> Palette
-toPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
 
 data RGBdbl = RGBdbl !Double !Double !Double deriving Eq
 
@@ -202,19 +255,19 @@ initCluster img = mkCluster $ pixelFold f [] img
 -- Take the cluster with the largest value = (volume * population) and remove it
 -- from the priority queue. Then subdivide it about its largest axis and put the
 -- two new clusters on the queue.
-split :: MaxQueue Cluster -> MaxQueue Cluster
-split cs = PQ.insert c1 . PQ.insert c2  $ cs'
+split :: Set Cluster -> Set Cluster
+split cs = Set.insert c1 . Set.insert c2  $ cs'
   where
-    (c, cs') = PQ.deleteFindMax cs
+    (c, cs') = Set.deleteFindMax cs
     (c1, c2) = subdivide c
 
 -- Keep splitting the initial cluster until there are 256 clusters, then return
 -- a priority queue containing all 256.
-clusters :: Image PixelRGB8 -> MaxQueue Cluster
-clusters img = clusters' 255
+clusters :: Int -> Image PixelRGB8 -> Set Cluster
+clusters maxCols img = clusters' (maxCols - 1)
   where
-    clusters' :: Int -> MaxQueue Cluster
-    clusters' 0 = PQ.singleton c
+    clusters' :: Int -> Set Cluster
+    clusters' 0 = Set.singleton c
     clusters' n = split (clusters' (n-1))
     c = initCluster img
 

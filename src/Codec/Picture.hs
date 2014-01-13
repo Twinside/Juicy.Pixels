@@ -20,8 +20,10 @@ module Codec.Picture (
                      , withImage
 
                      -- ** Color Quantization
-                     , colorQuantUQ
-                     , colorQuantMMC
+                     , PaletteCreationMethod(..)
+                     , PaletteOpts(..)
+                     , palettize
+                     , withPalette
 
                      -- * Generic image writing
                      , saveBmpImage
