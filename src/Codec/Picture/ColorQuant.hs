@@ -16,11 +16,13 @@ module Codec.Picture.ColorQuant (
                                 ) where
 
 import           Codec.Picture.Types
-import           Data.Bits                 ((.&.))
-import           Data.List                 (foldl', foldl1', partition)
-import           Data.Set                  (Set)
+import           Data.Bits                 ( (.&.) )
+import           Data.List                 ( foldl', foldl1'
+                                           , partition, elemIndex )
+import           Data.Maybe                ( fromMaybe )
+import           Data.Set                  ( Set )
 import qualified Data.Set as Set
-import           Data.Vector               (Vector, (!))
+import           Data.Vector               ( Vector, (!) )
 import qualified Data.Vector as V
 
 -------------------------------------------------------------------------------
@@ -44,50 +46,64 @@ foldPx :: Pixel pixel => (acc -> pixel -> acc) -> acc -> Image pixel -> acc
 foldPx f acc = pixelFold g acc
   where g ps _ _ p = f ps p
 
-palettize :: PaletteOpts -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+-- | Reduces an image to a color palette according to `PaletteOpts` and
+--   return the "indices image" along with its `Palette`.
+palettize :: PaletteOpts -> Image PixelRGB8 -> (Image Pixel8, Palette)
 palettize opts img =
   case createMethod opts of
     ModMedianCut -> colorQuantMMC (dithering opts) (maxColors opts) img
     Uniform      -> colorQuantUQ  (dithering opts) (maxColors opts) img
 
-withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image PixelRGB8
-withPalette palette ditherOn img = pixelMap paletteFunc img'
+-- Reduce an image to using the provided color palette with optional
+-- dithering.
+withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image Pixel8
+withPalette palette ditherOn img = pixelMap paletteIndex img'
   where
-    paletteFunc p = nearestColor p (V.fromList paletteList)
+    paletteIndex p = nearestColorIdx p (V.fromList paletteList)
     paletteList = foldPx (flip (:)) [] palette
     img' = if ditherOn then pixelMapXY dither img else img
 
--- Modified median cut algorithm with optional ordered dithering.
-colorQuantMMC :: Bool -> Int -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+-- Modified median cut algorithm with optional ordered dithering. Returns an
+-- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
+colorQuantMMC :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
 colorQuantMMC ditherOn maxCols img
-  | colorCount img <= maxCols = (img, fullPalette img)
-  | ditherOn = (pixelMap paletteFunc dImg, palette)
-  | otherwise = (pixelMap paletteFunc img, palette)
+  | colorCount img <= maxCols = colorQuantExact img
+  | ditherOn = (pixelMap paletteIndex dImg, palette)
+  | otherwise = (pixelMap paletteIndex img, palette)
   where
-    paletteFunc p = nearestColor p paletteVec
-    paletteVec = mkPaletteVec cs
     palette = vecToPalette paletteVec
+    paletteIndex p = nearestColorIdx p paletteVec
+    paletteVec = mkPaletteVec cs
     cs =  Set.toList . clusters maxCols $ img
     dImg = pixelMapXY dither img
 
 -- A naive one pass Color Quantiation algorithm - Uniform Quantization.
 -- Simply take the most significant bits. The maxCols parameter is rounded
 -- down to the nearest power of 2, and the bits are divided among the three
--- color channels with priority order green, red, blue.
-colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
+-- color channels with priority order green, red, blue. Returns an
+-- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
+colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
 colorQuantUQ ditherOn maxCols img
-  | colorCount img <= maxCols = (img, fullPalette img)
-  | ditherOn = (pixelMap paletteFunc (pixelMapXY dither img), palette)
-  | otherwise = (pixelMap paletteFunc img, palette)
+  | colorCount img <= maxCols = colorQuantExact img
+  | ditherOn = (pixelMap paletteIndex (pixelMapXY dither img), palette)
+  | otherwise = (pixelMap paletteIndex img, palette)
   where
     palette = listToPalette paletteList
-    paletteList = [PixelRGB8 r g b | r <- [0,dr..255], g <- [0,dg..255], b <- [0,db..255]]
+    paletteList = [PixelRGB8 r g b | r <- [0,dr..255]
+                                   , g <- [0,dg..255]
+                                   , b <- [0,db..255]]
     (bg, br, bb) = bitDiv3 maxCols
     (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
-    paletteFunc (PixelRGB8 r g b) =
-      PixelRGB8 (r .&. (256 - dr))
-                (g .&. (256 - dg))
-                (b .&. (256 - db))
+    paletteIndex (PixelRGB8 r g b) = fromIntegral $ fromMaybe 0 (elemIndex
+      (PixelRGB8 (r .&. (256 - dr)) (g .&. (256 - dg)) (b .&. (256 - db)))
+      paletteList)
+
+colorQuantExact :: Image PixelRGB8 -> (Image Pixel8, Palette)
+colorQuantExact img = (idx, listToPalette cs)
+  where
+    idx = pixelMap paletteIndex img
+    paletteIndex p = fromIntegral $ fromMaybe 0 (elemIndex p cs)
+    cs = foldPx (\ps p -> p : ps) [] img
 
 colorCount :: Image PixelRGB8 -> Int
 colorCount img = Set.size s
@@ -101,10 +117,7 @@ vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
 listToPalette :: [PixelRGB8] -> Palette
 listToPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
 
-fullPalette :: Image PixelRGB8 -> Palette
-fullPalette img = listToPalette cs
-  where
-    cs = foldPx (\ps p -> p : ps) [] img
+
 
 bitDiv3 :: Int -> (Int, Int, Int)
 bitDiv3 n = case r of
@@ -114,7 +127,7 @@ bitDiv3 n = case r of
   where
     r = m `mod` 3
     q = m `div` 3
-    m = floor . logBase 2 $ fromIntegral n
+    m = floor . logBase (2 :: Double) $ fromIntegral n
 
 -------------------------------------------------------------------------------
 ----            Dithering
@@ -257,6 +270,7 @@ clusters maxCols img = clusters' (maxCols - 1)
     clusters' n = split (clusters' (n-1))
     c = initCluster img
 
+-- Euclidean distance squared, between two pixels.
 dist2Px :: PixelRGB8 -> PixelRGB8 -> Int
 dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
   where
@@ -265,5 +279,5 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
       , fromIntegral g1 - fromIntegral g2
       , fromIntegral b1 - fromIntegral b2 )
 
-nearestColor :: PixelRGB8 -> Vector PixelRGB8 -> PixelRGB8
-nearestColor p ps  = ps ! V.minIndex (V.map (\px -> dist2Px px p) ps)
+nearestColorIdx :: PixelRGB8 -> Vector PixelRGB8 -> Pixel8
+nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (\px -> dist2Px px p) ps)
