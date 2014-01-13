@@ -1,3 +1,13 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Picture.ColorQuant
+-- Copyright   :  (c) 2013 Jeffrey Rosenbluth
+-- License     :  BSD3
+--
+-- Palette generation and dithering.
+--
+-----------------------------------------------------------------------------
+
 module Codec.Picture.ColorQuant (
                                   PaletteCreationMethod(..)
                                 , PaletteOpts(..)
@@ -15,14 +25,13 @@ import qualified Data.Set as Set
 import           Data.Vector               (Vector, minimumBy, (!))
 import qualified Data.Vector as V
 
-
 -------------------------------------------------------------------------------
 ----            Palette Creation and Dithering
 -------------------------------------------------------------------------------
 
 -- | Use either a modified median cut two pass algorithm or a uniform
---   quantiation one pass algorithm. The medain cut algorithm produces much
---   better results, but the unfiorm qunatization algorithm is much faster.
+--   quantization one pass algorithm. The medain cut algorithm produces much
+--   better results, but the unfiorm qunatization algorithm is faster.
 data PaletteCreationMethod = ModMedianCut | Uniform
 
 -- | To specify how the palette will be created.
@@ -85,15 +94,15 @@ colorQuantUQ ditherOn maxCols img
                 (b .&. (256 - db))
 
 toColorDict :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
-toColorDict img pal = pixelFold f L.empty img
+toColorDict img pal = foldPx f L.empty img
   where
-    f xs _ _ p = L.insert p (nearestColor p pal) xs
+    f xs p = L.insert p (nearestColor p pal) xs
 
 colorCount :: Image PixelRGB8 -> Int
 colorCount img = Set.size s
   where
-    s = pixelFold f Set.empty img
-    f xs _ _ p = Set.insert p xs
+    s = foldPx f Set.empty img
+    f xs p = Set.insert p xs
 
 vecToPalette :: Vector PixelRGB8 -> Palette
 vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
@@ -243,11 +252,11 @@ subdivide (Cluster _ (RGBdbl mr mg mb) vol ps) = (mkCluster px1, mkCluster px2)
       GAxis -> (\(RGBdbl _ g _) -> g < mg)
       BAxis -> (\(RGBdbl _ _ b) -> b < mb)
 
--- Put all of the pixels in the initial cluster.
+-- Put 1/9th of the pixels in the initial cluster.
 initCluster :: Image PixelRGB8 -> Cluster
-initCluster img = mkCluster $ pixelFold f [] img
+initCluster img = mkCluster $ pixelFoldSample f 3 [] img
   where
-    f xs _ _ p = fromRGB8 p : xs
+    f xs p = fromRGB8 p : xs
 
 -- Take the cluster with the largest value = (volume * population) and remove it
 -- from the priority queue. Then subdivide it about its largest axis and put the

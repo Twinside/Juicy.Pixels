@@ -51,6 +51,7 @@ module Codec.Picture.Types( -- * Types
                           , pixelMap
                           , pixelMapXY
                           , pixelFold
+                          , pixelFoldSample
                           , dynamicMap
                           , dynamicPixelMap
                           , dropAlphaLayer
@@ -739,6 +740,18 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
     where pixelFolder y acc x = f acc x y $ pixelAt img x y
           columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
           lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
+
+-- | Fold over a sample of 1/inc^2 of the pixels of an image, i.e. x and y both
+--   move with step size inc. Uses a raster scan order from top to bottom,
+--   left to right
+{-# INLINE pixelFoldSample #-}
+pixelFoldSample :: (Pixel pixel)
+          => (acc -> pixel -> acc) -> Int -> acc -> Image pixel -> acc
+pixelFoldSample f inc initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
+  lineFold
+    where pixelFolder y acc x = f acc $ pixelAt img x y
+          columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0, inc .. w - 1]
+          lineFold = foldl' columnFold initialAccumulator [0, inc .. h - 1]
 
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
