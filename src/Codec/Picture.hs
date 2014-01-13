@@ -66,6 +66,7 @@ module Codec.Picture (
                      , readPng
                      , decodePng
                      , writePng
+                     , encodePalettedPng
                      , encodeDynamicPng
                      , writeDynamicPng
 
@@ -114,7 +115,10 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
-                        , encodeDynamicPng , writeDynamicPng )
+                        , encodeDynamicPng
+                        , encodePalettedPng
+                        , writeDynamicPng
+                        )
 
 import Codec.Picture.Gif( decodeGif
                         , decodeGifImages

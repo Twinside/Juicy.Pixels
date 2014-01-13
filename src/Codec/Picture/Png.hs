@@ -15,6 +15,7 @@ module Codec.Picture.Png( -- * High level functions
 
                         , decodePng
                         , writePng
+                        , encodePalettedPng
                         , encodeDynamicPng
                         , writeDynamicPng
 

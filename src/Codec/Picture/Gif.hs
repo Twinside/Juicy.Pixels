@@ -17,7 +17,7 @@ module Codec.Picture.Gif ( -- * Reading
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( replicateM )
+import Control.Monad( replicateM, replicateM_ )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
@@ -272,12 +272,14 @@ data GifImage = GifImage
 
 instance Binary GifImage where
     put img = do
-        put $ imgDescriptor img
+        let descriptor = imgDescriptor img
+        put descriptor
         case ( imgLocalPalette img
              , gDescHasLocalMap $ imgDescriptor img) of
           (Nothing, _) -> return ()
           (Just _, False) -> return ()
-          (Just p, True) -> putPalette p
+          (Just p, True) ->
+              putPalette (fromIntegral $ gDescLocalColorTableSize descriptor) p
         putWord8 $ imgLzwRootSize img
         putDataBlocks $ imgData img
 
@@ -365,8 +367,12 @@ getPalette :: Word8 -> Get Palette
 getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
-putPalette :: Palette -> Put
-putPalette = mapM_ putWord8 . V.toList . imageData
+putPalette :: Int -> Palette -> Put
+putPalette size pal = do
+    V.mapM_ putWord8 (imageData pal)
+    replicateM_ missingColorComponent (putWord8 0)
+  where elemCount = 2 ^ size
+        missingColorComponent = (elemCount - imageWidth pal) * 3
 
 --------------------------------------------------
 ----            GifImage
@@ -380,8 +386,9 @@ data GifHeader = GifHeader
 instance Binary GifHeader where
     put v = do
       put $ gifVersion v
-      put $ gifScreenDescriptor v
-      putPalette $ gifGlobalMap v
+      let descr = gifScreenDescriptor v
+      put $ descr
+      putPalette (fromIntegral $ colorTableSize descr) $ gifGlobalMap v
 
     get = do
         version    <- get
@@ -415,7 +422,8 @@ putLooping (LoopingRepeat count) = do
 associateDescr :: [Block] -> [(Maybe GraphicControlExtension, GifImage)]
 associateDescr [] = []
 associateDescr [BlockGraphicControl _] = []
-associateDescr (BlockGraphicControl _ : rest@(BlockGraphicControl _ : _)) = associateDescr rest
+associateDescr (BlockGraphicControl _ : rest@(BlockGraphicControl _ : _)) =
+    associateDescr rest
 associateDescr (BlockImage img:xs) = (Nothing, img) : associateDescr xs
 associateDescr (BlockGraphicControl ctrl : BlockImage img : xs) =
     (Just ctrl, img) : associateDescr xs
@@ -560,6 +568,11 @@ checkPaletteValidity lst =
                                      , let w = imageWidth p
                                            h = imageHeight p ]
 
+areIndexAbsentFromPalette :: (Palette, a, Image Pixel8) -> Bool
+areIndexAbsentFromPalette (palette, _, img) = V.any isTooBig $ imageData img
+  where paletteElemCount = imageWidth palette
+        isTooBig v = fromIntegral v >= paletteElemCount
+
 computeMinimumLzwKeySize :: Palette -> Int
 computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
   where go k | 2 ^ k >= itemCount = k
@@ -577,6 +590,7 @@ encodeGifImages _ [] = Left "No image in list"
 encodeGifImages _ imageList
     | not $ checkGifImageSizes imageList = Left "Gif images have different size"
     | not $ checkPaletteValidity imageList = Left "Invalid palette size"
+    | any areIndexAbsentFromPalette imageList = Left "Image contains indexes absent from the palette"
 encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where
     allFile = GifFile
@@ -601,8 +615,8 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
 
     paletteEqual p = imageData firstPalette == imageData p
 
-    controlExtension 0 palette | paletteEqual palette =  Nothing
-    controlExtension delay _ = Just GraphicControlExtension
+    controlExtension 0 =  Nothing
+    controlExtension delay = Just GraphicControlExtension
         { gceDisposalMethod        = 0
         , gceUserInputFlag         = False
         , gceTransparentFlag       = False
@@ -610,8 +624,8 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
         , gceTransparentColorIndex = 0
         }
 
-    toSerialize = [(controlExtension delay palette, GifImage
-        { imgDescriptor = imageDescriptor lzwKeySize img
+    toSerialize = [(controlExtension delay, GifImage
+        { imgDescriptor = imageDescriptor lzwKeySize (paletteEqual palette) img
         , imgLocalPalette = Just palette
         , imgLzwRootSize = fromIntegral $ lzwKeySize
         , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
@@ -619,15 +633,15 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
            , let lzwKeySize = computeMinimumLzwKeySize palette
            ]
 
-    imageDescriptor paletteSize img = ImageDescriptor
+    imageDescriptor paletteSize palEqual img = ImageDescriptor
         { gDescPixelsFromLeft         = 0
         , gDescPixelsFromTop          = 0
         , gDescImageWidth             = fromIntegral $ imageWidth img
         , gDescImageHeight            = fromIntegral $ imageHeight img
-        , gDescHasLocalMap            = paletteSize > 0
+        , gDescHasLocalMap            = paletteSize > 0 && not palEqual
         , gDescIsInterlaced           = False
         , gDescIsImgDescriptorSorted  = False
-        , gDescLocalColorTableSize    = fromIntegral paletteSize
+        , gDescLocalColorTableSize    = if palEqual then 0 else fromIntegral paletteSize
         }
 
 -- | Encode a greyscale image to a bytestring.
