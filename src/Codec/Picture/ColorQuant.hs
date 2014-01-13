@@ -18,11 +18,9 @@ module Codec.Picture.ColorQuant (
 import           Codec.Picture.Types
 import           Data.Bits                 ((.&.))
 import           Data.List                 (foldl', foldl1', partition)
-import           Data.Map.Lazy             (Map)
-import qualified Data.Map.Lazy as L
 import           Data.Set                  (Set)
 import qualified Data.Set as Set
-import           Data.Vector               (Vector, minimumBy, (!))
+import           Data.Vector               (Vector, (!))
 import qualified Data.Vector as V
 
 -------------------------------------------------------------------------------
@@ -55,8 +53,7 @@ palettize opts img =
 withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image PixelRGB8
 withPalette palette ditherOn img = pixelMap paletteFunc img'
   where
-    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p paletteDict
-    paletteDict = toColorDict img' (V.fromList paletteList)
+    paletteFunc p = nearestColor p (V.fromList paletteList)
     paletteList = foldPx (flip (:)) [] palette
     img' = if ditherOn then pixelMapXY dither img else img
 
@@ -67,17 +64,16 @@ colorQuantMMC ditherOn maxCols img
   | ditherOn = (pixelMap paletteFunc dImg, palette)
   | otherwise = (pixelMap paletteFunc img, palette)
   where
-    paletteFunc p = L.findWithDefault (PixelRGB8 0 0 0) p paletteDict
-    paletteDict = if ditherOn
-                  then toColorDict dImg paletteVec
-                  else colorDict cs
+    paletteFunc p = nearestColor p paletteVec
     paletteVec = mkPaletteVec cs
     palette = vecToPalette paletteVec
     cs =  Set.toList . clusters maxCols $ img
     dImg = pixelMapXY dither img
 
 -- A naive one pass Color Quantiation algorithm - Uniform Quantization.
--- Simply take the most significant bits.
+-- Simply take the most significant bits. The maxCols parameter is rounded
+-- down to the nearest power of 2, and the bits are divided among the three
+-- color channels with priority order green, red, blue.
 colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image PixelRGB8, Palette)
 colorQuantUQ ditherOn maxCols img
   | colorCount img <= maxCols = (img, fullPalette img)
@@ -86,17 +82,12 @@ colorQuantUQ ditherOn maxCols img
   where
     palette = listToPalette paletteList
     paletteList = [PixelRGB8 r g b | r <- [0,dr..255], g <- [0,dg..255], b <- [0,db..255]]
-    (bg, br, bb) = bitDiv3 maxCols -- give the most bits to green, least to blue
+    (bg, br, bb) = bitDiv3 maxCols
     (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
     paletteFunc (PixelRGB8 r g b) =
       PixelRGB8 (r .&. (256 - dr))
                 (g .&. (256 - dg))
                 (b .&. (256 - db))
-
-toColorDict :: Image PixelRGB8 ->  Vector PixelRGB8 -> Map PixelRGB8 PixelRGB8
-toColorDict img pal = foldPx f L.empty img
-  where
-    f xs p = L.insert p (nearestColor p pal) xs
 
 colorCount :: Image PixelRGB8 -> Int
 colorCount img = Set.size s
@@ -158,17 +149,6 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
 -- mean of the parent cluster. So median cut is a bit of a misnomer, since one
 -- of the modifiations is to use the mean.
 
-toAList :: Cluster -> [(PixelRGB8, PixelRGB8)]
-toAList (Cluster _ m _ cs) = foldr f [] cs
-  where
-    f p = ((toRGB8 p, m') :)
-    m' = toRGB8 m
-
-colorDict :: [Cluster] -> Map PixelRGB8 PixelRGB8
-colorDict cs = L.fromList aList
-  where
-    aList = concatMap toAList cs
-
 mkPaletteVec :: [Cluster] -> Vector PixelRGB8
 mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)
 
@@ -226,7 +206,7 @@ volAndDims ps = (dr * dg * db, RGBdbl dr dg db)
     (dr, dg, db) = (br - sr, bg - sg, bb - sb)
 
 mkCluster :: [RGBdbl] -> Cluster
-mkCluster ps = Cluster (v * l) m ds ps
+mkCluster ps = Cluster {value=(v * l), meanColor=m, dims=ds, colors=ps}
   where
     (v, ds) = volAndDims ps
     m = meanRGB ps
@@ -286,7 +266,4 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
       , fromIntegral b1 - fromIntegral b2 )
 
 nearestColor :: PixelRGB8 -> Vector PixelRGB8 -> PixelRGB8
-nearestColor p ps = snd $ minimumBy comp ds
-  where
-    ds = V.map (\px -> (dist2Px px p, px)) ps
-    comp a b = fst a `compare` fst b
+nearestColor p ps  = ps ! V.minIndex (V.map (\px -> dist2Px px p) ps)
