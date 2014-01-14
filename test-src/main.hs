@@ -135,6 +135,10 @@ tiffValidTests =
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
 
+eitherDo :: Either String (IO ()) -> IO ()
+eitherDo (Left str) = putStrLn str
+eitherDo (Right action) = action
+
 gifToImg :: FilePath -> IO ()
 gifToImg path = do
     rez <- readGifImages path
@@ -176,6 +180,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYCbCr8.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromYCbCr8.tiff") tiff
+            putStrLn "-> Gif"
+            eitherDo $ writeColorReducedGifImage (path ++ "._fromYCbCr8.gif") rgb
 
         Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
@@ -196,6 +202,8 @@ imgToImg path = do
                 tiff = encodeTiff img
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK8.png") png
+            putStrLn "-> Gif"
+            eitherDo $ writeColorReducedGifImage (path ++ "._fromCMYK8.gif") rgbimg
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromCMYK8.tiff") tiff
 
@@ -211,6 +219,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGB8.jpg") jpg
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
+            putStrLn "-> Gif"
+            eitherDo $ writeColorReducedGifImage (path ++ "._fromRGB8.gif") img
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromRGB8.tiff") tiff
 

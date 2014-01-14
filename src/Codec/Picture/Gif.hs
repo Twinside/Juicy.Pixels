@@ -589,7 +589,8 @@ encodeGifImages :: GifLooping -> [(Palette, GifDelay, Image Pixel8)]
 encodeGifImages _ [] = Left "No image in list"
 encodeGifImages _ imageList
     | not $ checkGifImageSizes imageList = Left "Gif images have different size"
-    | not $ checkPaletteValidity imageList = Left "Invalid palette size"
+    | not $ checkPaletteValidity imageList =
+        Left $ "Invalid palette size " ++ concat [show (imageWidth pal) ++ " "| (pal, _, _) <- imageList ]
     | any areIndexAbsentFromPalette imageList = Left "Image contains indexes absent from the palette"
 encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where

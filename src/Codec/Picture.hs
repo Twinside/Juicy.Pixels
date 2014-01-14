@@ -52,6 +52,8 @@ module Codec.Picture (
                      , writeGifImage
                      , encodeGifImageWithPalette
                      , writeGifImageWithPalette
+                     , encodeColorReducedGifImage
+                     , writeColorReducedGifImage 
                      , encodeGifImages
                      , writeGifImages
 
@@ -159,6 +161,14 @@ eitherLoad v = inner ""
           inner errAcc ((hdr, f) : rest) = case f v of
                 Left  err  -> inner (errAcc ++ hdr ++ " " ++ err ++ "\n") rest
                 Right rez  -> Right rez
+
+encodeColorReducedGifImage :: Image PixelRGB8 -> Either String L.ByteString
+encodeColorReducedGifImage img = encodeGifImageWithPalette indexed pal
+  where (indexed, pal) = palettize defaultPaletteOptions img
+
+writeColorReducedGifImage :: FilePath -> Image PixelRGB8 -> Either String (IO ())
+writeColorReducedGifImage path img =
+    L.writeFile path <$> encodeColorReducedGifImage img
 
 withImageDecoder :: (NFData a)
                  => (B.ByteString -> Either String a) -> FilePath

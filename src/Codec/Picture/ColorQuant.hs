@@ -9,9 +9,10 @@
 -----------------------------------------------------------------------------
 
 {-# LANGUAGE ExistentialQuantification #-}
-module Codec.Picture.ColorQuant (
-                                  PaletteCreationMethod(..)
+{-# LANGUAGE BangPatterns #-}
+module Codec.Picture.ColorQuant ( PaletteCreationMethod(..)
                                 , PaletteOpts(..)
+                                , defaultPaletteOptions
                                 , palettize
                                 , withPalette
                                 ) where
@@ -27,6 +28,7 @@ import           Data.Word           (Word32)
 import           Data.Vector         (Vector, (!))
 import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Storable as VS
 
 import           Codec.Picture.Types
 
@@ -45,6 +47,13 @@ data PaletteOpts =
               , dithering    :: Bool
               , maxColors    :: Int
               }
+
+defaultPaletteOptions :: PaletteOpts
+defaultPaletteOptions = PaletteOpts
+    { createMethod = ModMedianCut 
+    , dithering    = True
+    , maxColors    = 256
+    }
 
 -- A version of `pixelFold` that does not depend on the pixel coordinates.
 foldPx :: Pixel pixel => (acc -> pixel -> acc) -> acc -> Image pixel -> acc
@@ -72,10 +81,15 @@ withPalette palette ditherOn img = pixelMap paletteIndex img'
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
 colorQuantMMC :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
 colorQuantMMC ditherOn maxCols img
-  | colorCount img <= maxCols = colorQuantExact img
+  | isBelow =
+      (pixelMap okPaletteIndex img, vecToPalette okPaletteVec)
   | ditherOn = (pixelMap paletteIndex dImg, palette)
   | otherwise = (pixelMap paletteIndex img, palette)
   where
+    (okPalette, isBelow) = isColorCountBelow maxCols img
+    okPaletteVec = V.fromList $ Set.toList okPalette
+    okPaletteIndex p = nearestColorIdx p okPaletteVec
+
     palette = vecToPalette paletteVec
     paletteIndex p = nearestColorIdx p paletteVec
     paletteVec = mkPaletteVec cs
@@ -89,7 +103,7 @@ colorQuantMMC ditherOn maxCols img
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
 colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
 colorQuantUQ ditherOn maxCols img
-  | colorCount img <= maxCols = colorQuantExact img
+  {-| colorCount img <= maxCols = colorQuantExact img-}
   | ditherOn = (pixelMap paletteIndex (pixelMapXY dither img), palette)
   | otherwise = (pixelMap paletteIndex img, palette)
   where
@@ -103,19 +117,17 @@ colorQuantUQ ditherOn maxCols img
       (PixelRGB8 (r .&. (256 - dr)) (g .&. (256 - dg)) (b .&. (256 - db)))
       paletteList)
 
--- Use the actual palette of the image.
-colorQuantExact :: Image PixelRGB8 -> (Image Pixel8, Palette)
-colorQuantExact img = (idx, listToPalette cs)
-  where
-    idx = pixelMap paletteIndex img
-    paletteIndex p = fromIntegral $ fromMaybe 0 (elemIndex p cs)
-    cs = foldPx (\ps p -> p : ps) [] img
-
-colorCount :: Image PixelRGB8 -> Int
-colorCount img = Set.size s
-  where
-    s = foldPx f Set.empty img
-    f xs p = Set.insert p xs
+isColorCountBelow :: Int -> Image PixelRGB8 -> (Set.Set PixelRGB8, Bool)
+isColorCountBelow maxColorCount img = go 0 0 Set.empty
+  where rawData = imageData img
+        maxIndex = VS.length rawData
+        
+        go !count !idx !allColors
+            | count > maxColorCount = (Set.empty, False)
+            | idx >= maxIndex - 2 = (allColors, True)
+            | otherwise = go (count + 1) (idx + 3)
+                        $ Set.insert px allColors
+                where px = unsafePixelAt rawData idx 
 
 vecToPalette :: Vector PixelRGB8 -> Palette
 vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
@@ -326,15 +338,15 @@ rgbIntUnpack v = PixelRGB8 r g b
     b = fromIntegral $ v
 
 initCluster :: Image PixelRGB8 -> Cluster
-initCluster img = mkCluster $ VU.generate (w * h) packer
+initCluster img = mkCluster $ VU.generate ((w * h) `div` subSampling) packer
   where samplingFactor = 3
+        subSampling = samplingFactor * samplingFactor
         compCount = componentCount (undefined :: PixelRGB8)
-        w = imageWidth img `div` samplingFactor
-        h = imageWidth img `div` samplingFactor
+        w = imageWidth img
+        h = imageHeight img
         rawData = imageData img
-        packer ix = rgbIntPack . unsafePixelAt rawData
-                  $ ix * compCount * samplingFactor
-
+        packer ix =
+            rgbIntPack . unsafePixelAt rawData $ ix * subSampling * compCount
 
 -- Take the cluster with the largest value = (volume * population) and remove it
 -- from the priority queue. Then subdivide it about its largest axis and put the
