@@ -1,21 +1,16 @@
------------------------------------------------------------------------------
--- |
--- Module      :  Picture.ColorQuant
--- Copyright   :  (c) 2013 Jeffrey Rosenbluth
--- License     :  BSD3
---
--- Palette generation and dithering.
---
------------------------------------------------------------------------------
-
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE BangPatterns #-}
-module Codec.Picture.ColorQuant ( PaletteCreationMethod(..)
-                                , PaletteOpts(..)
-                                , defaultPaletteOptions
-                                , palettize
-                                , withPalette
-                                ) where
+-- | This module provide some color quantisation algorithm
+-- in order to help in the creation of paletted images.
+-- The most important function is `palettize` which will
+-- make everything to create a nice color indexed image
+-- with its palette.
+module Codec.Picture.ColorQuant
+    ( palettize
+    , defaultPaletteOptions
+    , PaletteCreationMethod(..)
+    , PaletteOptions( .. )
+    ) where
 
 import           Control.Applicative (Applicative (..), (<$>))
 import           Data.Bits           (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
@@ -36,77 +31,82 @@ import           Codec.Picture.Types
 ----            Palette Creation and Dithering
 -------------------------------------------------------------------------------
 
--- | Use either a modified median cut two pass algorithm or a uniform
---   quantization one pass algorithm. The medain cut algorithm produces much
---   better results, but the unfiorm qunatization algorithm is faster.
-data PaletteCreationMethod = ModMedianCut | Uniform
+-- | Define which palette creation method is used.
+data PaletteCreationMethod =
+      -- | MedianMeanCut method, provide the best results (visualy)
+      -- at the cost of increased calculations.
+      MedianMeanCut
+      -- | Very fast algorithm (one pass), doesn't provide good
+      -- looking results.
+    | Uniform
 
 -- | To specify how the palette will be created.
-data PaletteOpts =
-  PaletteOpts { createMethod :: PaletteCreationMethod
-              , dithering    :: Bool
-              , maxColors    :: Int
-              }
+data PaletteOptions = PaletteOptions
+    { -- | Algorithm used to find the palette
+      paletteCreationMethod :: PaletteCreationMethod
 
-defaultPaletteOptions :: PaletteOpts
-defaultPaletteOptions = PaletteOpts
-    { createMethod = ModMedianCut 
-    , dithering    = True
-    , maxColors    = 256
+      -- | Do we want to apply the dithering to the
+      -- image. Enabling it often reduce compression
+      -- ratio but enhance the perceived quality
+      -- of the final image.
+    , enableImageDithering  :: Bool
+
+      -- | Maximum number of color we want in the
+      -- palette
+    , paletteColorCount     :: Int
     }
 
--- A version of `pixelFold` that does not depend on the pixel coordinates.
-foldPx :: Pixel pixel => (acc -> pixel -> acc) -> acc -> Image pixel -> acc
-foldPx f acc = pixelFold g acc
-  where g ps _ _ p = f ps p
+-- | Default palette option, which aim at the best quality
+-- and maximum possible colors (256)
+defaultPaletteOptions :: PaletteOptions
+defaultPaletteOptions = PaletteOptions
+    { paletteCreationMethod = MedianMeanCut
+    , enableImageDithering  = True
+    , paletteColorCount     = 256
+    }
 
 -- | Reduces an image to a color palette according to `PaletteOpts` and
 --   returns the /indices image/ along with its `Palette`.
-palettize :: PaletteOpts -> Image PixelRGB8 -> (Image Pixel8, Palette)
-palettize opts img =
-  case createMethod opts of
-    ModMedianCut -> colorQuantMMC (dithering opts) (maxColors opts) img
-    Uniform      -> colorQuantUQ  (dithering opts) (maxColors opts) img
+palettize :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
+palettize opts@PaletteOptions { paletteCreationMethod = method } =
+  case method of
+    MedianMeanCut -> medianMeanCutQuantization opts
+    Uniform       -> uniformQuantization opts
 
--- | Create an \index image\ using the given `Palette` with optional
---   dithering.
-withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image Pixel8
-withPalette palette ditherOn img = pixelMap paletteIndex img'
-  where
-    paletteIndex p = nearestColorIdx p (V.fromList paletteList)
-    paletteList = foldPx (flip (:)) [] palette
-    img' = if ditherOn then pixelMapXY dither img else img
-
--- Modified median cut algorithm with optional ordered dithering. Returns an
+-- | Modified median cut algorithm with optional ordered dithering. Returns an
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
-colorQuantMMC :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
-colorQuantMMC ditherOn maxCols img
+medianMeanCutQuantization :: PaletteOptions -> Image PixelRGB8
+                          -> (Image Pixel8, Palette)
+medianMeanCutQuantization opts img
   | isBelow =
       (pixelMap okPaletteIndex img, vecToPalette okPaletteVec)
-  | ditherOn = (pixelMap paletteIndex dImg, palette)
+  | enableImageDithering opts = (pixelMap paletteIndex dImg, palette)
   | otherwise = (pixelMap paletteIndex img, palette)
   where
-    (okPalette, isBelow) = isColorCountBelow maxCols img
+    maxColorCount = paletteColorCount opts
+    (okPalette, isBelow) = isColorCountBelow maxColorCount img
     okPaletteVec = V.fromList $ Set.toList okPalette
     okPaletteIndex p = nearestColorIdx p okPaletteVec
 
     palette = vecToPalette paletteVec
     paletteIndex p = nearestColorIdx p paletteVec
     paletteVec = mkPaletteVec cs
-    cs =  Set.toList . clusters maxCols $ img
+    cs =  Set.toList . clusters maxColorCount $ img
     dImg = pixelMapXY dither img
 
--- A naive one pass Color Quantiation algorithm - Uniform Quantization.
+-- | A naive one pass Color Quantiation algorithm - Uniform Quantization.
 -- Simply take the most significant bits. The maxCols parameter is rounded
 -- down to the nearest power of 2, and the bits are divided among the three
 -- color channels with priority order green, red, blue. Returns an
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
-colorQuantUQ :: Bool -> Int -> Image PixelRGB8 -> (Image Pixel8, Palette)
-colorQuantUQ ditherOn maxCols img
-  {-| colorCount img <= maxCols = colorQuantExact img-}
-  | ditherOn = (pixelMap paletteIndex (pixelMapXY dither img), palette)
+uniformQuantization :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
+uniformQuantization opts img
+  -- -| colorCount img <= maxCols = colorQuantExact img
+  | enableImageDithering opts =
+        (pixelMap paletteIndex (pixelMapXY dither img), palette)
   | otherwise = (pixelMap paletteIndex img, palette)
   where
+    maxCols = paletteColorCount opts
     palette = listToPalette paletteList
     paletteList = [PixelRGB8 r g b | r <- [0,dr..255]
                                    , g <- [0,dg..255]

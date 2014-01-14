@@ -19,15 +19,10 @@ module Codec.Picture (
                      , generateFoldImage
                      , withImage
 
-                     -- ** Color Quantization
-                     , PaletteCreationMethod(..)
-                     , PaletteOpts(..)
-                     , palettize
-                     , withPalette
-
                      -- * Generic image writing
                      , saveBmpImage
                      , saveJpgImage
+                     , saveGifImage
                      , savePngImage
                      , saveTiffImage
                      , saveRadianceImage
@@ -84,6 +79,11 @@ module Codec.Picture (
                      , decodeHDR
                      , encodeHDR
                      , writeHDR
+
+                     -- ** Color Quantization
+                     , PaletteCreationMethod(..)
+                     , PaletteOptions(..)
+                     , palettize
 
                      -- * Image types and pixel types
                      -- ** Image
@@ -162,10 +162,14 @@ eitherLoad v = inner ""
                 Left  err  -> inner (errAcc ++ hdr ++ " " ++ err ++ "\n") rest
                 Right rez  -> Right rez
 
+-- | Encode a full color image to a gif by applying a color quantization
+-- algorithm on it.
 encodeColorReducedGifImage :: Image PixelRGB8 -> Either String L.ByteString
 encodeColorReducedGifImage img = encodeGifImageWithPalette indexed pal
   where (indexed, pal) = palettize defaultPaletteOptions img
 
+-- | Write a full color image to a gif by applying a color quantization
+-- algorithm on it.
 writeColorReducedGifImage :: FilePath -> Image PixelRGB8 -> Either String (IO ())
 writeColorReducedGifImage path img =
     L.writeFile path <$> encodeColorReducedGifImage img
@@ -238,6 +242,10 @@ readHDR = withImageDecoder decodeHDR
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()
 saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
+
+-- | Save an image to a '.gif' file, will do everything it can to save it.
+saveGifImage :: FilePath -> DynamicImage -> Either String (IO ())
+saveGifImage path img = L.writeFile path <$> imageToGif img
 
 -- | Save an image to a '.tiff' file, will do everything it can to save an image.
 saveTiffImage :: FilePath -> DynamicImage -> IO ()
