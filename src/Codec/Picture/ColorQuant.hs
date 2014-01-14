@@ -7,6 +7,7 @@
 -- Palette generation and dithering.
 --
 -----------------------------------------------------------------------------
+
 {-# LANGUAGE ExistentialQuantification #-}
 module Codec.Picture.ColorQuant (
                                   PaletteCreationMethod(..)
@@ -15,19 +16,16 @@ module Codec.Picture.ColorQuant (
                                 , withPalette
                                 ) where
 
-import           Control.Applicative( Applicative( .. ), (<$>) )
-import Data.Bits
-        ( (.&.), (.|.)
-        , unsafeShiftL
-        , unsafeShiftR )
-import           Data.List                 ( elemIndex )
-import           Data.Maybe                ( fromMaybe )
-import           Data.Set                  ( Set )
-import qualified Data.Set as Set
-import Data.Word( Word32 )
+import           Control.Applicative (Applicative (..), (<$>))
+import           Data.Bits           (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
+import           Data.List           (elemIndex)
+import           Data.Maybe          (fromMaybe)
+import           Data.Set            (Set)
+import qualified Data.Set            as Set
+import           Data.Word           (Word32)
 
-import           Data.Vector               ( Vector, (!) )
-import qualified Data.Vector as V
+import           Data.Vector         (Vector, (!))
+import qualified Data.Vector         as V
 import qualified Data.Vector.Unboxed as VU
 
 import           Codec.Picture.Types
@@ -54,15 +52,15 @@ foldPx f acc = pixelFold g acc
   where g ps _ _ p = f ps p
 
 -- | Reduces an image to a color palette according to `PaletteOpts` and
---   return the "indices image" along with its `Palette`.
+--   returns the /indices image/ along with its `Palette`.
 palettize :: PaletteOpts -> Image PixelRGB8 -> (Image Pixel8, Palette)
 palettize opts img =
   case createMethod opts of
     ModMedianCut -> colorQuantMMC (dithering opts) (maxColors opts) img
     Uniform      -> colorQuantUQ  (dithering opts) (maxColors opts) img
 
--- Reduce an image to using the provided color palette with optional
--- dithering.
+-- | Create an \index image\ using the given `Palette` with optional
+--   dithering.
 withPalette :: Palette -> Bool -> Image PixelRGB8 -> Image Pixel8
 withPalette palette ditherOn img = pixelMap paletteIndex img'
   where
@@ -105,6 +103,7 @@ colorQuantUQ ditherOn maxCols img
       (PixelRGB8 (r .&. (256 - dr)) (g .&. (256 - dg)) (b .&. (256 - db)))
       paletteList)
 
+-- Use the actual palette of the image.
 colorQuantExact :: Image PixelRGB8 -> (Image Pixel8, Palette)
 colorQuantExact img = (idx, listToPalette cs)
   where
@@ -124,8 +123,6 @@ vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
 listToPalette :: [PixelRGB8] -> Palette
 listToPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
 
-
-
 bitDiv3 :: Int -> (Int, Int, Int)
 bitDiv3 n = case r of
             0 -> (q, q, q)
@@ -141,8 +138,8 @@ bitDiv3 n = case r of
 -------------------------------------------------------------------------------
 
 -- Add a dither mask to an image for ordered dithering.
--- Using a small, spatially stable dithering algorithm based on magic numbers
--- and arithmetic inspired by the *a dither* algorithm of Øyvind Kolås,
+-- Uses a small, spatially stable dithering algorithm based on magic numbers
+-- and arithmetic inspired by the /a dither/ algorithm of Øyvind Kolås,
 -- pippin@gimp.org, 2013. See, http://pippin.gimp.org/a_dither/.
 dither :: Int -> Int -> PixelRGB8 -> PixelRGB8
 dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
@@ -158,8 +155,12 @@ dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
     y' = 28084 * y
 
 -------------------------------------------------------------------------------
-----            Small modification of fold
+----            Small modification of foldl package by Gabriel Gonzalez
 -------------------------------------------------------------------------------
+
+-- Modification to Control.foldl by Gabriel Gonzalez copyright 2013, BSD3.
+-- http://hackage.haskell.org/package/foldl-1.0.1/docs/Control-Foldl.html
+
 {-| Efficient representation of a left fold that preserves the fold's step
     function, initial accumulator, and extraction function
 
@@ -177,13 +178,13 @@ fold :: Fold PackedRGB b -> VU.Vector PackedRGB -> b
 fold (Fold step begin done) = done . VU.foldl' step begin
 {-# INLINE fold #-}
 
-{- 
+{-
 F.foldr :: (a -> b -> b) -> b -> t a -> b
 
 fold :: (Foldable f) => Fold a b -> f a -> b
 fold (Fold step begin done) as = F.foldr step' done as begin
   where step' x k z = k $! step z x
- -}
+-}
 
 data Pair a b = Pair !a !b
 
@@ -201,7 +202,7 @@ instance Applicative (Fold a) where
         in  Fold step begin done
     {-# INLINABLE (<*>) #-}
 
--- | Like 'length', except with a more general 'Num' return value
+{- | Like 'length', except with a more general 'Num' return value -}
 intLength :: Fold a Int
 intLength = Fold (\n _ -> n + 1) 0 id
 
@@ -311,7 +312,7 @@ subdivide cluster = (mkCluster px1, mkCluster px2)
       BAxis -> (\(PixelRGB8 _ _ b) -> fromIntegral b < mb)
 
 rgbIntPack :: PixelRGB8 -> PackedRGB
-rgbIntPack (PixelRGB8 r g b) = 
+rgbIntPack (PixelRGB8 r g b) =
     wr `unsafeShiftL` (2 * 8) .|. wg `unsafeShiftL` 8 .|. wb
   where wr = fromIntegral r
         wg = fromIntegral g
@@ -365,4 +366,3 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
 
 nearestColorIdx :: PixelRGB8 -> Vector PixelRGB8 -> Pixel8
 nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (\px -> dist2Px px p) ps)
-
