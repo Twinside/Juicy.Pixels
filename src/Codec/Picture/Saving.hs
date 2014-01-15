@@ -3,6 +3,7 @@
 -- with automatic color space/sample format conversion done automatically.
 module Codec.Picture.Saving( imageToJpg
                            , imageToPng
+                           , imageToGif
                            , imageToBitmap
                            , imageToTiff
                            , imageToRadiance
@@ -14,6 +15,8 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
 import Codec.Picture.Png
+import Codec.Picture.Gif
+import Codec.Picture.ColorQuant
 import Codec.Picture.HDR
 import Codec.Picture.Types
 import Codec.Picture.Tiff
@@ -163,3 +166,22 @@ imageToBitmap (ImageYA16   img) = imageToBitmap . ImageYA8 $ from16to8 img
 imageToBitmap (ImageRGB16  img) = imageToBitmap . ImageRGB8 $ from16to8 img
 imageToBitmap (ImageRGBA16 img) = imageToBitmap . ImageRGBA8 $ from16to8 img
 
+
+-- | This function will try to do anything to encode an image
+-- as a gif, make all color conversion and quantization. Equivalent
+-- of 'decodeImage' for gif encoding
+imageToGif :: DynamicImage -> Either String L.ByteString
+imageToGif (ImageYCbCr8 img) = imageToGif . ImageRGB8 $ convertImage img
+imageToGif (ImageCMYK8  img) = imageToGif . ImageRGB8 $ convertImage img
+imageToGif (ImageCMYK16 img) = imageToGif . ImageRGB16 $ convertImage img
+imageToGif (ImageRGBF   img) = imageToGif . ImageRGB8 $ toStandardDef img
+imageToGif (ImageRGB8   img) = encodeGifImageWithPalette indexed pal
+  where (indexed, pal) = palettize defaultPaletteOptions img
+imageToGif (ImageRGBA8  img) = imageToGif . ImageRGB8 $ dropAlphaLayer img
+imageToGif (ImageY8     img) = Right $ encodeGifImage img
+imageToGif (ImageYF     img) = imageToGif . ImageY8 $ greyScaleToStandardDef img
+imageToGif (ImageYA8    img) = imageToGif . ImageY8 $ dropAlphaLayer img
+imageToGif (ImageY16    img) = imageToGif . ImageY8 $ from16to8 img
+imageToGif (ImageYA16   img) = imageToGif . ImageYA8 $ from16to8 img
+imageToGif (ImageRGB16  img) = imageToGif . ImageRGB8 $ from16to8 img
+imageToGif (ImageRGBA16 img) = imageToGif . ImageRGBA8 $ from16to8 img

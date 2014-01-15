@@ -10,7 +10,7 @@
 --
 -- For an easy image writing use the 'saveBmpImage', 'saveJpgImage' & 'savePngImage'
 -- functions
-module Codec.Picture ( 
+module Codec.Picture (
                      -- * Generic functions
                        readImage
                      , decodeImage
@@ -22,19 +22,20 @@ module Codec.Picture (
                      -- * Generic image writing
                      , saveBmpImage
                      , saveJpgImage
+                     , saveGifImage
                      , savePngImage
                      , saveTiffImage
                      , saveRadianceImage
 
                      -- * Specific image format functions
-                     -- ** Bitmap handling 
+                     -- ** Bitmap handling
                      , BmpEncodable
                      , writeBitmap
                      , encodeBitmap
                      , readBitmap
                      , decodeBitmap
-                     , encodeDynamicBitmap 
-                     , writeDynamicBitmap 
+                     , encodeDynamicBitmap
+                     , writeDynamicBitmap
 
                      -- ** Gif handling
                      , readGif
@@ -42,9 +43,18 @@ module Codec.Picture (
                      , decodeGif
                      , decodeGifImages
 
+                     , encodeGifImage
+                     , writeGifImage
+                     , encodeGifImageWithPalette
+                     , writeGifImageWithPalette
+                     , encodeColorReducedGifImage
+                     , writeColorReducedGifImage 
+                     , encodeGifImages
+                     , writeGifImages
+
                      -- ** Jpeg handling
                      , readJpeg
-                     , decodeJpeg 
+                     , decodeJpeg
                      , encodeJpeg
                      , encodeJpegAtQuality
 
@@ -53,6 +63,7 @@ module Codec.Picture (
                      , readPng
                      , decodePng
                      , writePng
+                     , encodePalettedPng
                      , encodeDynamicPng
                      , writeDynamicPng
 
@@ -69,10 +80,16 @@ module Codec.Picture (
                      , encodeHDR
                      , writeHDR
 
+                     -- ** Color Quantization
+                     , PaletteCreationMethod(..)
+                     , PaletteOptions(..)
+                     , palettize
+
                      -- * Image types and pixel types
                      -- ** Image
                      , Image( .. )
                      , DynamicImage( .. )
+                     , Palette
                      -- ** Pixels
                      , Pixel( .. )
                      -- $graph
@@ -100,8 +117,22 @@ import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
 import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
-                        , encodeDynamicPng , writeDynamicPng )
-import Codec.Picture.Gif( decodeGif, decodeGifImages )
+                        , encodeDynamicPng
+                        , encodePalettedPng
+                        , writeDynamicPng
+                        )
+
+import Codec.Picture.Gif( decodeGif
+                        , decodeGifImages
+                        , encodeGifImage
+                        , encodeGifImageWithPalette
+                        , encodeGifImages
+
+                        , writeGifImage
+                        , writeGifImageWithPalette
+                        , writeGifImages
+                        )
+
 import Codec.Picture.HDR( decodeHDR
                         , encodeHDR
                         , writeHDR
@@ -112,6 +143,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , writeTiff )
 import Codec.Picture.Saving
 import Codec.Picture.Types
+import Codec.Picture.ColorQuant
 -- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
@@ -129,6 +161,18 @@ eitherLoad v = inner ""
           inner errAcc ((hdr, f) : rest) = case f v of
                 Left  err  -> inner (errAcc ++ hdr ++ " " ++ err ++ "\n") rest
                 Right rez  -> Right rez
+
+-- | Encode a full color image to a gif by applying a color quantization
+-- algorithm on it.
+encodeColorReducedGifImage :: Image PixelRGB8 -> Either String L.ByteString
+encodeColorReducedGifImage img = encodeGifImageWithPalette indexed pal
+  where (indexed, pal) = palettize defaultPaletteOptions img
+
+-- | Write a full color image to a gif by applying a color quantization
+-- algorithm on it.
+writeColorReducedGifImage :: FilePath -> Image PixelRGB8 -> Either String (IO ())
+writeColorReducedGifImage path img =
+    L.writeFile path <$> encodeColorReducedGifImage img
 
 withImageDecoder :: (NFData a)
                  => (B.ByteString -> Either String a) -> FilePath
@@ -162,10 +206,10 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("HDR", decodeHDR)
                                  ,("Tiff", decodeTiff)
                                  ]
-    
+
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
-readPng = withImageDecoder decodePng 
+readPng = withImageDecoder decodePng
 
 -- | Helper function trying to load a gif file from a file on disk.
 readGif :: FilePath -> IO (Either String DynamicImage)
@@ -199,6 +243,10 @@ readHDR = withImageDecoder decodeHDR
 saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()
 saveJpgImage quality path img = L.writeFile path $ imageToJpg quality img
 
+-- | Save an image to a '.gif' file, will do everything it can to save it.
+saveGifImage :: FilePath -> DynamicImage -> Either String (IO ())
+saveGifImage path img = L.writeFile path <$> imageToGif img
+
 -- | Save an image to a '.tiff' file, will do everything it can to save an image.
 saveTiffImage :: FilePath -> DynamicImage -> IO ()
 saveTiffImage path img = L.writeFile path $ imageToTiff img
@@ -217,10 +265,10 @@ saveRadianceImage path = L.writeFile path . imageToRadiance
 -- >        Left _ -> return ()
 -- >        Right img -> savePngImage pathOut img
 --
-savePngImage :: String -> DynamicImage -> IO ()
+savePngImage :: FilePath -> DynamicImage -> IO ()
 savePngImage path img = L.writeFile path $ imageToPng img
 
 -- | Save an image to a '.bmp' file, will do everything it can to save an image.
-saveBmpImage :: String -> DynamicImage -> IO ()
+saveBmpImage :: FilePath -> DynamicImage -> IO ()
 saveBmpImage path img = L.writeFile path $ imageToBitmap img
 

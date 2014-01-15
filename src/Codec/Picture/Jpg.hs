@@ -10,7 +10,6 @@ module Codec.Picture.Jpg( decodeJpeg
                         , encodeJpeg
 
                         , jpgMachineStep
-                        , JpgDecoderState( JpgDecoderState )
                         ) where
 
 import Control.Arrow( (>>>) )
