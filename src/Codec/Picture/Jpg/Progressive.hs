@@ -1,6 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Codec.Picture.Jpg.Progressive
     ( JpgUnpackerParameter( .. )
     , progressiveUnpack
@@ -93,7 +94,7 @@ decodeFirstAc params _ block _ = unpack startIndex
                     lift . (block `MS.unsafeWrite` n') $ fromIntegral val
                     unpack $ n' + 1
 
-decodeRefineAc :: JpgUnpackerParameter
+decodeRefineAc :: forall a s. JpgUnpackerParameter
                -> a
                -> MutableMacroBlock s Int16
                -> Int32
@@ -129,7 +130,10 @@ decodeRefineAc params _ block eobrun
         unpack idx = do
             rrrrssss <- decodeRrrrSsss $ acHuffmanTree params
             case rrrrssss of
-              (0xF, 0) -> error "Dunno"
+              (0xF, 0) -> do
+                idx' <- updateCoeffs 0x10 idx
+                unpack $ idx'
+
               (  r, 0) -> do
                   lowBits <- unpackInt r
                   let newEobRun = (1 `unsafeShiftL` r) + lowBits - 1
@@ -137,12 +141,13 @@ decodeRefineAc params _ block eobrun
                   pure newEobRun
                          
               (  r, _) -> do
-                  idx' <- updateCoeffs r idx
+                  idx' <- updateCoeffs (fromIntegral r) idx
                   val <- getBitVal
                   when (idx <= maxIndex) $
                        (lift $ (block `MS.unsafeWrite` idx') val)
                   unpack $ idx' + 1
 
+        updateCoeffs :: Int -> Int -> BoolReader s Int
         updateCoeffs r idx
             | r   < 0        = pure idx
             | idx > maxIndex = pure idx

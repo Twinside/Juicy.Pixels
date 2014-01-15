@@ -307,7 +307,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                          , successiveApprox = (approxLow, approxHigh)
                          , readerIndex = blobId
                          , indiceVector =
-                             if selectionLow == 0 then 0 else 1
+                             if scanCount == 1 then 1 else 0
                          , coefficientRange =
                              ( fromIntegral selectionLow
                              , fromIntegral selectionHigh )
