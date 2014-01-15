@@ -52,6 +52,12 @@ module Codec.Picture (
                      , encodeGifImages
                      , writeGifImages
 
+                     -- *** Gif animation
+                     , GifDelay
+                     , GifLooping( .. )
+                     , encodeGifAnimation
+                     , writeGifAnimation
+
                      -- ** Jpeg handling
                      , readJpeg
                      , decodeJpeg
@@ -122,7 +128,9 @@ import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
                         , writeDynamicPng
                         )
 
-import Codec.Picture.Gif( decodeGif
+import Codec.Picture.Gif( GifDelay
+                        , GifLooping( .. )
+                        , decodeGif
                         , decodeGifImages
                         , encodeGifImage
                         , encodeGifImageWithPalette
@@ -173,6 +181,24 @@ encodeColorReducedGifImage img = encodeGifImageWithPalette indexed pal
 writeColorReducedGifImage :: FilePath -> Image PixelRGB8 -> Either String (IO ())
 writeColorReducedGifImage path img =
     L.writeFile path <$> encodeColorReducedGifImage img
+
+
+-- | Helper function to create a gif animation.
+-- All the images of the animation are separated
+-- by the same delay.
+encodeGifAnimation :: GifDelay -> GifLooping
+                   -> [Image PixelRGB8] -> Either String (L.ByteString)
+encodeGifAnimation delay looping lst =
+    encodeGifImages looping
+        [(pal, delay, img)
+                | (img, pal) <- palettize defaultPaletteOptions <$> lst]
+
+-- | Helper function to write a gif animtion on disk.
+-- See encodeGifAnimation
+writeGifAnimation :: FilePath -> GifDelay -> GifLooping
+                  -> [Image PixelRGB8] -> Either String (IO ())
+writeGifAnimation path delay looping img =
+    L.writeFile path <$> encodeGifAnimation delay looping img
 
 withImageDecoder :: (NFData a)
                  => (B.ByteString -> Either String a) -> FilePath
