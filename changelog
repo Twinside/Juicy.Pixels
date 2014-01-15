@@ -1,0 +1,76 @@
+-*-change-log-*-
+
+v3.1.3
+ * Adding palette creation (color Quantization) by Jeffrey Rosenbluth.
+ * Adding support for Gif writing
+ * Adding support for Gif animation writing
+
+v3.1.2 December 2013
+ * Adding support for progressive jpeg.
+ * Adding support for plane separated MCU jpeg.
+ * Adding support for grayscale 32bit decoding (with reduced precision to
+	16bits).
+ * Fixing erroneous bitmap decoding in case of excessive padding (#31).
+
+v3.1.1.1 October 2013
+ * Fixing some spurious crash while decoding some JPEG image (#30).
+
+v3.1.1  October 2013
+ * Adding uncompresed TIFF saving.
+ * Adding error message to avoid loading progressive loading.
+ * Made MMAP optional, controled by a cabal flag.
+ * adding dynamicPixelMap helper function.
+ * Handling png transparency using color key (#26).
+
+v3.1 June 2013
+ * Adding basic handling of 16bits pixel types.
+ * Addition of Tiff reading:
+    - 2, 4, 8, 16 bit depth reading (planar and contiguous for each).
+    - CMYK, YCbCr, RGB, Paletted, Greyscale.
+    - Uncompressed, PackBits, LZW.
+ * Some new tiny helper functions (nothing too fancy).
+ * Huge performances improvement.
+
+v3.0 January 2013
+ * Simplification of the 'Pixel' typeclass, removed many unused part.
+ * Removal of some Storable instances for pixel types.
+ * Amelioration of the documentation.
+ * Support for High Dynamic range images, opening support for different pixel
+   base component.
+ * Support for the Radiance file format (or RGBE, file extension .pic and .hdr).
+ * Dropped the cereal library in favor of the last version of Binary, present 
+   in the Haskell platform. Every dependencies are now present in the platform.
+
+v2.0.2 October 2012
+ * Decoding of interleaved gif image.
+ * Decoding delta coded gif animation.
+ * Bumping dependencies.
+
+v2.0.1 September 2012
+ * Documentation enhancements.
+ * Fixing some huge gif file loading.
+ * Fixing performance problem of Bitmap and Jpeg savings.
+
+v2.0 September 2012
+ * New extractComponent version with type safe plane extraction.
+ * Gif file reading.
+
+v1.3 June 2012
+ * Fix extractComponent function.
+ * Adding saving for YA8 functions.
+
+v1.2.1 April 2012
+ * Dependencies version bump.
+ * Dropping array dependency.
+
+v1.2 March 2012
+ * Adding a generateImage helper function.
+ * Adding NFData instances for image.
+ * Adding JPEG writing.
+
+v1.1 February 2012
+ * Switching to vector for arrays, big performance improvement.
+
+v1.0 January 2012
+ * Initial release
+

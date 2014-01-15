@@ -60,6 +60,7 @@ Status
 
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.
+    * Writing single & animated Gif images.
 
  - Radiance (.pic, .hdr)
     * Reading
