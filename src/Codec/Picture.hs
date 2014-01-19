@@ -113,6 +113,9 @@ module Codec.Picture (
                      , PixelYCbCr8( .. )
                      , PixelCMYK8( .. )
                      , PixelCMYK16( .. )
+
+                     -- * Foreign unsafe import
+                     , imageFromUnsafePtr
                      ) where
 
 import Control.Applicative( (<$>) )
@@ -152,6 +155,7 @@ import Codec.Picture.Tiff( decodeTiff
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import Codec.Picture.ColorQuant
+import Codec.Picture.VectorByteConversion( imageFromUnsafePtr )
 -- import System.IO ( withFile, IOMode(ReadMode) )
 #ifdef WITH_MMAP_BYTESTRING
 import System.IO.MMap ( mmapFileByteString )
