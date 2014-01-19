@@ -7,7 +7,7 @@ module Codec.Picture.Jpg.Progressive
     , progressiveUnpack
     ) where
 
-import Control.Applicative( pure, (<$>), (<*>) )
+import Control.Applicative( pure, (<$>) )
 import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
@@ -27,20 +27,22 @@ import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.DefaultTable
 
-mcuIndexer :: JpgComponent -> DctComponent -> Int -> VS.Vector Int
-mcuIndexer param kind mcuWidth = VS.fromListN (mcuWidth * th) indexes
+createMcuLineIndices :: JpgComponent -> Int -> Int -> V.Vector (VS.Vector Int)
+createMcuLineIndices param imgWidth mcuWidth =
+ V.fromList $ VS.fromList <$> [indexSolo, indexMulti]
   where compW = fromIntegral $ horizontalSamplingFactor param
         compH = fromIntegral $ verticalSamplingFactor param
-        th = compW * compH
+        imageBlockSize = (imgWidth + 7) `div` 8
 
-        index AcComponent mcu y x = mcu * th + x + y * compW
-        index DcComponent mcu y x = (mcu + y * mcuWidth) * compW + x
-        indexes =
-            index kind <$> [0 .. mcuWidth - 1] <*> [0 .. compH - 1] <*> [0 .. compW - 1]
+        indexSolo =
+            [y * mcuWidth * compW + x
+                | y <- [0 .. compH - 1], x <- [0 .. imageBlockSize - 1]]
 
-createMcuLineIndices :: JpgComponent -> Int -> V.Vector (VS.Vector Int)
-createMcuLineIndices comp mcuWidth =
-  V.fromList [ mcuIndexer comp part mcuWidth | part <- [DcComponent, AcComponent] ]
+        indexMulti = 
+            [(mcu + y * mcuWidth) * compW + x
+                | mcu <- [0 .. mcuWidth - 1]
+                , y <- [0 .. compH - 1]
+                , x <- [0 .. compW - 1] ]
 
 decodeFirstDC :: JpgUnpackerParameter
               -> MS.STVector s Int16
@@ -255,15 +257,18 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
             let componentData = allBlocks !! componentNumber
                 indexVector =
                     componentIndices componentData ! indiceVector unpackParam
-                realIndex = indexVector VS.! (writeIndex + blockIndex unpackParam)
-                writeBlock = 
-                    componentBlocks componentData ! realIndex
-            (eobrun', state) <-
-                runBoolReaderWith boolState $
-                    unpacker unpackParam dcCoeffs writeBlock eobrun
+                maxIndexLength = VS.length indexVector
+            if writeIndex + blockIndex unpackParam >= maxIndexLength then
+              return ()
+            else do
+               let realIndex = indexVector VS.! (writeIndex + blockIndex unpackParam)
+                   writeBlock = componentBlocks componentData ! realIndex
+               (eobrun', state) <-
+                   runBoolReaderWith boolState $
+                       unpacker unpackParam dcCoeffs writeBlock eobrun
 
-            (readers `M.write` readerIndex unpackParam) state
-            (eobRuns `MS.write` readerIndex unpackParam) eobrun'
+               (readers `M.write` readerIndex unpackParam) state
+               (eobRuns `MS.write` readerIndex unpackParam) eobrun'
 
         -- Update the write indices
         forM_ allBlocks $ \comp -> do
@@ -292,20 +297,22 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
     return img
 
   where imgComponentCount = length $ jpgComponents frame
-        mcuBlockWidth = maxiW * dctBlockSize
-        mcuBlockHeight = maxiH * dctBlockSize
 
         imgWidth = fromIntegral $ jpgWidth frame
         imgHeight = fromIntegral $ jpgHeight frame
-        imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
-        imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
+
+        imageBlockWidth = (imgWidth + 7) `div` 8
+        imageBlockHeight = (imgHeight + 7) `div` 8
+
+        imageMcuWidth = (imageBlockWidth + (maxiW - 1)) `div` maxiW
+        imageMcuHeight = (imageBlockHeight + (maxiH - 1)) `div` maxiH
 
         allocateWorkingBlocks (ix, comp) = do
             let blockCount = hSample * vSample * imageMcuWidth
             blocks <- V.replicateM blockCount createEmptyMutableMacroBlock
             return $ ComponentData 
                 { componentBlocks = blocks
-                , componentIndices = createMcuLineIndices comp imageMcuWidth
+                , componentIndices = createMcuLineIndices comp imgWidth imageMcuWidth
                 , componentBlockCount = hSample * vSample
                 , componentId = ix
                 }

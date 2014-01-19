@@ -306,7 +306,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                          , successiveApprox = (approxLow, approxHigh)
                          , readerIndex = blobId
                          , indiceVector =
-                             if scanCount == 1 then 1 else 0
+                             if scanCount == 1 then 0 else 1
                          , coefficientRange =
                              ( fromIntegral selectionLow
                              , fromIntegral selectionHigh )
@@ -373,10 +373,12 @@ decodeImage frame quants lst outImage = do
         compReader = initBoolStateJpg . B.concat $ L.toChunks str
         maxiW = maximum [fst $ subSampling c | (c,_) <- params]
         maxiH = maximum [snd $ subSampling c | (c,_) <- params]
-        mcuBlockWidth = maxiW * dctBlockSize
-        mcuBlockHeight = maxiH * dctBlockSize
-        imageMcuWidth = (imgWidth + mcuBlockWidth - 1) `div` mcuBlockWidth
-        imageMcuHeight = (imgHeight + mcuBlockHeight - 1) `div` mcuBlockHeight 
+
+        imageBlockWidth = (imgWidth + 7) `div` 8
+        imageBlockHeight = (imgHeight + 7) `div` 8
+
+        imageMcuWidth = (imageBlockWidth + (maxiW - 1)) `div` maxiW
+        imageMcuHeight = (imageBlockHeight + (maxiH - 1)) `div` maxiH
 
     execBoolReader compReader $ rasterMap imageMcuWidth imageMcuHeight $ \x y -> do
       resetLeft <- lift $ readSTRef resetCounter

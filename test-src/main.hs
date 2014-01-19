@@ -87,7 +87,7 @@ gifAnimationTest =
   where img = [(greyPalette, 20, greyScaleWitness (i * 10)) | i <- [0 .. 20]]
 
 jpegValidTests :: [FilePath]
-jpegValidTests = [ "explore_jpeg.jpg"
+jpegValidTests = [ "explore_jpeg.jpg", "dunno.jpg"
                  , "16x16jpeg.jpg", "8x8jpeg.jpg", "avatar.jpg"
                  , "fenek.jpg", "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg", "JPEG_example_JPG_RIP_025.jpg"
