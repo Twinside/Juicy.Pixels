@@ -4,6 +4,7 @@ v3.1.3
  * Adding palette creation (color Quantization) by Jeffrey Rosenbluth.
  * Adding support for Gif writing
  * Adding support for Gif animation writing
+ * Fixing some progressive Jpeg decoding problems (#39)
 
 v3.1.2 December 2013
  * Adding support for progressive jpeg.
