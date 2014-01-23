@@ -118,15 +118,14 @@ uniformQuantization opts img
       paletteList)
 
 isColorCountBelow :: Int -> Image PixelRGB8 -> (Set.Set PixelRGB8, Bool)
-isColorCountBelow maxColorCount img = go 0 0 Set.empty
+isColorCountBelow maxColorCount img = go 0 Set.empty
   where rawData = imageData img
         maxIndex = VS.length rawData
         
-        go !count !idx !allColors
-            | count > maxColorCount = (Set.empty, False)
+        go !idx !allColors
+            | Set.size allColors > maxColorCount = (Set.empty, False)
             | idx >= maxIndex - 2 = (allColors, True)
-            | otherwise = go (count + 1) (idx + 3)
-                        $ Set.insert px allColors
+            | otherwise = go (idx + 3) $ Set.insert px allColors
                 where px = unsafePixelAt rawData idx 
 
 vecToPalette :: Vector PixelRGB8 -> Palette
