@@ -23,9 +23,14 @@ toByteString vec = S.PS (castForeignPtr ptr) offset (len * size)
   where (ptr, offset, len) = unsafeToForeignPtr vec
         size = sizeOf (undefined :: a)
 
+-- | Import a image from an unsafe pointer
+-- The pointer must have a size of width * height * componentCount px
 imageFromUnsafePtr :: forall px
                     . (Pixel px, (PixelBaseComponent px) ~ Word8)
-                   => Int -> Int -> ForeignPtr Word8 -> Image px
+                   => Int -- ^ Width in pixels
+                   -> Int -- ^ Height in pixels
+                   -> ForeignPtr Word8 -- ^ Pointer to the raw data
+                   -> Image px
 imageFromUnsafePtr width height ptr =
     Image width height $ unsafeFromForeignPtr0 ptr size
       where compCount = componentCount (undefined :: px)

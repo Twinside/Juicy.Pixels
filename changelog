@@ -1,6 +1,10 @@
 -*-change-log-*-
 
-v3.1.3
+v3.1.3.1 January 2014
+ * Fixing color counting function in color quantisation.
+ * Adding missing documentation for foreign pointer import.
+
+v3.1.3 January 2014
  * Adding palette creation (color Quantization) by Jeffrey Rosenbluth.
  * Adding support for Gif writing
  * Adding support for Gif animation writing
