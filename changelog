@@ -1,5 +1,9 @@
 -*-change-log-*-
 
+v3.1.3.2 January 2014
+ * Hacking around Binary to accept old version of it, down to version 0.5
+   allowing Juicy.Pixels to be compiled with GHC 6.3
+
 v3.1.3.1 January 2014
  * Fixing color counting function in color quantisation.
  * Adding missing documentation for foreign pointer import.
