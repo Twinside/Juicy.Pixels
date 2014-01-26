@@ -1,5 +1,5 @@
 Name:                JuicyPixels
-Version:             3.1.3.1
+Version:             3.1.3.2
 Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, gif, tiff and radiance)
 Description:
     <<data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADABAMAAACg8nE0AAAAElBMVEUAAABJqDSTWEL/qyb///8AAABH/1GTAAAAAXRSTlMAQObYZgAAAN5JREFUeF7s1sEJgFAQxFBbsAV72v5bEVYWPwT/XDxmCsi7zvHXavYREBDI3XP2GgICqBBYuwIC+/rVayPUAyAg0HvIXBcQoDFDGnUBgWQQ2Bx3AYFaRoBpAQHWb3bt2ARgGAiCYFFuwf3X5HA/McgGJWI2FdykCv4aBYzmKwDwvl6NVmUAAK2vlwEALK7fo88GANB6HQsAAAAAAAAA7P94AQCzswEAAAAAAAAAAAAAAAAAAICzh4UAO4zWAYBfRutHA4Bn5C69JhowAMGoBaMWDG0wCkbBKBgFo2AUAACPmegUST/IJAAAAABJRU5ErkJggg==>>
@@ -26,11 +26,39 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v3.1.3.1
+    Tag:       v3.1.3.2
 
 Flag Mmap
     Description: Enable the file loading via mmap (memory map)
     Default: False
+
+Executable imageTest
+  hs-source-dirs: test-src
+  Default-Language: Haskell2010
+  Main-Is: main.hs
+  Ghc-options: -O3 -Wall
+  -- -O3 -Wall
+  --
+  -- -ddump-simpl
+  --
+  Include-Dirs: src/Codec/Picture
+  -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
+  Build-depends: base                >= 4       && < 5,
+                 bytestring          >= 0.9     && < 0.11,
+                 mtl                 >= 1.1     && < 2.2,
+                 binary              >= 0.6.4.0 && < 0.8,
+                 zlib                >= 0.5.3.1 && < 0.6,
+                 transformers        >= 0.2.2   && < 0.4,
+                 vector              >= 0.9    && < 0.11,
+                 primitive           >= 0.5     && < 0.6,
+                 deepseq             >= 1.1     && < 1.4,
+                 filepath            >= 1.3     && < 1.4,
+                 criterion           >= 0.6.2   && < 0.7,
+                 JuicyPixels
+
+  if flag(Mmap)
+    Build-depends: mmap
+    CC-Options: "-DWITH_MMAP_BYTESTRING"
 
 Library
   hs-source-dirs: src
