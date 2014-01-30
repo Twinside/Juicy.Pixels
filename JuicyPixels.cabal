@@ -15,7 +15,7 @@ Category:            Codec, Graphics
 Build-type:          Simple
 
 -- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       >= 1.16
+Cabal-version:       >= 1.10
 
 Extra-source-files: changelog
 
