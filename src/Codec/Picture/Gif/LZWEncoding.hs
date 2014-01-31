@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, CPP #-}
 module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
 
 import Control.Applicative( (<$>) )
@@ -7,7 +7,11 @@ import qualified Data.ByteString.Lazy as L
 import Data.Maybe( fromMaybe )
 import Data.Monoid( mempty )
 import Data.Word( Word8 )
+#if MIN_VERSION_containers(0,5,0)
 import qualified Data.IntMap.Strict as I
+#else
+import qualified Data.IntMap as I
+#endif
 import qualified Data.Vector.Storable as V
 
 import Codec.Picture.BitWriter
