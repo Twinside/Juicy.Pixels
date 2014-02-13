@@ -648,7 +648,7 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 --
 -- for example, to create a small gradient image :
 --
--- > imageCreator :: String -> Image PixelRGB8
+-- > imageCreator :: String -> IO ()
 -- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
 -- >    where pixelRenderer x y = PixelRGB8 x y 128
 --
@@ -1834,4 +1834,3 @@ toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
  where coeff = exposure * (exposure / maxBrightness + 1.0) / (exposure + 1.0);
        maxBrightness = pixelFold (\luma _ _ px -> max luma $ computeLuma px) 0 img
        scaledData = V.map (* coeff) $ imageData img
-
