@@ -11,7 +11,7 @@ License:             BSD3
 License-file:        LICENSE
 Author:              Vincent Berthoux
 Maintainer:          vincent.berthoux@gmail.com
-Category:            Codec, Graphics
+Category:            Codec, Graphics, Image
 Build-type:          Simple
 
 -- Constraint on the version of Cabal needed to build this package.
