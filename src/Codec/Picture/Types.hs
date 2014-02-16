@@ -208,7 +208,8 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
     dropTransparency :: a -> b
 
     -- | access the transparency (alpha layer) of a given
-    -- transparent pixel type
+    -- transparent pixel type.
+    -- DEPRECATED, you should use `pixelOpacity`
     getTransparency :: a -> PixelBaseComponent a
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
@@ -572,6 +573,12 @@ class ( Storable (PixelBaseComponent a)
     mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
             -> a -> a -> a
 
+    -- | Return the opacity of a pixel, if the pixel has an
+    -- alpha layer, return the alpha value. If the pixel
+    -- doesn't have an alpha value, return a value
+    -- representing the opaqueness.
+    pixelOpacity :: a -> PixelBaseComponent a
+
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
 
@@ -922,6 +929,9 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f = f 0
 
@@ -967,6 +977,9 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 instance Pixel Pixel16 where
     type PixelBaseComponent Pixel16 = Word16
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f = f 0
 
@@ -1004,6 +1017,9 @@ instance ColorConvertible Pixel16 PixelRGBA16 where
 instance Pixel Pixel32 where
     type PixelBaseComponent Pixel32 = Word32
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f = f 0
 
@@ -1028,6 +1044,9 @@ instance Pixel Pixel32 where
 --------------------------------------------------
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const 1.0
 
     {-# INLINE mixWith #-}
     mixWith f = f 0
@@ -1056,6 +1075,9 @@ instance ColorConvertible PixelF PixelRGBF where
 --------------------------------------------------
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelYA8 _ a) = a
 
     {-# INLINE mixWith #-}
     mixWith f (PixelYA8 ya aa) (PixelYA8 yb ab) =
@@ -1118,6 +1140,9 @@ instance LumaPlaneExtractable PixelYA8 where
 instance Pixel PixelYA16 where
     type PixelBaseComponent PixelYA16 = Word16
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelYA16 _ a) = a
+
     {-# INLINE mixWith #-}
     mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
         PixelYA16 (f 0 ya yb) (f 1 aa ab)
@@ -1168,6 +1193,10 @@ instance TransparentPixel PixelYA16 Pixel16 where
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
+
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const 1.0
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBF ra ga ba) (PixelRGBF rb gb bb) =
@@ -1220,6 +1249,9 @@ instance ColorPlane PixelRGBF PlaneBlue where
 --------------------------------------------------
 instance Pixel PixelRGB16 where
     type PixelBaseComponent PixelRGB16 = Pixel16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGB16 ra ga ba) (PixelRGB16 rb gb bb) =
@@ -1285,6 +1317,9 @@ instance LumaPlaneExtractable PixelRGB16 where
 --------------------------------------------------
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
@@ -1353,6 +1388,9 @@ instance LumaPlaneExtractable PixelRGB8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelRGBA8 _ _ _ a) = a
+
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
         PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
@@ -1415,6 +1453,9 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelRGBA16 where
     type PixelBaseComponent PixelRGBA16 = Pixel16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelRGBA16 _ _ _ a) = a
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
@@ -1484,6 +1525,9 @@ instance ColorPlane PixelRGBA16 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelYCbCr8 ya cba cra) (PixelYCbCr8 yb cbb crb) =
@@ -1643,6 +1687,9 @@ instance ColorPlane PixelYCbCr8 PlaneCr where
 instance Pixel PixelCMYK8 where
     type PixelBaseComponent PixelCMYK8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f (PixelCMYK8 ca ma ya ka) (PixelCMYK8 cb mb yb kb) =
         PixelCMYK8 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
@@ -1746,6 +1793,9 @@ instance ColorPlane PixelCMYK8 PlaneBlack where
 --------------------------------------------------
 instance Pixel PixelCMYK16 where
     type PixelBaseComponent PixelCMYK16 = Word16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelCMYK16 ca ma ya ka) (PixelCMYK16 cb mb yb kb) =
