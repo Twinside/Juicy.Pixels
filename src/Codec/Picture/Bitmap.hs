@@ -277,6 +277,7 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
 -- Right now this function can output the following pixel types :
 --
 --    * PixelRGB8
+--
 --    * Pixel8
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
