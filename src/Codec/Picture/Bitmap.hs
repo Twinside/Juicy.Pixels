@@ -251,28 +251,50 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
 
             in inner readIndex writeIndex
 
+decodeImageY8 :: BmpInfoHeader -> B.ByteString -> Image Pixel8
+decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
+  where wi = fromIntegral w
+        hi = fromIntegral h
+        stArray = runST $ do
+            arr <- M.new (fromIntegral $ w * h * 1)
+            forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
+            V.unsafeFreeze arr
+
+        stride = linePadding 8 wi
+        readLine arr line =
+            let readIndex = (wi * 1 + stride) * line
+                lastIndex = wi * (hi - 1 - line + 1) * 1
+                writeIndex = wi * (hi - 1 - line) * 1
+
+                inner _ writeIdx | writeIdx >= lastIndex = return ()
+                inner readIdx writeIdx = do
+                    (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
+                    inner (readIdx + 1) (writeIdx + 1)
+
+            in inner readIndex writeIndex
 
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
 --
 --    * PixelRGB8
+--    * Pixel8
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap str = flip runGetStrict str $ do
   hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
+
+  readed <- bytesRead
+  when (readed > fromIntegral (dataOffset hdr))
+       (fail "Invalid bmp image, data in header")
+
+  skip . fromIntegral $ dataOffset hdr - fromIntegral readed
+  rest <- getRemainingBytes
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-    (24, 1, 0) -> do
-        readed <- bytesRead
-
-        when (readed > fromIntegral (dataOffset hdr))
-             (fail "Invalid bmp image, data in header")
-
-        skip . fromIntegral $ dataOffset hdr - fromIntegral readed
-        rest <- getRemainingBytes
-        return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    (24, 1, 0) -> return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    ( 8, 1, 0) -> return . ImageY8 $ decodeImageY8 bmpHeader rest
     a          -> fail $ "Can't handle BMP file " ++ show a
 
 
