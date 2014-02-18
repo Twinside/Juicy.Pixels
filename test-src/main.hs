@@ -98,7 +98,9 @@ jpegValidTests = [ "explore_jpeg.jpg", "dunno.jpg"
                  ]
  
 bmpValidTests :: [FilePath]
-bmpValidTests = ["simple_bitmap_24bits.bmp"]
+bmpValidTests =
+    ["simple_bitmap_24bits.bmp"
+    ,"simple_bitmap_8bits.bmp"]
 
 -- "caspian.tif"
 tiffValidTests :: [FilePath]
