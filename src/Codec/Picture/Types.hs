@@ -649,8 +649,8 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     convertImage = pixelMap convertPixel
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- for example, to create a small gradient image :
@@ -679,8 +679,8 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
             V.unsafeFreeze arr
 
 -- | Create an image using a monadic initializer function.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- The function is called for each pixel in the line from left to right (0 to width - 1)
@@ -705,8 +705,8 @@ withImage width height pixelGenerator = do
   unsafeFreezeImage mutImage
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- the acc parameter is a user defined one.
