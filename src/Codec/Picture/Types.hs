@@ -628,7 +628,7 @@ class ( Storable (PixelBaseComponent a)
 -- performance acceptable
 class (Pixel a, Pixel b) => ColorConvertible a b where
     -- | Convert a pixel type to another pixel type. This
-    -- operation should never loss any data.
+    -- operation should never lose any data.
     promotePixel :: a -> b
 
     -- | Change the underlying pixel type of an image by performing a full copy
