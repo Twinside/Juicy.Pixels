@@ -458,7 +458,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
--- Value are stored in the following order :
+-- Values are stored in the following order :
 --
 --  * Red
 --
@@ -472,7 +472,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
--- value are stored in the following order :
+-- values are stored in the following order :
 --
 --  * Y (luminance)
 --
@@ -485,7 +485,7 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
@@ -502,7 +502,7 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Black
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
