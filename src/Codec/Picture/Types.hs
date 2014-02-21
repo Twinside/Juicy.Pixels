@@ -622,9 +622,9 @@ class ( Storable (PixelBaseComponent a)
     unsafeWritePixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> a -> m ()
 
 
--- | Implement upcasting for pixel types
--- Minimal declaration declaration `promotePixel`
--- It is strongly recommanded to overload promoteImage to keep
+-- | Implement upcasting for pixel types.
+-- Minimal declaration of `promotePixel`.
+-- It is strongly recommended to overload promoteImage to keep
 -- performance acceptable
 class (Pixel a, Pixel b) => ColorConvertible a b where
     -- | Convert a pixel type to another pixel type. This
