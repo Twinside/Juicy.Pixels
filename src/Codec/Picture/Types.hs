@@ -323,7 +323,7 @@ data DynamicImage =
      | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
--- image. To get the width of an dynamic image, you can use
+-- image. To get the width of a dynamic image, you can use
 -- the following snippet :
 --
 -- > dynWidth :: DynamicImage -> Int
