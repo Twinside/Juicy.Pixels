@@ -349,7 +349,7 @@ dynamicMap f (ImageCMYK16 i) = f i
 -- You can perform pixel colorspace independant operations with this
 -- function.
 --
--- For instance, if you wan't to extract a square crop of any image,
+-- For instance, if you want to extract a square crop of any image,
 -- without caring about colorspace, you can use the following snippet.
 --
 -- > dynSquare :: DynamicImage -> DynamicImage
