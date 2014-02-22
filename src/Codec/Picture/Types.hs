@@ -961,7 +961,7 @@ instance ColorConvertible Pixel8 PixelF where
 
 instance ColorConvertible Pixel8 Pixel16 where
     {-# INLINE promotePixel #-}
-    promotePixel c = fromIntegral c `unsafeShiftL` 8
+    promotePixel c = fromIntegral c * 257
 
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
