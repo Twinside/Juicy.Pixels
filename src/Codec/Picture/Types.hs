@@ -392,17 +392,20 @@ instance NFData DynamicImage where
     rnf (ImageCMYK8 img)  = rnf img
     rnf (ImageCMYK16 img)  = rnf img
 
--- | Simple alias for greyscale value in 8 bits.
+-- | Type alias for 8bit greyscale pixels. For simplicity,
+-- greyscale pixels use plain numbers instead of a separate type.
 type Pixel8 = Word8
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 16bit greyscale pixels.
 type Pixel16 = Word16
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 32bit greyscale pixels.
 type Pixel32 = Word32
 
--- | Floating greyscale value, the 0 to 255 8 bit range maps
--- to 0 to 1 in this floating version
+-- | Type alias for 32bit floating point greyscale pixels. The standard
+-- bounded value range is mapped to the closed interval [0,1] i.e.
+--
+-- > map promotePixel [0, 1 .. 255 :: Pixel8] == [0/255, 1/255 .. 1.0 :: PixelF]
 type PixelF = Float
 
 -- | Pixel type storing Luminance (Y) and alpha information
