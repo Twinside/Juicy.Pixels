@@ -5,9 +5,9 @@
 Juicy.Pixels
 ============
 
-This library provide saving & loading of different picture formats for the
+This library provides saving & loading of different picture formats for the
 Haskell language. The aim of the library is to be as lightweight as possible,
-you ask it to load an image, and it'l dump you a big Vector full of juicy
+you ask it to load an image, and it'll dump you a big Vector full of juicy
 pixels. Or squared pixels, or whatever, as long as they're unboxed.
 
 Documentation

@@ -323,7 +323,7 @@ data DynamicImage =
      | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
--- image. To get the width of an dynamic image, you can use
+-- image. To get the width of a dynamic image, you can use
 -- the following snippet :
 --
 -- > dynWidth :: DynamicImage -> Int
@@ -349,7 +349,7 @@ dynamicMap f (ImageCMYK16 i) = f i
 -- You can perform pixel colorspace independant operations with this
 -- function.
 --
--- For instance, if you wan't to extract a square crop of any image,
+-- For instance, if you want to extract a square crop of any image,
 -- without caring about colorspace, you can use the following snippet.
 --
 -- > dynSquare :: DynamicImage -> DynamicImage
@@ -392,17 +392,20 @@ instance NFData DynamicImage where
     rnf (ImageCMYK8 img)  = rnf img
     rnf (ImageCMYK16 img)  = rnf img
 
--- | Simple alias for greyscale value in 8 bits.
+-- | Type alias for 8bit greyscale pixels. For simplicity,
+-- greyscale pixels use plain numbers instead of a separate type.
 type Pixel8 = Word8
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 16bit greyscale pixels.
 type Pixel16 = Word16
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 32bit greyscale pixels.
 type Pixel32 = Word32
 
--- | Floating greyscale value, the 0 to 255 8 bit range maps
--- to 0 to 1 in this floating version
+-- | Type alias for 32bit floating point greyscale pixels. The standard
+-- bounded value range is mapped to the closed interval [0,1] i.e.
+--
+-- > map promotePixel [0, 1 .. 255 :: Pixel8] == [0/255, 1/255 .. 1.0 :: PixelF]
 type PixelF = Float
 
 -- | Pixel type storing Luminance (Y) and alpha information
@@ -458,7 +461,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
--- Value are stored in the following order :
+-- Values are stored in the following order :
 --
 --  * Red
 --
@@ -472,7 +475,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
--- value are stored in the following order :
+-- values are stored in the following order :
 --
 --  * Y (luminance)
 --
@@ -485,7 +488,7 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
@@ -502,7 +505,7 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Black
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
@@ -622,13 +625,13 @@ class ( Storable (PixelBaseComponent a)
     unsafeWritePixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> a -> m ()
 
 
--- | Implement upcasting for pixel types
--- Minimal declaration declaration `promotePixel`
--- It is strongly recommanded to overload promoteImage to keep
+-- | Implement upcasting for pixel types.
+-- Minimal declaration of `promotePixel`.
+-- It is strongly recommended to overload promoteImage to keep
 -- performance acceptable
 class (Pixel a, Pixel b) => ColorConvertible a b where
     -- | Convert a pixel type to another pixel type. This
-    -- operation should never loss any data.
+    -- operation should never lose any data.
     promotePixel :: a -> b
 
     -- | Change the underlying pixel type of an image by performing a full copy
@@ -649,8 +652,8 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     convertImage = pixelMap convertPixel
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- for example, to create a small gradient image :
@@ -679,8 +682,8 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
             V.unsafeFreeze arr
 
 -- | Create an image using a monadic initializer function.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- The function is called for each pixel in the line from left to right (0 to width - 1)
@@ -705,8 +708,8 @@ withImage width height pixelGenerator = do
   unsafeFreezeImage mutImage
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- the acc parameter is a user defined one.
