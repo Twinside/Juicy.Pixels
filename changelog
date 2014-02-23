@@ -4,6 +4,9 @@ v3.1.4 February 2014
  * Adding a pixelOpacity method to the pixel type class.
  * Adding handling greyscale BMP files (phischu)
  * Fixing promotePixel for Pixel8 -> Pixel16
+ * Some type fixes in the documentation
+ * Updating the pixel conversion graph
+ * Removed URI-encoded images, now using clean cabal embedding
 
 v3.1.3.3 February 2014
  * Lowering cabal version limit to be compiled with older GHCs

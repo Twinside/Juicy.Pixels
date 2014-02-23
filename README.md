@@ -1,4 +1,4 @@
-![Juicy logo](http://twinside.github.com/Juicy.Pixels/juicy.png)
+![Juicy logo](http://twinside.github.com/Juicy.Pixels/docimages/juicy.png)
 
 [![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
 
