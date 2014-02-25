@@ -1,5 +1,9 @@
 -*-change-log-*-
 
+v3.1.4.1 February 2014
+ * Putting back data URI logo for cabal description, it's
+   apparently not supported by Hackage :-(
+
 v3.1.4 February 2014
  * Adding a pixelOpacity method to the pixel type class.
  * Adding handling greyscale BMP files (phischu)
