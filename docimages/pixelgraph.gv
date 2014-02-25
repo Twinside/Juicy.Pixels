@@ -1,0 +1,43 @@
+digraph pixelGraphic
+{
+  node [fontname="sans-serif", fontsize=8];
+  edge [fontname="sans-serif", fontsize=8];
+
+  PixelRGB8 [rank="min"];
+
+  PixelRGB16 -> PixelRGBA16 [label="promotePixel"];	 
+  PixelRGB8 -> PixelRGBA8 [label="promotePixel"];	 
+  PixelRGB8 -> PixelRGBF [label="promotePixel"];	 
+  PixelYA16 -> PixelRGBA16 [label="promotePixel"];	 
+  PixelYA8 -> PixelRGBA8 [label="promotePixel"];	 
+  PixelYA8 -> PixelRGB8 [label="promotePixel"];	 
+  PixelF -> PixelRGBF [label="promotePixel"];	 
+  Pixel16 -> PixelRGBA16 [label="promotePixel"];	 
+  Pixel16 -> PixelRGB16 [label="promotePixel"];	 
+  Pixel16 -> PixelYA16 [label="promotePixel"];	 
+  Pixel8 -> PixelRGBA8 [label="promotePixel"];	 
+  Pixel8 -> PixelRGB8 [label="promotePixel"];	 
+  Pixel8 -> PixelYA8 [label="promotePixel"];	 
+  Pixel8 -> PixelF [label="promotePixel"];	 
+  Pixel8 -> Pixel16 [label="promotePixel"];
+
+  PixelCMYK16 -> PixelRGB16 [label="convertPixel"];	 
+  PixelCMYK8 -> PixelRGB8 [label="convertPixel"];	 
+  PixelYCbCr8 -> PixelRGB8 [label="convertPixel"];	 
+  PixelRGB16 -> PixelCMYK16 [label="convertPixel"];	 
+  PixelRGB8 -> PixelCMYK8 [label="convertPixel"];	 
+  PixelRGB8 -> PixelYCbCr8 [label="convertPixel"];	 
+
+  PixelRGBA16 -> PixelRGB16 [label="dropTransparency"];
+  PixelRGBA8 -> PixelRGB8 [label="dropTransparency"];
+  PixelYA16 -> Pixel16 [label="dropTransparency"];
+  PixelYA8 -> Pixel8 [label="dropTransparency"];
+
+  PixelRGBA8 -> Pixel8 [label="computeLuma"];
+  PixelYCbCr8 -> Pixel8 [label="computeLuma"];
+  PixelRGBF -> PixelF [label="computeLuma"];
+  PixelRGB16 -> Pixel16 [label="computeLuma"];
+  PixelRGB8 -> Pixel8 [label="computeLuma"];
+  PixelYA8 -> Pixel8 [label="computeLuma"];
+}
+
