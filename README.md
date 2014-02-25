@@ -1,13 +1,13 @@
-![Juicy logo](http://twinside.github.com/Juicy.Pixels/juicy.png)
+![Juicy logo](http://twinside.github.com/Juicy.Pixels/docimages/juicy.png)
 
 [![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
 
 Juicy.Pixels
 ============
 
-This library provide saving & loading of different picture formats for the
+This library provides saving & loading of different picture formats for the
 Haskell language. The aim of the library is to be as lightweight as possible,
-you ask it to load an image, and it'l dump you a big Vector full of juicy
+you ask it to load an image, and it'll dump you a big Vector full of juicy
 pixels. Or squared pixels, or whatever, as long as they're unboxed.
 
 Documentation
@@ -48,6 +48,7 @@ Status
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
         - 24bits (RGB) images
+        - 8bits (greyscale) images
 
     * Writing
         - 32bits (RGBA) per pixel images

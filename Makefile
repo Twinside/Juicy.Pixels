@@ -5,7 +5,7 @@ all:
 conf:
 	runhaskell Setup.hs configure --user --enable-tests
 
-doc:
+doc: docimages/pixelgraph.svg
 	runhaskell Setup.hs haddock
 
 ctest:
@@ -29,6 +29,9 @@ test:
 lint:
 	hlint Codec
 
-sdist:
+sdist: docimages/pixelgraph.svg
 	runhaskell Setup.hs sdist
+
+docimages/pixelgraph.svg: docimages/pixelgraph.gv
+	dot -Tsvg -o docimages/pixelgraph.svg docimages/pixelgraph.gv
 

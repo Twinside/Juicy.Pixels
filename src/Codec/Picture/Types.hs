@@ -208,7 +208,8 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
     dropTransparency :: a -> b
 
     -- | access the transparency (alpha layer) of a given
-    -- transparent pixel type
+    -- transparent pixel type.
+    -- DEPRECATED, you should use `pixelOpacity`
     getTransparency :: a -> PixelBaseComponent a
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
@@ -322,7 +323,7 @@ data DynamicImage =
      | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
--- image. To get the width of an dynamic image, you can use
+-- image. To get the width of a dynamic image, you can use
 -- the following snippet :
 --
 -- > dynWidth :: DynamicImage -> Int
@@ -348,7 +349,7 @@ dynamicMap f (ImageCMYK16 i) = f i
 -- You can perform pixel colorspace independant operations with this
 -- function.
 --
--- For instance, if you wan't to extract a square crop of any image,
+-- For instance, if you want to extract a square crop of any image,
 -- without caring about colorspace, you can use the following snippet.
 --
 -- > dynSquare :: DynamicImage -> DynamicImage
@@ -391,17 +392,20 @@ instance NFData DynamicImage where
     rnf (ImageCMYK8 img)  = rnf img
     rnf (ImageCMYK16 img)  = rnf img
 
--- | Simple alias for greyscale value in 8 bits.
+-- | Type alias for 8bit greyscale pixels. For simplicity,
+-- greyscale pixels use plain numbers instead of a separate type.
 type Pixel8 = Word8
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 16bit greyscale pixels.
 type Pixel16 = Word16
 
--- | Simple alias for greyscale value in 16 bits.
+-- | Type alias for 32bit greyscale pixels.
 type Pixel32 = Word32
 
--- | Floating greyscale value, the 0 to 255 8 bit range maps
--- to 0 to 1 in this floating version
+-- | Type alias for 32bit floating point greyscale pixels. The standard
+-- bounded value range is mapped to the closed interval [0,1] i.e.
+--
+-- > map promotePixel [0, 1 .. 255 :: Pixel8] == [0/255, 1/255 .. 1.0 :: PixelF]
 type PixelF = Float
 
 -- | Pixel type storing Luminance (Y) and alpha information
@@ -457,7 +461,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel type storing HDR pixel on 32 bits float
--- Value are stored in the following order :
+-- Values are stored in the following order :
 --
 --  * Red
 --
@@ -471,7 +475,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                deriving (Eq, Ord, Show)
 
 -- | Pixel storing data in the YCbCr colorspace,
--- value are stored in the following order :
+-- values are stored in the following order :
 --
 --  * Y (luminance)
 --
@@ -484,7 +488,7 @@ data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
@@ -501,7 +505,7 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Black
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. value
+-- | Pixel storing data in the CMYK colorspace. Values
 -- are stored in the following order :
 --
 --   * Cyan
@@ -572,6 +576,12 @@ class ( Storable (PixelBaseComponent a)
     mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
             -> a -> a -> a
 
+    -- | Return the opacity of a pixel, if the pixel has an
+    -- alpha layer, return the alpha value. If the pixel
+    -- doesn't have an alpha value, return a value
+    -- representing the opaqueness.
+    pixelOpacity :: a -> PixelBaseComponent a
+
     -- | Return the number of component of the pixel
     componentCount :: a -> Int
 
@@ -615,13 +625,13 @@ class ( Storable (PixelBaseComponent a)
     unsafeWritePixel :: PrimMonad m => M.STVector (PrimState m) (PixelBaseComponent a) -> Int -> a -> m ()
 
 
--- | Implement upcasting for pixel types
--- Minimal declaration declaration `promotePixel`
--- It is strongly recommanded to overload promoteImage to keep
+-- | Implement upcasting for pixel types.
+-- Minimal declaration of `promotePixel`.
+-- It is strongly recommended to overload promoteImage to keep
 -- performance acceptable
 class (Pixel a, Pixel b) => ColorConvertible a b where
     -- | Convert a pixel type to another pixel type. This
-    -- operation should never loss any data.
+    -- operation should never lose any data.
     promotePixel :: a -> b
 
     -- | Change the underlying pixel type of an image by performing a full copy
@@ -642,8 +652,8 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     convertImage = pixelMap convertPixel
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- for example, to create a small gradient image :
@@ -672,8 +682,8 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
             V.unsafeFreeze arr
 
 -- | Create an image using a monadic initializer function.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- The function is called for each pixel in the line from left to right (0 to width - 1)
@@ -698,8 +708,8 @@ withImage width height pixelGenerator = do
   unsafeFreezeImage mutImage
 
 -- | Create an image given a function to generate pixels.
--- The function will receive value from 0 to width-1 for the x parameter
--- and 0 to height-1 for the y parameter. The coordinate 0,0 is the upper
+-- The function will receive values from 0 to width-1 for the x parameter
+-- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
 -- the acc parameter is a user defined one.
@@ -922,6 +932,9 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f = f 0
 
@@ -951,7 +964,7 @@ instance ColorConvertible Pixel8 PixelF where
 
 instance ColorConvertible Pixel8 Pixel16 where
     {-# INLINE promotePixel #-}
-    promotePixel c = fromIntegral c `unsafeShiftL` 8
+    promotePixel c = fromIntegral c * 257
 
 instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
@@ -966,6 +979,9 @@ instance ColorConvertible Pixel8 PixelRGBA8 where
 --------------------------------------------------
 instance Pixel Pixel16 where
     type PixelBaseComponent Pixel16 = Word16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f = f 0
@@ -1004,6 +1020,9 @@ instance ColorConvertible Pixel16 PixelRGBA16 where
 instance Pixel Pixel32 where
     type PixelBaseComponent Pixel32 = Word32
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f = f 0
 
@@ -1028,6 +1047,9 @@ instance Pixel Pixel32 where
 --------------------------------------------------
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const 1.0
 
     {-# INLINE mixWith #-}
     mixWith f = f 0
@@ -1056,6 +1078,9 @@ instance ColorConvertible PixelF PixelRGBF where
 --------------------------------------------------
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelYA8 _ a) = a
 
     {-# INLINE mixWith #-}
     mixWith f (PixelYA8 ya aa) (PixelYA8 yb ab) =
@@ -1118,6 +1143,9 @@ instance LumaPlaneExtractable PixelYA8 where
 instance Pixel PixelYA16 where
     type PixelBaseComponent PixelYA16 = Word16
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelYA16 _ a) = a
+
     {-# INLINE mixWith #-}
     mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
         PixelYA16 (f 0 ya yb) (f 1 aa ab)
@@ -1168,6 +1196,10 @@ instance TransparentPixel PixelYA16 Pixel16 where
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
+
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const 1.0
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBF ra ga ba) (PixelRGBF rb gb bb) =
@@ -1220,6 +1252,9 @@ instance ColorPlane PixelRGBF PlaneBlue where
 --------------------------------------------------
 instance Pixel PixelRGB16 where
     type PixelBaseComponent PixelRGB16 = Pixel16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGB16 ra ga ba) (PixelRGB16 rb gb bb) =
@@ -1285,6 +1320,9 @@ instance LumaPlaneExtractable PixelRGB16 where
 --------------------------------------------------
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
@@ -1353,6 +1391,9 @@ instance LumaPlaneExtractable PixelRGB8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelRGBA8 _ _ _ a) = a
+
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
         PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
@@ -1415,6 +1456,9 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelRGBA16 where
     type PixelBaseComponent PixelRGBA16 = Pixel16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity (PixelRGBA16 _ _ _ a) = a
 
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
@@ -1484,6 +1528,9 @@ instance ColorPlane PixelRGBA16 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelYCbCr8 ya cba cra) (PixelYCbCr8 yb cbb crb) =
@@ -1643,6 +1690,9 @@ instance ColorPlane PixelYCbCr8 PlaneCr where
 instance Pixel PixelCMYK8 where
     type PixelBaseComponent PixelCMYK8 = Word8
 
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
     {-# INLINE mixWith #-}
     mixWith f (PixelCMYK8 ca ma ya ka) (PixelCMYK8 cb mb yb kb) =
         PixelCMYK8 (f 0 ca cb) (f 1 ma mb) (f 2 ya yb) (f 3 ka kb)
@@ -1746,6 +1796,9 @@ instance ColorPlane PixelCMYK8 PlaneBlack where
 --------------------------------------------------
 instance Pixel PixelCMYK16 where
     type PixelBaseComponent PixelCMYK16 = Word16
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
 
     {-# INLINE mixWith #-}
     mixWith f (PixelCMYK16 ca ma ya ka) (PixelCMYK16 cb mb yb kb) =
