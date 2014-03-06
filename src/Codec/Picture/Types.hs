@@ -585,7 +585,7 @@ class ( Storable (PixelBaseComponent a)
     -- | Return the number of components of the pixel
     componentCount :: a -> Int
 
-    -- | Apply a function to all color component of a pixel.
+    -- | Apply a function to each component of a pixel.
     colorMap :: (PixelBaseComponent a -> PixelBaseComponent a) -> a -> a
 
     -- | Calculate the index for the begining of the pixel
