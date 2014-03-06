@@ -582,7 +582,7 @@ class ( Storable (PixelBaseComponent a)
     -- representing the opaqueness.
     pixelOpacity :: a -> PixelBaseComponent a
 
-    -- | Return the number of component of the pixel
+    -- | Return the number of components of the pixel
     componentCount :: a -> Int
 
     -- | Apply a function to all color component of a pixel.
