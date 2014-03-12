@@ -319,7 +319,7 @@ data DynamicImage =
      | ImageYCbCr8 (Image PixelYCbCr8)
        -- | An image in the colorspace CMYK
      | ImageCMYK8  (Image PixelCMYK8)
-       -- | An image in the colorspace CMYK and 16 bots precision
+       -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
