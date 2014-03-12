@@ -164,7 +164,7 @@ data PlaneBlack = PlaneBlack
 -- examples :
 --
 -- @
---  extractRedPlane :: Image PixelRGB8-> Image Pixel8
+--  extractRedPlane :: Image PixelRGB8 -> Image Pixel8
 --  extractRedPlane = extractComponent PlaneRed
 -- @
 --
