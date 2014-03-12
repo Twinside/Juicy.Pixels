@@ -161,7 +161,7 @@ data PlaneYellow = PlaneYellow
 data PlaneBlack = PlaneBlack
 
 -- | Extract a color plane from an image given a present plane in the image
--- examples :
+-- examples:
 --
 -- @
 --  extractRedPlane :: Image PixelRGB8 -> Image Pixel8
@@ -324,7 +324,7 @@ data DynamicImage =
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of a dynamic image, you can use
--- the following snippet :
+-- the following snippet:
 --
 -- > dynWidth :: DynamicImage -> Int
 -- > dynWidth img = dynamicMap imageWidth img
@@ -565,7 +565,7 @@ class ( Storable (PixelBaseComponent a)
     type PixelBaseComponent a :: *
 
     -- | Call the function for every component of the pixels.
-    -- For example for RGB pixels mixWith is declared like this :
+    -- For example for RGB pixels mixWith is declared like this:
     --
     -- > mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
     -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
@@ -653,7 +653,7 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 -- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
--- for example, to create a small gradient image :
+-- for example, to create a small gradient image:
 --
 -- > imageCreator :: String -> IO ()
 -- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
@@ -736,7 +736,7 @@ generateFoldImage f intialAcc w h =
             frozen <- V.unsafeFreeze arr
             return (foldResult, frozen)
 
--- | Fold over the pixel of an image with a raster scan order :
+-- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
 pixelFold :: (Pixel pixel)
