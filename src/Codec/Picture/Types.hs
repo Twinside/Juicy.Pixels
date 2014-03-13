@@ -103,8 +103,8 @@ data Image a = Image
       -- | Height of the image in pixels.
     , imageHeight :: {-# UNPACK #-} !Int
 
-      -- | The real image, to extract pixels at some position
-      -- you should use the helpers functions.
+      -- | The real image. To extract pixels at some position
+      -- you should use the helper functions.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
