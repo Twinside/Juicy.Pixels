@@ -307,8 +307,9 @@ instance NFData (MutableImage s a) where
                                           dat    `seq`
                                           ()
 
--- | Type allowing the loading of an image with different pixel
--- structures
+-- | Image type enumerating all predefined pixel types.
+-- It enables loading and use of images of different
+-- pixel types.
 data DynamicImage =
        -- | A greyscale image.
        ImageY8    (Image Pixel8)
