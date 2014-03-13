@@ -177,10 +177,11 @@ extractComponent :: forall px plane. ( Pixel px
 extractComponent plane = unsafeExtractComponent idx
     where idx = toComponentIndex (undefined :: px) plane
 
--- | Extract an image plane of an image, returning an image which
--- can be represented by a gray scale image.
--- If you ask a component out of bound, the `error` function will
--- be called
+-- | Extract a plane of an image. Returns the requested color
+-- component as a greyscale image.
+--
+-- If you ask for a component out of bound, the `error` function will
+-- be called.
 unsafeExtractComponent :: forall a
                         . ( Pixel a
                           , Pixel (PixelBaseComponent a)
