@@ -460,6 +460,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                deriving (Eq, Ord, Show)
 
 -- | HDR pixel type storing floating point 32bit red, green and blue (RGB) information.
+-- Same value range and comments apply as for 'PixelF'.
 -- Values are stored in the following order:
 --
 --  * Red
