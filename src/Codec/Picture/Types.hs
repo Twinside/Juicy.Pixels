@@ -210,8 +210,8 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
 
     -- | access the transparency (alpha layer) of a given
     -- transparent pixel type.
-    -- DEPRECATED, you should use `pixelOpacity`
     getTransparency :: a -> PixelBaseComponent a
+{-# DEPRECATED getTransparency "please use 'pixelOpacity' instead" #-}
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
