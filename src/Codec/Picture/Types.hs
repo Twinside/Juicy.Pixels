@@ -94,17 +94,31 @@ import qualified Data.Vector.Storable.Mutable as M
 
 #include "ConvGraph.hs"
 
--- | Image or pixel buffer, the coordinates are assumed to start
--- from the upper-left corner of the image, with the horizontal
--- position first, then the vertical one.
+-- | The main type of this package, one that most
+-- functions work on, is Image.
+--
+-- Parameterized by the underlying pixel format it
+-- forms a rigid type. If you wish to store images
+-- of different or unknown pixel formats use 'DynamicImage'.
+--
+-- Image is essentially a rectangular pixel buffer
+-- of specified width and height. The coordinates are
+-- assumed to start from the upper-left corner
+-- of the image, with the horizontal position first
+-- and vertical second.
 data Image a = Image
     { -- | Width of the image in pixels
       imageWidth  :: {-# UNPACK #-} !Int
       -- | Height of the image in pixels.
     , imageHeight :: {-# UNPACK #-} !Int
 
-      -- | The real image. To extract pixels at some position
+      -- | Image pixel data. To extract pixels at a given position
       -- you should use the helper functions.
+      --
+      -- Internally pixel data is stored as consecutively packed
+      -- lines from top to bottom, scanned from left to right
+      -- within individual lines, from first to last color
+      -- component within each pixel.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
