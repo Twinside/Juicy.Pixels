@@ -237,15 +237,17 @@ data JpgDecoderState = JpgDecoderState
 
 emptyDecoderState :: JpgDecoderState
 emptyDecoderState = JpgDecoderState
-    { dcDecoderTables = V.fromList $ map snd
-            [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
-            , prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
-            ]
+    { dcDecoderTables =
+        let (_, dcLuma) = prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+            (_, dcChroma) = prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
+        in
+        V.fromList [ dcLuma, dcChroma, dcLuma, dcChroma ]
 
-    , acDecoderTables = V.fromList $ map snd
-            [ prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
-            , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
-            ]
+    , acDecoderTables =
+        let (_, acLuma) = prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+            (_, acChroma) = prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
+        in
+        V.fromList [acLuma, acChroma, acLuma, acChroma]
 
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
@@ -271,8 +273,11 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
         approxLow = fromIntegral $ successiveApproxLow hdr
         
         scanSpecifier scanCount scanSpec = do
-            let dcIndex = fromIntegral $ dcEntropyCodingTable scanSpec
-                acIndex = fromIntegral $ acEntropyCodingTable scanSpec
+            let maximumHuffmanTable = 4
+                dcIndex = min (maximumHuffmanTable - 1) 
+                            . fromIntegral $ dcEntropyCodingTable scanSpec
+                acIndex = min (maximumHuffmanTable - 1)
+                            . fromIntegral $ acEntropyCodingTable scanSpec
                 comp = fromIntegral (componentSelector scanSpec) - 1
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
@@ -335,11 +340,15 @@ jpgMachineStep (JpgIntervalRestart restart) =
 jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
   where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
             DcComponent -> modify $ \s ->
+              if idx >= V.length (dcDecoderTables s) then s
+              else
                 let neu = dcDecoderTables s // [(idx, tree)] in 
                 s { dcDecoderTables = neu `seq` neu }
                     where idx = fromIntegral $ huffmanTableDest spec
                           
             AcComponent -> modify $ \s ->
+              if idx >= V.length (acDecoderTables s) then s
+              else
                 s { acDecoderTables = acDecoderTables s // [(idx, tree)] }
                     where idx = fromIntegral $ huffmanTableDest spec
 
