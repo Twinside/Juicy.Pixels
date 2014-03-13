@@ -477,13 +477,13 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 --
 --  * Y (luminance)
 --
---  * Cr
---
 --  * Cb
 --
+--  * Cr
+--
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
-                               {-# UNPACK #-} !Pixel8 -- Cr red difference
-                               {-# UNPACK #-} !Pixel8 -- Cb blue difference
+                               {-# UNPACK #-} !Pixel8 -- Cr blue difference
+                               {-# UNPACK #-} !Pixel8 -- Cb cr difference
                  deriving (Eq, Ord, Show)
 
 -- | Pixel type storing 8bit cyan, magenta, yellow and black (CMYK) information.
