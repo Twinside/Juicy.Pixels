@@ -472,7 +472,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Blue
                deriving (Eq, Ord, Show)
 
--- | Pixel type storing 8bit data in the YCbCr colorspace,
+-- | Pixel type storing 8bit luminance, blue difference and red difference (YCbCr) information.
 -- Values are stored in the following order:
 --
 --  * Y (luminance)
