@@ -1,9 +1,10 @@
 -*-change-log-*-
 
 v3.1.4.2 ?? 2014
- * Typos and documentation proof reading fixes (iger)
+ * Typos and documentation proof reading fixes (iger).
  * Fix of progressive jpeg loading with more than two
-   huffman tables (4 allowed)
+   huffman tables (4 allowed).
+ * Added loading of paletted bitmap files.
 
 v3.1.4.1 February 2014
  * Putting back data URI logo for cabal description, it's
