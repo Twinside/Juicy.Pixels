@@ -227,7 +227,7 @@ readImage = withImageDecoder decodeImage
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
 -- to decode in each known format and if one decoding succeeds will return
--- the decoded image in it's own colorspace
+-- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
@@ -256,7 +256,7 @@ readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'colorSpaceConversion'
+-- convert it to RGB using 'colorSpaceConversion'.
 readJpeg :: FilePath -> IO (Either String DynamicImage)
 readJpeg = withImageDecoder decodeJpeg
 
