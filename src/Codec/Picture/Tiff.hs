@@ -1197,6 +1197,10 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 --
 -- * PixelRGB16
 --
+-- * PixelRGBA8
+--
+-- * PixelRGBA16
+--
 -- * PixelCMYK8
 --
 -- * PixelCMYK16
