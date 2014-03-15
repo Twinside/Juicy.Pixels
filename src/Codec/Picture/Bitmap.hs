@@ -9,7 +9,7 @@ module Codec.Picture.Bitmap( -- * Functions
                            , decodeBitmap
                            , encodeDynamicBitmap 
                            , writeDynamicBitmap 
-                             -- * Accepted formt in output
+                             -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
 import Control.Monad( when, forM_ )
