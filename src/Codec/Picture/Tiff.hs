@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing TIFF decoding.
 --
--- Supported compression schemes :
+-- Supported compression schemes:
 --
 --   * Uncompressed
 --
@@ -14,7 +14,7 @@
 --
 --   * LZW
 --
--- Supported bit depth :
+-- Supported bit depth:
 --
 --   * 2 bits
 --
@@ -1187,7 +1187,7 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- | Decode a tiff encoded image while preserving the underlying
 -- pixel type.
 --
--- This function can output the following pixel types :
+-- This function can output the following pixel types:
 --
 -- * PixelY8
 --
