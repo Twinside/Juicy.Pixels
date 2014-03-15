@@ -1222,6 +1222,12 @@ instance TiffSaveable Pixel8 where
 instance TiffSaveable Pixel16 where
   colorSpaceOfPixel _ = TiffMonochrome
 
+instance TiffSaveable PixelYA8 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelYA16 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
 instance TiffSaveable PixelCMYK8 where
   colorSpaceOfPixel _ = TiffCMYK
 
