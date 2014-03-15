@@ -2,7 +2,6 @@ rm tests/pngsuite/*.bmp
 rm tests/pngsuite/*.jpg
 rm tests/pngsuite/*.gif
 rm tests/pngsuite/*.tiff
-rm tests/pngsuite/*.gif
 rm tests/jpeg/*.bmp
 rm tests/jpeg/*.png
 rm tests/jpeg/*.gif
@@ -18,7 +17,6 @@ rm tests/gif/*.tiff
 rm tests/tiff/*.png
 rm tests/tiff/*.gif
 rm tests/tiff/*.jpg
-rm tests/tiff/*.gif
 rm tests/tiff/*.bmp
 rm tests/tiff/depth/*.png
 rm tests/tiff/depth/*.gif
@@ -73,7 +71,7 @@ rm tests/ya*.png
 	rm *._fromCMYK16.tiff
 	rm *._fromCMYK8.png
 	rm *._fromCMYK8.tiff
-    rm *._fromYCbCr8.tiff
+	rm *._fromYCbCr8.tiff
 	cd ../..
 }
 
