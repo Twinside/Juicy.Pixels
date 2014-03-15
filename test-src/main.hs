@@ -481,32 +481,16 @@ benchMark = do
 
 debug :: IO ()
 debug = do
- forM_ ["tests/jpeg/" ++ "explore_jpeg.jpg"
-       {-,"tests/gif/" ++ "Gif_pixel_cube.gif"-}
-       ] $ \file -> do
-    putStrLn "========================================================="
-    putStrLn $ "decoding " ++ file
-    img <- readImage file
-    putStrLn "========================================================="
-    case img of
-        Right (ImageY8 i) -> do
-            writeGifImage (file ++ "_debug.gif") i
-            writePng (file ++ "_debug.png") i
-
-        Right (ImageRGB8 i) -> do
-            let luma = extractLumaPlane i
-            writeGifImage (file ++ "_debug.gif") luma
-            writePng (file ++ "_debug.png") luma
-
-        Right (ImageYCbCr8 i) -> do
-            let luma = extractLumaPlane i
-            writeGifImage (file ++ "_debug.gif") luma
-            writePng (file ++ "_debug.png") luma
-
-        Right _ -> return ()
-        Left err -> do
-            putStrLn err
-            {-error "Can't decompress img"-}
+ args <- getArgs
+ case args of
+   [] -> putStrLn "no filename"
+   [_] -> putStrLn "no filename"
+   (_:filename:_) -> do
+      img <- readImage filename
+      case img of
+        Left err -> putStrLn err
+        Right i ->
+            savePngImage (filename ++ ".png") i
 
 myMain :: IO ()
 myMain = do

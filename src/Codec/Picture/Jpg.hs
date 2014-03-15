@@ -224,12 +224,13 @@ type JpgScripter s a =
     RWS () [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)] JpgDecoderState a
 
 data JpgDecoderState = JpgDecoderState
-    { dcDecoderTables      :: !(V.Vector HuffmanPackedTree)
-    , acDecoderTables      :: !(V.Vector HuffmanPackedTree)
-    , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
-    , currentRestartInterv :: !Int
-    , currentFrame         :: Maybe JpgFrameHeader
-    , isProgressive        :: !Bool
+    { dcDecoderTables       :: !(V.Vector HuffmanPackedTree)
+    , acDecoderTables       :: !(V.Vector HuffmanPackedTree)
+    , quantizationMatrices  :: !(V.Vector (MacroBlock Int16))
+    , currentRestartInterv  :: !Int
+    , currentFrame          :: Maybe JpgFrameHeader
+    , minimumComponentIndex :: !Int
+    , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
     , seenBlobs                   :: !Int
@@ -252,6 +253,7 @@ emptyDecoderState = JpgDecoderState
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
     , currentFrame         = Nothing
+    , minimumComponentIndex = 1
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -266,19 +268,23 @@ jpgMachineStep (JpgExtension _ _) = pure ()
 jpgMachineStep (JpgScanBlob hdr raw_data) = do
     let scanCount = length $ scans hdr
     params <- concat <$> mapM (scanSpecifier scanCount) (scans hdr)
+
     modify $ \st -> st { seenBlobs = seenBlobs st + 1 }
     tell [(params, raw_data)  ]
   where (selectionLow, selectionHigh) = spectralSelection hdr
         approxHigh = fromIntegral $ successiveApproxHigh hdr
         approxLow = fromIntegral $ successiveApproxLow hdr
+
         
         scanSpecifier scanCount scanSpec = do
+            minimumIndex <- gets minimumComponentIndex
             let maximumHuffmanTable = 4
                 dcIndex = min (maximumHuffmanTable - 1) 
                             . fromIntegral $ dcEntropyCodingTable scanSpec
                 acIndex = min (maximumHuffmanTable - 1)
                             . fromIntegral $ acEntropyCodingTable scanSpec
-                comp = fromIntegral (componentSelector scanSpec) - 1
+                comp = fromIntegral (componentSelector scanSpec) - minimumIndex
+
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
             isProgressiveImage <- gets isProgressive
@@ -324,6 +330,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
 jpgMachineStep (JpgScans kind hdr) = modify $ \s ->
    s { currentFrame = Just hdr
+     , minimumComponentIndex =
+          fromIntegral $ minimum [componentIdentifier comp | comp <- jpgComponents hdr]
      , isProgressive = case kind of
             JpgProgressiveDCTHuffman -> True
             _ -> False
