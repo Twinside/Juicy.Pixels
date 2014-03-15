@@ -41,8 +41,6 @@ import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
 
-import Debug.Trace
-
 data BmpHeader = BmpHeader
     { magicIdentifier :: !Word16
     , fileSize        :: !Word32 -- ^ in bytes
@@ -312,7 +310,7 @@ decodeBitmap str = flip runGetStrict str $ do
     then return V.empty
     else V.replicateM paletteColorCount pixelGet 
 
-  readed' <- trace (show bmpHeader) $ bytesRead
+  readed' <- bytesRead
 
   skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
   rest <- getRemainingBytes
