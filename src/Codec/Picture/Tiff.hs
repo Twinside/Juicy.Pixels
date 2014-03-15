@@ -1240,7 +1240,7 @@ instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 
--- | Transform an image into a Tiff encoded bytestring, reade to be
+-- | Transform an image into a Tiff encoded bytestring, ready to be
 -- written as a file.
 encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
 encodeTiff img = runPut $ putP rawPixelData hdr
