@@ -226,7 +226,7 @@ readImage = withImageDecoder decodeImage
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
--- to decode in each known format and if one decoding succeeds will return
+-- to decode in each known format and if one decoding succeeds, it will return
 -- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
