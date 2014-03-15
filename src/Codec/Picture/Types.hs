@@ -94,17 +94,31 @@ import qualified Data.Vector.Storable.Mutable as M
 
 #include "ConvGraph.hs"
 
--- | Image or pixel buffer, the coordinates are assumed to start
--- from the upper-left corner of the image, with the horizontal
--- position first, then the vertical one.
+-- | The main type of this package, one that most
+-- functions work on, is Image.
+--
+-- Parameterized by the underlying pixel format it
+-- forms a rigid type. If you wish to store images
+-- of different or unknown pixel formats use 'DynamicImage'.
+--
+-- Image is essentially a rectangular pixel buffer
+-- of specified width and height. The coordinates are
+-- assumed to start from the upper-left corner
+-- of the image, with the horizontal position first
+-- and vertical second.
 data Image a = Image
     { -- | Width of the image in pixels
       imageWidth  :: {-# UNPACK #-} !Int
       -- | Height of the image in pixels.
     , imageHeight :: {-# UNPACK #-} !Int
 
-      -- | The real image, to extract pixels at some position
-      -- you should use the helpers functions.
+      -- | Image pixel data. To extract pixels at a given position
+      -- you should use the helper functions.
+      --
+      -- Internally pixel data is stored as consecutively packed
+      -- lines from top to bottom, scanned from left to right
+      -- within individual lines, from first to last color
+      -- component within each pixel.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
@@ -177,10 +191,11 @@ extractComponent :: forall px plane. ( Pixel px
 extractComponent plane = unsafeExtractComponent idx
     where idx = toComponentIndex (undefined :: px) plane
 
--- | Extract an image plane of an image, returning an image which
--- can be represented by a gray scale image.
--- If you ask a component out of bound, the `error` function will
--- be called
+-- | Extract a plane of an image. Returns the requested color
+-- component as a greyscale image.
+--
+-- If you ask for a component out of bound, the `error` function will
+-- be called.
 unsafeExtractComponent :: forall a
                         . ( Pixel a
                           , Pixel (PixelBaseComponent a)
@@ -209,8 +224,8 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
 
     -- | access the transparency (alpha layer) of a given
     -- transparent pixel type.
-    -- DEPRECATED, you should use `pixelOpacity`
     getTransparency :: a -> PixelBaseComponent a
+{-# DEPRECATED getTransparency "please use 'pixelOpacity' instead" #-}
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
@@ -292,8 +307,9 @@ instance NFData (MutableImage s a) where
                                           dat    `seq`
                                           ()
 
--- | Type allowing the loading of an image with different pixel
--- structures
+-- | Image type enumerating all predefined pixel types.
+-- It enables loading and use of images of different
+-- pixel types.
 data DynamicImage =
        -- | A greyscale image.
        ImageY8    (Image Pixel8)
@@ -459,6 +475,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                deriving (Eq, Ord, Show)
 
 -- | HDR pixel type storing floating point 32bit red, green and blue (RGB) information.
+-- Same value range and comments apply as for 'PixelF'.
 -- Values are stored in the following order:
 --
 --  * Red
@@ -472,7 +489,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Blue
                deriving (Eq, Ord, Show)
 
--- | Pixel type storing 8bit data in the YCbCr colorspace,
+-- | Pixel type storing 8bit luminance, blue difference and red difference (YCbCr) information.
 -- Values are stored in the following order:
 --
 --  * Y (luminance)
@@ -482,8 +499,8 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 --  * Cr
 --
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
-                               {-# UNPACK #-} !Pixel8 -- Cr blue difference
-                               {-# UNPACK #-} !Pixel8 -- Cb cr difference
+                               {-# UNPACK #-} !Pixel8 -- Cb blue difference
+                               {-# UNPACK #-} !Pixel8 -- Cr red difference
                  deriving (Eq, Ord, Show)
 
 -- | Pixel type storing 8bit cyan, magenta, yellow and black (CMYK) information.

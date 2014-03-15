@@ -197,7 +197,7 @@ encodeGifAnimation delay looping lst =
         [(pal, delay, img)
                 | (img, pal) <- palettize defaultPaletteOptions <$> lst]
 
--- | Helper function to write a gif animtion on disk.
+-- | Helper function to write a gif animation on disk.
 -- See encodeGifAnimation
 writeGifAnimation :: FilePath -> GifDelay -> GifLooping
                   -> [Image PixelRGB8] -> Either String (IO ())
@@ -216,7 +216,7 @@ withImageDecoder decoder path = Exc.catch doit
           get = B.readFile path
 #endif
           -- force appeared in deepseq 1.3, Haskell Platform
-          -- provide 1.1
+          -- provides 1.1
           force x = x `deepseq` x
 
 -- | Load an image file without even thinking about it, it does everything
@@ -226,8 +226,8 @@ readImage = withImageDecoder decodeImage
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
--- to decode in each known format and if one decoding succeed will return
--- the decoded image in it's own colorspace
+-- to decode in each known format and if one decoding succeeds, it will return
+-- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("PNG", decodePng)
@@ -256,7 +256,7 @@ readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'colorSpaceConversion'
+-- convert it to RGB using 'colorSpaceConversion'.
 readJpeg :: FilePath -> IO (Either String DynamicImage)
 readJpeg = withImageDecoder decodeJpeg
 
