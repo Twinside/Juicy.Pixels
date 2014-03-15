@@ -197,7 +197,7 @@ encodeGifAnimation delay looping lst =
         [(pal, delay, img)
                 | (img, pal) <- palettize defaultPaletteOptions <$> lst]
 
--- | Helper function to write a gif animtion on disk.
+-- | Helper function to write a gif animation on disk.
 -- See encodeGifAnimation
 writeGifAnimation :: FilePath -> GifDelay -> GifLooping
                   -> [Image PixelRGB8] -> Either String (IO ())
