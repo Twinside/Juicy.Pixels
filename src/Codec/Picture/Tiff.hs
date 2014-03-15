@@ -1184,8 +1184,8 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 
 unpack _ _ = fail "Failure to unpack TIFF file"
 
--- | Transform a raw tiff image to an image, without modifying
--- the underlying pixel type.
+-- | Decode a tiff encoded image while preserving the underlying
+-- pixel type.
 --
 -- This function can output the following pixel types :
 --
