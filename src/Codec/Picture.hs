@@ -216,7 +216,7 @@ withImageDecoder decoder path = Exc.catch doit
           get = B.readFile path
 #endif
           -- force appeared in deepseq 1.3, Haskell Platform
-          -- provide 1.1
+          -- provides 1.1
           force x = x `deepseq` x
 
 -- | Load an image file without even thinking about it, it does everything
