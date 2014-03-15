@@ -71,7 +71,7 @@ rm tests/ya*.png
 	rm *._fromCMYK16.tiff
 	rm *._fromCMYK8.png
 	rm *._fromCMYK8.tiff
-    rm *._fromYCbCr8.tiff
+	rm *._fromYCbCr8.tiff
 	cd ../..
 }
 
