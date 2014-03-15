@@ -1122,7 +1122,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      _ -> pure img
+      _ -> fail $ "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
