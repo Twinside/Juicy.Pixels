@@ -1122,6 +1122,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
+      ImageYA8 i -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
+                    in pure . ImageYA8 $ pixelMap negative i
+      ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
+                     in pure . ImageYA16 $ pixelMap negative i
       _ -> fail $ "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
@@ -1138,9 +1142,20 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
+        let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
+            img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+        in
         pure . ImageY16 $ pixelMap (toWord16) img
-           where toWord16 v = fromIntegral $ v `unsafeShiftR` 16
-                 img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+  | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+  | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+  | lst == V.fromList [8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.fromList [12, 12] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 . pixelMap (colorMap (16 *)) $ gatherStrips Pack12 file nfo
+  | lst == V.fromList [16, 16] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
@@ -1192,6 +1207,10 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- * PixelY8
 --
 -- * PixelY16
+--
+-- * PixelYA8
+--
+-- * PixelYA16
 --
 -- * PixelRGB8
 --
