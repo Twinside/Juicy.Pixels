@@ -644,7 +644,7 @@ class Unpackable a where
     mergeBackTempBuffer :: a    -- ^ Type witness, just for the type checker.
                         -> Endianness
                         -> M.STVector s Word8 -- ^ Temporary buffer handling decompression.
-                        -> Int -- ^ Line size in pixels
+                        -> Int  -- ^ Line size in pixels
                         -> Int  -- ^ Write index, in bytes
                         -> Word32  -- ^ size, in bytes
                         -> Int  -- ^ Stride
