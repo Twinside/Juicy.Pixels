@@ -411,7 +411,9 @@ decodeImage frame quants lst outImage = do
         let compIdx = componentIndex comp
             dcTree = dcHuffmanTree comp
             acTree = acHuffmanTree comp
-            qTable = quants V.! (min 1 compIdx)
+            quantId = fromIntegral .  quantizationTableDest
+                    $ jpgComponents frame !! compIdx
+            qTable = quants V.! (min 3 quantId)
             xd = blockMcuX comp
             yd = blockMcuY comp
             (subX, subY) = subSampling comp

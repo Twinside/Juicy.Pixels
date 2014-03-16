@@ -279,8 +279,10 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
       forM_ allBlocks $ \compData -> do
         let compBlocks = componentBlocks compData
             cId = componentId compData
-            table = quants ! min 3 cId
             comp = jpgComponents frame !! cId
+            quantId =
+                fromIntegral $ quantizationTableDest comp
+            table = quants ! min 3 quantId
             compW = fromIntegral $ horizontalSamplingFactor comp
             compH = fromIntegral $ verticalSamplingFactor comp
             cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1
