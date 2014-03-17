@@ -1122,25 +1122,42 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      _ -> pure img
+      ImageYA8 i -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
+                    in pure . ImageYA8 $ pixelMap negative i
+      ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
+                     in pure . ImageYA16 $ pixelMap negative i
+      _ -> fail $ "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.singleton 8 && all (TiffSampleUint ==) format =
         pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.singleton 12 && all (TiffSampleUint ==) format =
-        pure . ImageY16 . pixelMap (16 *) $ gatherStrips Pack12 file nfo
+        pure . ImageY16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
+        let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
+            img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+        in
         pure . ImageY16 $ pixelMap (toWord16) img
-           where toWord16 v = fromIntegral $ v `unsafeShiftR` 16
-                 img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+  | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
+  | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
+  | lst == V.fromList [8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.fromList [12, 12] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
+  | lst == V.fromList [16, 16] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
+    where
+      expand12to16 x = x `unsafeShiftL` 4 + x `unsafeShiftR` (12 - 4)
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
@@ -1164,9 +1181,9 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
@@ -1185,13 +1202,17 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 unpack _ _ = fail "Failure to unpack TIFF file"
 
 -- | Decode a tiff encoded image while preserving the underlying
--- pixel type.
+-- pixel type (except for Y32 which is truncated to 16 bits).
 --
 -- This function can output the following pixel types:
 --
 -- * PixelY8
 --
 -- * PixelY16
+--
+-- * PixelYA8
+--
+-- * PixelYA16
 --
 -- * PixelRGB8
 --
@@ -1220,6 +1241,12 @@ instance TiffSaveable Pixel8 where
   colorSpaceOfPixel _ = TiffMonochrome
 
 instance TiffSaveable Pixel16 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelYA8 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelYA16 where
   colorSpaceOfPixel _ = TiffMonochrome
 
 instance TiffSaveable PixelCMYK8 where

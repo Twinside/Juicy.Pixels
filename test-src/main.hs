@@ -133,6 +133,8 @@ tiffValidTests =
     ,"ycbcr-cat.tif"
     {-,"zackthecat.tif"-}
     {-"smallliz.tif"-}
+    ,"other/butique-YA8.tif"
+    ,"other/butique-YA16.tif"
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
