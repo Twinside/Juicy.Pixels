@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing TIFF decoding.
 --
--- Supported compression schemes :
+-- Supported compression schemes:
 --
 --   * Uncompressed
 --
@@ -14,7 +14,7 @@
 --
 --   * LZW
 --
--- Supported bit depth :
+-- Supported bit depth:
 --
 --   * 2 bits
 --
@@ -644,7 +644,7 @@ class Unpackable a where
     mergeBackTempBuffer :: a    -- ^ Type witness, just for the type checker.
                         -> Endianness
                         -> M.STVector s Word8 -- ^ Temporary buffer handling decompression.
-                        -> Int -- ^ Line size in pixels
+                        -> Int  -- ^ Line size in pixels
                         -> Int  -- ^ Write index, in bytes
                         -> Word32  -- ^ size, in bytes
                         -> Int  -- ^ Stride
@@ -1184,10 +1184,10 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 
 unpack _ _ = fail "Failure to unpack TIFF file"
 
--- | Transform a raw tiff image to an image, without modifying
--- the underlying pixel type.
+-- | Decode a tiff encoded image while preserving the underlying
+-- pixel type.
 --
--- This function can output the following pixel types :
+-- This function can output the following pixel types:
 --
 -- * PixelY8
 --
@@ -1196,6 +1196,10 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- * PixelRGB8
 --
 -- * PixelRGB16
+--
+-- * PixelRGBA8
+--
+-- * PixelRGBA16
 --
 -- * PixelCMYK8
 --
@@ -1240,7 +1244,7 @@ instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 
--- | Transform an image into a Tiff encoded bytestring, reade to be
+-- | Transform an image into a Tiff encoded bytestring, ready to be
 -- written as a file.
 encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
 encodeTiff img = runPut $ putP rawPixelData hdr
