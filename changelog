@@ -1,10 +1,18 @@
 -*-change-log-*-
 
 v3.1.4.2 ?? 2014
- * Typos and documentation proof reading fixes (iger).
+ * Typos and documentation proof reading fixes
+   (pull request from iger).
  * Fix of progressive jpeg loading with more than two
    huffman tables (4 allowed).
  * Added loading of paletted bitmap files.
+ * Function to load gif images with frame duration
+   information (pull request from bit-shift)
+ * Fixing bug showing when loading JPEG with component
+   ID starting at 0.
+ * Adding reading for YA8 et YA16 Tiff images (pull 
+   request from iger)
+
 
 v3.1.4.1 February 2014
  * Putting back data URI logo for cabal description, it's
