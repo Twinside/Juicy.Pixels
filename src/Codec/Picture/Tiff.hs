@@ -1202,7 +1202,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 unpack _ _ = fail "Failure to unpack TIFF file"
 
 -- | Decode a tiff encoded image while preserving the underlying
--- pixel type.
+-- pixel type (except for Y32 which is truncated to 16 bits).
 --
 -- This function can output the following pixel types:
 --
