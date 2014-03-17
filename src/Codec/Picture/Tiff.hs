@@ -1132,13 +1132,13 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.singleton 8 && all (TiffSampleUint ==) format =
         pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.singleton 12 && all (TiffSampleUint ==) format =
-        pure . ImageY16 . pixelMap (16 *) $ gatherStrips Pack12 file nfo
+        pure . ImageY16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
@@ -1147,15 +1147,17 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
         in
         pure . ImageY16 $ pixelMap (toWord16) img
   | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageYA8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageYA8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageYA8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8] && all (TiffSampleUint ==) format =
         pure . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [12, 12] && all (TiffSampleUint ==) format =
-        pure . ImageYA16 . pixelMap (colorMap (16 *)) $ gatherStrips Pack12 file nfo
+        pure . ImageYA16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.fromList [16, 16] && all (TiffSampleUint ==) format =
         pure . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
+    where
+      expand12to16 x = x `unsafeShiftL` 4 + x `unsafeShiftR` (12 - 4)
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
@@ -1179,9 +1181,9 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
