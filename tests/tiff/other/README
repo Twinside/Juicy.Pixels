@@ -1,0 +1,16 @@
+Image butique-YA16.tif was created by
+hugin's nona transformer from a 16bit grayscale
+image resulting in a 16bit grayscale image
+with transparency.
+Image butique-YA8.tif is a downconversion
+to 8bits per pixel by openening and saving
+in gimp.
+
+These images don't contain pixels with transition
+transparency or anything interesting other than
+being grayscale images with alpha.
+
+
+The butique-YA{8,16}.tif images were created
+by myself and are hereby released to the public
+domain. Or whatever. Do anything you want with them.
