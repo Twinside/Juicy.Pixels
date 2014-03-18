@@ -8,8 +8,6 @@
 module Codec.Picture.Jpg( decodeJpeg
                         , encodeJpegAtQuality
                         , encodeJpeg
-
-                        , jpgMachineStep
                         ) where
 
 import Control.Arrow( (>>>) )
