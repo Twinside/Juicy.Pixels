@@ -392,10 +392,10 @@ sampleCountOfImageType PngIndexedColor = 1
 sampleCountOfImageType PngGreyscaleWithAlpha = 2
 sampleCountOfImageType PngTrueColourWithAlpha = 4
 
-paletteRGBA1, paletteRGBA2, paletteRGBA4 :: PngPalette
-paletteRGBA1 = generateGreyscalePalette 1
-paletteRGBA2 = generateGreyscalePalette 2
-paletteRGBA4 = generateGreyscalePalette 4
+paletteRGB1, paletteRGB2, paletteRGB4 :: PngPalette
+paletteRGB1 = generateGreyscalePalette 1
+paletteRGB2 = generateGreyscalePalette 2
+paletteRGB4 = generateGreyscalePalette 4
 
 {-# INLINE bounds #-}
 bounds :: Storable a => V.Vector a -> (Int, Int)
@@ -471,9 +471,9 @@ decodePng byte = do
                               , chunkType chunk == tRNSSignature ]
 
         unparse _ t PngGreyscale bytes
-            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) t PngIndexedColor bytes
-            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) t PngIndexedColor bytes
-            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) t PngIndexedColor bytes
+            | bitDepth ihdr == 1 = unparse (Just paletteRGB1) t PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGB2) t PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGB4) t PngIndexedColor bytes
             | otherwise = toImage ImageY8 ImageY16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
 
