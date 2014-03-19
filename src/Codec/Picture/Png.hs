@@ -5,9 +5,8 @@
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files.
 --
--- The API has two layers. The high level API loads the image for you
--- while hiding all the details. The low level API allows access to
--- individual data chunks contained in the PNG image.
+-- A high level API is provided. It loads and saves images for you
+-- while hiding all the details about PNG chunks.
 --
 -- For general use, please use 'decodePng' function.
 --
