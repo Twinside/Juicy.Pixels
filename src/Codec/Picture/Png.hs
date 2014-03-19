@@ -8,7 +8,9 @@
 -- A high level API is provided. It loads and saves images for you
 -- while hiding all the details about PNG chunks.
 --
--- For general use, please use 'decodePng' function.
+-- Basic functions for PNG handling are 'decodePng', 'encodePng'
+-- and 'encodePalettedPng'. Convenience functions are provided
+-- for direct file handling and using 'DynamicImage's.
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
