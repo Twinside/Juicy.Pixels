@@ -420,7 +420,7 @@ applyPaletteWithTransparency pal transp img = V.fromListN ((initSize + 1) * 4) p
 -- in the future.
 -- The resulting image let you manage the pixel types.
 --
--- This function can output the following pixel types :
+-- This function can output the following pixel types:
 --
 --    * PixelY8
 --
