@@ -376,11 +376,11 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         Right <$> V.unsafeFreeze imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = Image possibilities 0 vec
-    where possibilities = 2 ^ times - 1
-          vec = V.fromListN ((fromIntegral possibilities + 1) * 3) $ concat pixels
-          pixels = [[i, i, i] | n <- [0 .. possibilities]
-                              , let i = fromIntegral $ n * (255 `div` possibilities)]
+generateGreyscalePalette times = Image maxValue 0 vec
+    where maxValue = 2 ^ times - 1
+          vec = V.fromListN ((fromIntegral maxValue + 1) * 3) $ concat pixels
+          pixels = [[i, i, i] | n <- [0 .. maxValue]
+                              , let i = fromIntegral $ n * (255 `div` maxValue)]
 
 sampleCountOfImageType :: PngImageType -> Word32
 sampleCountOfImageType PngGreyscale = 1
