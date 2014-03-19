@@ -906,17 +906,25 @@ gatherStrips comp str nfo = runST $ do
 
   case tiffPlaneConfiguration nfo of
     PlanarConfigContig -> V.mapM_ unpacker sizes
-        where unpacker (idx, offset, size) = do
+        where unpacker (idx, stripSampleCount, offset, packedSize) = do
                   let (writeIdx, tempStride)  = offsetStride comp idx 1
                   _ <- uncompressAt compression str tempVec tempStride
-                                    writeIdx (offset, size)
+                                    writeIdx (offset, packedSize)
+                  let typ :: M.MVector s a -> a
+                      typ = const undefined
+                      sampleSize = sizeOf (typ outVec)
                   mergeBackTempBuffer comp endianness tempVec (width * sampleCount)
-                                      idx size 1 outVec
+                                      idx (fromIntegral $ stripSampleCount * sampleSize) 1 outVec
 
-              startWriteOffset =
-                  V.generate stripCount(width * rowPerStrip * sampleCount *)
 
-              sizes = V.zip3 startWriteOffset (tiffOffsets nfo) (tiffStripSize nfo)
+              fullStripSampleCount = rowPerStrip * width * sampleCount
+              startWriteOffset = V.generate stripCount (fullStripSampleCount *)
+              stripSampleCounts = V.map strip startWriteOffset
+                  where
+                      strip start = min fullStripSampleCount (width * height * sampleCount - start)
+
+              sizes = V.zip4 startWriteOffset stripSampleCounts
+                             (tiffOffsets nfo) (tiffStripSize nfo)
 
     PlanarConfigSeparate -> V.mapM_ unpacker sizes
         where unpacker (idx, offset, size) = do
