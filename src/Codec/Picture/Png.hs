@@ -3,9 +3,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
--- files. The API has two layers, the high level, which load the image without
--- looking deeply about it and the low level, allowing access to data chunks contained
--- in the PNG image.
+-- files.
+--
+-- The API has two layers. The high level API loads the image for you
+-- while hiding all the details. The low level API allows access to
+-- individual data chunks contained in the PNG image.
 --
 -- For general use, please use 'decodePng' function.
 --
