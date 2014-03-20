@@ -501,6 +501,15 @@ findIFDExtDefaultData d tag lst =
 instance Show (Image PixelRGB16) where
     show _ = "Image PixelRGB16"
 -}
+data ExtraSample
+    = ExtraSampleUnspecified       -- ^ 0
+    | ExtraSampleAssociatedAlpha   -- ^ 1
+    | ExtraSampleUnassociatedAlpha -- ^ 2
+
+codeOfExtraSample :: ExtraSample -> Word16
+codeOfExtraSample ExtraSampleUnspecified = 0
+codeOfExtraSample ExtraSampleAssociatedAlpha = 1
+codeOfExtraSample ExtraSampleUnassociatedAlpha = 2
 
 data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
@@ -517,6 +526,7 @@ data TiffInfo = TiffInfo
     , tiffOffsets            :: V.Vector Word32
     , tiffPalette            :: Maybe (Image PixelRGB16)
     , tiffYCbCrSubsampling   :: V.Vector Word32
+    , tiffExtraSample        :: Maybe ExtraSample
     }
 
 data TiffColorspace =
@@ -1040,6 +1050,10 @@ instance BinaryParam B.ByteString TiffInfo where
 
             ifdMultiLong TagStripByteCounts $ tiffStripSize nfo
 
+            maybe (return ())
+                  (ifdShort TagExtraSample . codeOfExtraSample)
+                $ tiffExtraSample nfo
+
             let subSampling = tiffYCbCrSubsampling nfo
             when (not $ V.null subSampling) $
                  ifdShorts TagYCbCrSubsampling subSampling
@@ -1083,6 +1097,7 @@ instance BinaryParam B.ByteString TiffInfo where
                      >>= unLong "Can't find strip offsets")
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
+        <*> pure Nothing
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 -- | while mandatory some images don't put correct
@@ -1242,6 +1257,9 @@ decodeTiff file = runGetStrict (getP file) file >>= unpack file
 class (Pixel px) => TiffSaveable px where
   colorSpaceOfPixel :: px -> TiffColorspace
 
+  extraSampleCodeOfPixel :: px -> Maybe ExtraSample
+  extraSampleCodeOfPixel _ = Nothing
+
   subSamplingInfo   :: px -> V.Vector Word32
   subSamplingInfo _ = V.empty
 
@@ -1253,9 +1271,11 @@ instance TiffSaveable Pixel16 where
 
 instance TiffSaveable PixelYA8 where
   colorSpaceOfPixel _ = TiffMonochrome
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelYA16 where
   colorSpaceOfPixel _ = TiffMonochrome
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelCMYK8 where
   colorSpaceOfPixel _ = TiffCMYK
@@ -1271,9 +1291,11 @@ instance TiffSaveable PixelRGB16 where
 
 instance TiffSaveable PixelRGBA8 where
   colorSpaceOfPixel _ = TiffRGB
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelRGBA16 where
   colorSpaceOfPixel _ = TiffRGB
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
@@ -1316,6 +1338,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffOffsets            = V.singleton headerSize
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
+            , tiffExtraSample        = extraSampleCodeOfPixel (undefined :: px)
             }
 
 -- | Helper function to directly write an image as a tiff on disk.
