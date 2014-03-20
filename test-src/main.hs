@@ -145,6 +145,8 @@ tiffValidTests =
     ,"ycbcr-cat.tif"
     {-,"zackthecat.tif"-}
     {-"smallliz.tif"-}
+    ,"compression/cs3n2c16.tif"
+    ,"compression/flower-rgb-contig-16-packbits.tif"
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
     ]
