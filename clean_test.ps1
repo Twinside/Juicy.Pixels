@@ -30,6 +30,8 @@ rm tests/radiance/*.tiff
 rm tests/rgb*.png
 rm tests/ya*.png
 
+rm Gifanim.gif
+
 "tests/pngsuite/", "tests/bmp/", "tests/jpeg/", "tests/radiance/", "tests/tiff/", "tests/tiff/depth" | % {
 	$folder = $_;
 	cd $folder
@@ -46,6 +48,7 @@ rm tests/ya*.png
 	rm *._fromRGB8.jpg
 	rm *._fromRGB8.gif
 	rm *._fromRGB8.png
+	rm *._fromRGB8_pal.png
 	rm *._fromRGB8.tiff
 	rm *._fromRGB16.png
 	rm *._fromRGB16.tiff

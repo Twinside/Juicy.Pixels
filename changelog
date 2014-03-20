@@ -1,10 +1,11 @@
 -*-change-log-*-
 
-v3.1.4.2 ?? 2014
+v3.1.5 March 2014
  * Typos and documentation proof reading fixes
    (pull request from iger).
  * Fix of progressive jpeg loading with more than two
    huffman tables (4 allowed).
+ * Fix of progressive jpeg rendering (was too noisy before)
  * Added loading of paletted bitmap files.
  * Function to load gif images with frame duration
    information (pull request from bit-shift)
