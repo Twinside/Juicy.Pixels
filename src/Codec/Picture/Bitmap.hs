@@ -9,12 +9,13 @@ module Codec.Picture.Bitmap( -- * Functions
                            , decodeBitmap
                            , encodeDynamicBitmap 
                            , writeDynamicBitmap 
-                             -- * Accepted formt in output
+                             -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
 import Control.Monad( when, forM_ )
 import Control.Monad.ST ( ST, runST )
-import qualified Data.Vector.Storable as V
+import qualified Data.Vector as V
+import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Put( Put
@@ -25,6 +26,7 @@ import Data.Binary.Put( Put
                       )
 
 import Data.Binary.Get( Get
+                      , getWord8
                       , getWord16le 
                       , getWord32le
                       , bytesRead
@@ -88,6 +90,7 @@ data BmpInfoHeader = BmpInfoHeader
     , colorCount        :: !Word32
     , importantColours  :: !Word32
     }
+    deriving Show
 
 sizeofBmpHeader, sizeofBmpInfo  :: Word32
 sizeofBmpHeader = 2 + 4 + 2 + 2 + 4
@@ -169,14 +172,14 @@ instance BmpEncodable Pixel8 where
                   let lineIdx = line * w
                       inner col | col >= w = return ()
                       inner col = do
-                          let v = (arr `V.unsafeIndex` (lineIdx + col))
+                          let v = (arr `VS.unsafeIndex` (lineIdx + col))
                           (buff `M.unsafeWrite` col) v
                           inner (col + 1)
 
                   inner 0
 
                   stridePut buff w stride
-                  V.unsafeFreeze buff
+                  VS.unsafeFreeze buff
 
 instance BmpEncodable PixelRGBA8 where
     bitsPerPixel _ = 32
@@ -188,10 +191,10 @@ instance BmpEncodable PixelRGBA8 where
                 let initialIndex = line * w * 4
                     inner col _ _ | col >= w = return ()
                     inner col writeIdx readIdx = do
-                        let r = arr `V.unsafeIndex` readIdx
-                            g = arr `V.unsafeIndex` (readIdx + 1)
-                            b = arr `V.unsafeIndex` (readIdx + 2)
-                            a = arr `V.unsafeIndex` (readIdx + 3)
+                        let r = arr `VS.unsafeIndex` readIdx
+                            g = arr `VS.unsafeIndex` (readIdx + 1)
+                            b = arr `VS.unsafeIndex` (readIdx + 2)
+                            a = arr `VS.unsafeIndex` (readIdx + 3)
 
                         (buff `M.unsafeWrite` writeIdx) b
                         (buff `M.unsafeWrite` (writeIdx + 1)) g
@@ -201,7 +204,7 @@ instance BmpEncodable PixelRGBA8 where
                         inner (col + 1) (writeIdx + 4) (readIdx + 4)
 
                 inner 0 0 initialIndex
-                V.unsafeFreeze buff
+                VS.unsafeFreeze buff
 
 instance BmpEncodable PixelRGB8 where
     bitsPerPixel _ = 24
@@ -214,9 +217,9 @@ instance BmpEncodable PixelRGB8 where
                   let initialIndex = line * w * 3
                       inner col _ _ | col >= w = return ()
                       inner col writeIdx readIdx = do
-                          let r = (arr `V.unsafeIndex` readIdx)
-                              g = (arr `V.unsafeIndex` (readIdx + 1))
-                              b = (arr `V.unsafeIndex` (readIdx + 2))
+                          let r = (arr `VS.unsafeIndex` readIdx)
+                              g = (arr `VS.unsafeIndex` (readIdx + 1))
+                              b = (arr `VS.unsafeIndex` (readIdx + 2))
                           
                           (buff `M.unsafeWrite` writeIdx) b
                           (buff `M.unsafeWrite` (writeIdx + 1)) g
@@ -225,7 +228,7 @@ instance BmpEncodable PixelRGB8 where
                           inner (col + 1) (writeIdx + 3) (readIdx + 3)
 
                   inner 0 0 initialIndex
-                  V.unsafeFreeze buff
+                  VS.unsafeFreeze buff
 
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
@@ -234,7 +237,7 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
         stArray = runST $ do
             arr <- M.new (fromIntegral $ w * h * 3)
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
-            V.unsafeFreeze arr
+            VS.unsafeFreeze arr
 
         stride = linePadding 24 wi
         readLine arr line =
@@ -258,7 +261,7 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
         stArray = runST $ do
             arr <- M.new (fromIntegral $ w * h * 1)
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
-            V.unsafeFreeze arr
+            VS.unsafeFreeze arr
 
         stride = linePadding 8 wi
         readLine arr line =
@@ -272,6 +275,15 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
                     inner (readIdx + 1) (writeIdx + 1)
 
             in inner readIndex writeIndex
+
+
+pixelGet :: Get PixelRGB8
+pixelGet = do
+    b <- getWord8
+    g <- getWord8
+    r <- getWord8
+    _ <- getWord8
+    return $ PixelRGB8 r g b
 
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
@@ -289,13 +301,27 @@ decodeBitmap str = flip runGetStrict str $ do
   when (readed > fromIntegral (dataOffset hdr))
        (fail "Invalid bmp image, data in header")
 
-  skip . fromIntegral $ dataOffset hdr - fromIntegral readed
+  let bpp = fromIntegral $ bitPerPixel bmpHeader :: Int
+      paletteColorCount
+        | colorCount bmpHeader == 0 = 2 ^ bpp
+        | otherwise = fromIntegral $ colorCount bmpHeader
+
+  table <- if bpp > 8
+    then return V.empty
+    else V.replicateM paletteColorCount pixelGet 
+
+  readed' <- bytesRead
+
+  skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
   rest <- getRemainingBytes
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
     (24, 1, 0) -> return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
-    ( 8, 1, 0) -> return . ImageY8 $ decodeImageY8 bmpHeader rest
+    ( 8, 1, 0) ->
+        let indexer v = table V.! fromIntegral v in
+        return . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
+
     a          -> fail $ "Can't handle BMP file " ++ show a
 
 
@@ -334,7 +360,6 @@ encodeDynamicBitmap (ImageRGB8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
-
 
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)

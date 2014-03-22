@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing TIFF decoding.
 --
--- Supported compression schemes :
+-- Supported compression schemes:
 --
 --   * Uncompressed
 --
@@ -14,7 +14,7 @@
 --
 --   * LZW
 --
--- Supported bit depth :
+-- Supported bit depth:
 --
 --   * 2 bits
 --
@@ -501,6 +501,15 @@ findIFDExtDefaultData d tag lst =
 instance Show (Image PixelRGB16) where
     show _ = "Image PixelRGB16"
 -}
+data ExtraSample
+    = ExtraSampleUnspecified       -- ^ 0
+    | ExtraSampleAssociatedAlpha   -- ^ 1
+    | ExtraSampleUnassociatedAlpha -- ^ 2
+
+codeOfExtraSample :: ExtraSample -> Word16
+codeOfExtraSample ExtraSampleUnspecified = 0
+codeOfExtraSample ExtraSampleAssociatedAlpha = 1
+codeOfExtraSample ExtraSampleUnassociatedAlpha = 2
 
 data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
@@ -517,6 +526,7 @@ data TiffInfo = TiffInfo
     , tiffOffsets            :: V.Vector Word32
     , tiffPalette            :: Maybe (Image PixelRGB16)
     , tiffYCbCrSubsampling   :: V.Vector Word32
+    , tiffExtraSample        :: Maybe ExtraSample
     }
 
 data TiffColorspace =
@@ -644,7 +654,7 @@ class Unpackable a where
     mergeBackTempBuffer :: a    -- ^ Type witness, just for the type checker.
                         -> Endianness
                         -> M.STVector s Word8 -- ^ Temporary buffer handling decompression.
-                        -> Int -- ^ Line size in pixels
+                        -> Int  -- ^ Line size in pixels
                         -> Int  -- ^ Write index, in bytes
                         -> Word32  -- ^ size, in bytes
                         -> Int  -- ^ Stride
@@ -906,17 +916,25 @@ gatherStrips comp str nfo = runST $ do
 
   case tiffPlaneConfiguration nfo of
     PlanarConfigContig -> V.mapM_ unpacker sizes
-        where unpacker (idx, offset, size) = do
+        where unpacker (idx, stripSampleCount, offset, packedSize) = do
                   let (writeIdx, tempStride)  = offsetStride comp idx 1
                   _ <- uncompressAt compression str tempVec tempStride
-                                    writeIdx (offset, size)
+                                    writeIdx (offset, packedSize)
+                  let typ :: M.MVector s a -> a
+                      typ = const undefined
+                      sampleSize = sizeOf (typ outVec)
                   mergeBackTempBuffer comp endianness tempVec (width * sampleCount)
-                                      idx size 1 outVec
+                                      idx (fromIntegral $ stripSampleCount * sampleSize) 1 outVec
 
-              startWriteOffset =
-                  V.generate stripCount(width * rowPerStrip * sampleCount *)
 
-              sizes = V.zip3 startWriteOffset (tiffOffsets nfo) (tiffStripSize nfo)
+              fullStripSampleCount = rowPerStrip * width * sampleCount
+              startWriteOffset = V.generate stripCount (fullStripSampleCount *)
+              stripSampleCounts = V.map strip startWriteOffset
+                  where
+                      strip start = min fullStripSampleCount (width * height * sampleCount - start)
+
+              sizes = V.zip4 startWriteOffset stripSampleCounts
+                             (tiffOffsets nfo) (tiffStripSize nfo)
 
     PlanarConfigSeparate -> V.mapM_ unpacker sizes
         where unpacker (idx, offset, size) = do
@@ -1032,6 +1050,10 @@ instance BinaryParam B.ByteString TiffInfo where
 
             ifdMultiLong TagStripByteCounts $ tiffStripSize nfo
 
+            maybe (return ())
+                  (ifdShort TagExtraSample . codeOfExtraSample)
+                $ tiffExtraSample nfo
+
             let subSampling = tiffYCbCrSubsampling nfo
             when (not $ V.null subSampling) $
                  ifdShorts TagYCbCrSubsampling subSampling
@@ -1075,6 +1097,7 @@ instance BinaryParam B.ByteString TiffInfo where
                      >>= unLong "Can't find strip offsets")
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
+        <*> pure Nothing
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 -- | while mandatory some images don't put correct
@@ -1122,25 +1145,42 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      _ -> pure img
+      ImageYA8 i -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
+                    in pure . ImageYA8 $ pixelMap negative i
+      ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
+                     in pure . ImageYA16 $ pixelMap negative i
+      _ -> fail $ "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageY8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.singleton 8 && all (TiffSampleUint ==) format =
         pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.singleton 12 && all (TiffSampleUint ==) format =
-        pure . ImageY16 . pixelMap (16 *) $ gatherStrips Pack12 file nfo
+        pure . ImageY16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
+        let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
+            img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+        in
         pure . ImageY16 $ pixelMap (toWord16) img
-           where toWord16 v = fromIntegral $ v `unsafeShiftR` 16
-                 img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+  | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
+  | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
+  | lst == V.fromList [8, 8] && all (TiffSampleUint ==) format =
+        pure . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.fromList [12, 12] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
+  | lst == V.fromList [16, 16] && all (TiffSampleUint ==) format =
+        pure . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
+    where
+      expand12to16 x = x `unsafeShiftL` 4 + x `unsafeShiftR` (12 - 4)
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffBitsPerSample = lst
@@ -1164,9 +1204,9 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (64 *)) $ gatherStrips Pack2 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (16 *)) $ gatherStrips Pack4 file nfo
+        pure . ImageRGB8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
@@ -1184,18 +1224,26 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
 
 unpack _ _ = fail "Failure to unpack TIFF file"
 
--- | Transform a raw tiff image to an image, without modifying
--- the underlying pixel type.
+-- | Decode a tiff encoded image while preserving the underlying
+-- pixel type (except for Y32 which is truncated to 16 bits).
 --
--- This function can output the following pixel types :
+-- This function can output the following pixel types:
 --
 -- * PixelY8
 --
 -- * PixelY16
 --
+-- * PixelYA8
+--
+-- * PixelYA16
+--
 -- * PixelRGB8
 --
 -- * PixelRGB16
+--
+-- * PixelRGBA8
+--
+-- * PixelRGBA16
 --
 -- * PixelCMYK8
 --
@@ -1209,6 +1257,9 @@ decodeTiff file = runGetStrict (getP file) file >>= unpack file
 class (Pixel px) => TiffSaveable px where
   colorSpaceOfPixel :: px -> TiffColorspace
 
+  extraSampleCodeOfPixel :: px -> Maybe ExtraSample
+  extraSampleCodeOfPixel _ = Nothing
+
   subSamplingInfo   :: px -> V.Vector Word32
   subSamplingInfo _ = V.empty
 
@@ -1217,6 +1268,14 @@ instance TiffSaveable Pixel8 where
 
 instance TiffSaveable Pixel16 where
   colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelYA8 where
+  colorSpaceOfPixel _ = TiffMonochrome
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
+
+instance TiffSaveable PixelYA16 where
+  colorSpaceOfPixel _ = TiffMonochrome
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelCMYK8 where
   colorSpaceOfPixel _ = TiffCMYK
@@ -1232,15 +1291,17 @@ instance TiffSaveable PixelRGB16 where
 
 instance TiffSaveable PixelRGBA8 where
   colorSpaceOfPixel _ = TiffRGB
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelRGBA16 where
   colorSpaceOfPixel _ = TiffRGB
+  extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
 instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 
--- | Transform an image into a Tiff encoded bytestring, reade to be
+-- | Transform an image into a Tiff encoded bytestring, ready to be
 -- written as a file.
 encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
 encodeTiff img = runPut $ putP rawPixelData hdr
@@ -1277,6 +1338,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffOffsets            = V.singleton headerSize
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
+            , tiffExtraSample        = extraSampleCodeOfPixel (undefined :: px)
             }
 
 -- | Helper function to directly write an image as a tiff on disk.

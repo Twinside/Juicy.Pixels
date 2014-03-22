@@ -3,11 +3,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
--- files. The API has two layers, the high level, which load the image without
--- looking deeply about it and the low level, allowing access to data chunks contained
--- in the PNG image.
+-- files.
 --
--- For general use, please use 'decodePng' function.
+-- A high level API is provided. It loads and saves images for you
+-- while hiding all the details about PNG chunks.
+--
+-- Basic functions for PNG handling are 'decodePng', 'encodePng'
+-- and 'encodePalettedPng'. Convenience functions are provided
+-- for direct file handling and using 'DynamicImage's.
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
@@ -376,11 +379,11 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         Right <$> V.unsafeFreeze imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette times = Image possibilities 0 vec
-    where possibilities = 2 ^ times - 1
-          vec = V.fromListN ((fromIntegral possibilities + 1) * 3) $ concat pixels
-          pixels = [[i, i, i] | n <- [0 .. possibilities]
-                              , let i = fromIntegral $ n * (255 `div` possibilities)]
+generateGreyscalePalette bits = Image (maxValue+1) 1 vec
+    where maxValue = 2 ^ bits - 1
+          vec = V.fromListN ((fromIntegral maxValue + 1) * 3) $ concat pixels
+          pixels = [[i, i, i] | n <- [0 .. maxValue]
+                              , let i = fromIntegral $ n * (255 `div` maxValue)]
 
 sampleCountOfImageType :: PngImageType -> Word32
 sampleCountOfImageType PngGreyscale = 1
@@ -389,10 +392,10 @@ sampleCountOfImageType PngIndexedColor = 1
 sampleCountOfImageType PngGreyscaleWithAlpha = 2
 sampleCountOfImageType PngTrueColourWithAlpha = 4
 
-paletteRGBA1, paletteRGBA2, paletteRGBA4 :: PngPalette
-paletteRGBA1 = generateGreyscalePalette 1
-paletteRGBA2 = generateGreyscalePalette 2
-paletteRGBA4 = generateGreyscalePalette 4
+paletteRGB1, paletteRGB2, paletteRGB4 :: PngPalette
+paletteRGB1 = generateGreyscalePalette 1
+paletteRGB2 = generateGreyscalePalette 2
+paletteRGB4 = generateGreyscalePalette 4
 
 {-# INLINE bounds #-}
 bounds :: Storable a => V.Vector a -> (Int, Int)
@@ -417,7 +420,7 @@ applyPaletteWithTransparency pal transp img = V.fromListN ((initSize + 1) * 4) p
 -- in the future.
 -- The resulting image let you manage the pixel types.
 --
--- This function can output the following pixel types :
+-- This function can output the following pixel types:
 --
 --    * PixelY8
 --
@@ -468,9 +471,9 @@ decodePng byte = do
                               , chunkType chunk == tRNSSignature ]
 
         unparse _ t PngGreyscale bytes
-            | bitDepth ihdr == 1 = unparse (Just paletteRGBA1) t PngIndexedColor bytes
-            | bitDepth ihdr == 2 = unparse (Just paletteRGBA2) t PngIndexedColor bytes
-            | bitDepth ihdr == 4 = unparse (Just paletteRGBA4) t PngIndexedColor bytes
+            | bitDepth ihdr == 1 = unparse (Just paletteRGB1) t PngIndexedColor bytes
+            | bitDepth ihdr == 2 = unparse (Just paletteRGB2) t PngIndexedColor bytes
+            | bitDepth ihdr == 4 = unparse (Just paletteRGB4) t PngIndexedColor bytes
             | otherwise = toImage ImageY8 ImageY16 $ runST stArray
                 where stArray = deinterlacer ihdr bytes
 

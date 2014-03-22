@@ -87,20 +87,33 @@ gifAnimationTest =
   where img = [(greyPalette, 20, greyScaleWitness (i * 10)) | i <- [0 .. 20]]
 
 jpegValidTests :: [FilePath]
-jpegValidTests = [ "explore_jpeg.jpg", "dunno.jpg"
-                 , "16x16jpeg.jpg", "8x8jpeg.jpg", "avatar.jpg"
-                 , "fenek.jpg", "JPEG_example_JPG_RIP_001.jpg"
-                 , "JPEG_example_JPG_RIP_010.jpg", "JPEG_example_JPG_RIP_025.jpg"
-                 , "JPEG_example_JPG_RIP_050.jpg", "JPEG_example_JPG_RIP_100.jpg"
-                 , "sheep.jpg", "mand_prgrsv.jpg"
-                 , "MCU0.jpg", "MCU1.jpg", "MCU5.jpg", "MCU10.jpg", "MCU35.jpg"
+jpegValidTests = [ "explore_jpeg.jpg"
+                 , "16x16jpeg.jpg"
+                 , "8x8jpeg.jpg"
+                 , "avatar.jpg"
+                 , "fenek.jpg"
+                 , "JPEG_example_JPG_RIP_001.jpg"
+                 , "JPEG_example_JPG_RIP_010.jpg"
+                 , "JPEG_example_JPG_RIP_025.jpg"
+                 , "JPEG_example_JPG_RIP_050.jpg"
+                 , "JPEG_example_JPG_RIP_100.jpg"
+                 , "sheep.jpg"
+                 , "MCU0.jpg"
+                 , "MCU1.jpg"
+                 , "MCU5.jpg"
+                 , "MCU10.jpg"
                  , "20100713-0107-interleaved2.jpg"
+                 , "MCU35.jpg"
+                 , "dunno.jpg"
+                 , "mand_prgrsv.jpg"
+                 , "bad.jpg"
                  ]
  
 bmpValidTests :: [FilePath]
 bmpValidTests =
     ["simple_bitmap_24bits.bmp"
-    ,"simple_bitmap_8bits.bmp"]
+    ,"simple_bitmap_8bits.bmp"
+    ,"eggyra0001.bmp"]
 
 -- "caspian.tif"
 tiffValidTests :: [FilePath]
@@ -132,6 +145,10 @@ tiffValidTests =
     ,"ycbcr-cat.tif"
     {-,"zackthecat.tif"-}
     {-"smallliz.tif"-}
+    ,"compression/cs3n2c16.tif"
+    ,"compression/flower-rgb-contig-16-packbits.tif"
+    ,"other/butique-YA8.tif"
+    ,"other/butique-YA16.tif"
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -480,32 +497,16 @@ benchMark = do
 
 debug :: IO ()
 debug = do
- forM_ ["tests/jpeg/" ++ "explore_jpeg.jpg"
-       {-,"tests/gif/" ++ "Gif_pixel_cube.gif"-}
-       ] $ \file -> do
-    putStrLn "========================================================="
-    putStrLn $ "decoding " ++ file
-    img <- readImage file
-    putStrLn "========================================================="
-    case img of
-        Right (ImageY8 i) -> do
-            writeGifImage (file ++ "_debug.gif") i
-            writePng (file ++ "_debug.png") i
-
-        Right (ImageRGB8 i) -> do
-            let luma = extractLumaPlane i
-            writeGifImage (file ++ "_debug.gif") luma
-            writePng (file ++ "_debug.png") luma
-
-        Right (ImageYCbCr8 i) -> do
-            let luma = extractLumaPlane i
-            writeGifImage (file ++ "_debug.gif") luma
-            writePng (file ++ "_debug.png") luma
-
-        Right _ -> return ()
-        Left err -> do
-            putStrLn err
-            {-error "Can't decompress img"-}
+ args <- getArgs
+ case args of
+   [] -> putStrLn "no filename"
+   [_] -> putStrLn "no filename"
+   (_:filename:_) -> do
+      img <- readImage filename
+      case img of
+        Left err -> putStrLn err
+        Right i ->
+            savePngImage (filename ++ ".png") i
 
 myMain :: IO ()
 myMain = do

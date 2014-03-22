@@ -2,7 +2,6 @@ rm tests/pngsuite/*.bmp
 rm tests/pngsuite/*.jpg
 rm tests/pngsuite/*.gif
 rm tests/pngsuite/*.tiff
-rm tests/pngsuite/*.gif
 rm tests/jpeg/*.bmp
 rm tests/jpeg/*.png
 rm tests/jpeg/*.gif
@@ -18,7 +17,6 @@ rm tests/gif/*.tiff
 rm tests/tiff/*.png
 rm tests/tiff/*.gif
 rm tests/tiff/*.jpg
-rm tests/tiff/*.gif
 rm tests/tiff/*.bmp
 rm tests/tiff/depth/*.png
 rm tests/tiff/depth/*.gif
@@ -31,6 +29,8 @@ rm tests/radiance/*.tiff
 
 rm tests/rgb*.png
 rm tests/ya*.png
+
+rm Gifanim.gif
 
 "tests/pngsuite/", "tests/bmp/", "tests/jpeg/", "tests/radiance/", "tests/tiff/", "tests/tiff/depth" | % {
 	$folder = $_;
@@ -48,6 +48,7 @@ rm tests/ya*.png
 	rm *._fromRGB8.jpg
 	rm *._fromRGB8.gif
 	rm *._fromRGB8.png
+	rm *._fromRGB8_pal.png
 	rm *._fromRGB8.tiff
 	rm *._fromRGB16.png
 	rm *._fromRGB16.tiff
@@ -73,7 +74,7 @@ rm tests/ya*.png
 	rm *._fromCMYK16.tiff
 	rm *._fromCMYK8.png
 	rm *._fromCMYK8.tiff
-    rm *._fromYCbCr8.tiff
+	rm *._fromYCbCr8.tiff
 	cd ../..
 }
 

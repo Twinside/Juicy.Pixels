@@ -3,13 +3,15 @@ all:
 	runhaskell Setup.hs build
 
 conf:
-	runhaskell Setup.hs configure --user --enable-tests
+	cabal configure
+
+profconf:
+	cabal configure --enable-library-profiling --enable-executable-profiling
+
 
 doc: docimages/pixelgraph.svg
 	runhaskell Setup.hs haddock
 
-ctest:
-	runhaskell Setup.hs test
 
 clean:
 	runhaskell Setup.hs clean

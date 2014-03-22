@@ -2,6 +2,7 @@
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
                          , decodeGifImages
+                         , getDelaysGifImages
 
                            -- * Writing
                          , GifDelay
@@ -487,6 +488,14 @@ paletteOf :: Palette -> GifImage -> Palette
 paletteOf global GifImage { imgLocalPalette = Nothing } = global
 paletteOf      _ GifImage { imgLocalPalette = Just p  } = p
 
+getFrameDelays :: GifFile -> [GifDelay]
+getFrameDelays GifFile { gifImages = [] } = []
+getFrameDelays GifFile { gifImages = imgs } = map extractDelay imgs
+    where extractDelay (ext, _) =
+            case ext of
+                Nothing -> 0
+                Just e -> fromIntegral $ gceDelay e
+
 decodeAllGifImages :: GifFile -> [Image PixelRGB8]
 decodeAllGifImages GifFile { gifImages = [] } = []
 decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
@@ -545,6 +554,10 @@ decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
 -- all the images of an animation.
 decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
 decodeGifImages img = decodeAllGifImages <$> decode img
+
+-- | Extract a list of frame delays from a raw gif.
+getDelaysGifImages :: B.ByteString -> Either String [GifDelay]
+getDelaysGifImages img = getFrameDelays <$> decode img
 
 -- | Default palette to produce greyscale images.
 greyPalette :: Palette

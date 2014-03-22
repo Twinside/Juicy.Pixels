@@ -1,4 +1,5 @@
-![Juicy logo](http://twinside.github.com/Juicy.Pixels/docimages/juicy.png)
+![Juicy logo](https://raw.github.com/Twinside/Juicy.Pixels/master/docimages/juicy.png)
+
 
 [![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
 
@@ -48,7 +49,7 @@ Status
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
         - 24bits (RGB) images
-        - 8bits (greyscale) images
+        - 8bits (greyscale & paletted) images
 
     * Writing
         - 32bits (RGBA) per pixel images

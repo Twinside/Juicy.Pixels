@@ -113,11 +113,10 @@ decodeRefineAc params _ block eobrun
             v <- getNextBitJpg
             pure $ if v then plusOne else minusOne
 
-        {-performEobRun :: Int -> BoolReader s ()-}
         performEobRun idx | idx > maxIndex = pure ()
         performEobRun idx = do
           coeff <- lift $ block `MS.unsafeRead` idx
-          when (coeff /= 0) $ do
+          if (coeff /= 0) then do
             bit <- getNextBitJpg
             case (bit, (coeff .&. plusOne) == 0) of
                (False, _)    -> performEobRun $ idx + 1
@@ -127,14 +126,16 @@ decodeRefineAc params _ block eobrun
                               | otherwise = coeff + minusOne
                    lift $ (block `MS.unsafeWrite` idx) newVal
                    performEobRun $ idx + 1
+          else
+            performEobRun $ idx + 1
                    
         unpack idx | idx > maxIndex = pure 0
         unpack idx = do
             rrrrssss <- decodeRrrrSsss $ acHuffmanTree params
             case rrrrssss of
               (0xF, 0) -> do
-                idx' <- updateCoeffs 0x10 idx
-                unpack $ idx'
+                idx' <- updateCoeffs 0xF idx
+                unpack $ idx' + 1
 
               (  r, 0) -> do
                   lowBits <- unpackInt r
@@ -143,25 +144,24 @@ decodeRefineAc params _ block eobrun
                   pure newEobRun
                          
               (  r, _) -> do
-                  idx' <- updateCoeffs (fromIntegral r) idx
                   val <- getBitVal
-                  when (idx <= maxIndex) $
+                  idx' <- updateCoeffs (fromIntegral r) idx
+                  when (idx' <= maxIndex) $
                        (lift $ (block `MS.unsafeWrite` idx') val)
                   unpack $ idx' + 1
 
         updateCoeffs :: Int -> Int -> BoolReader s Int
         updateCoeffs r idx
-            | r   < 0        = pure idx
+            | r   < 0        = pure $ idx - 1
             | idx > maxIndex = pure idx
         updateCoeffs r idx = do
           coeff <- lift $ block `MS.unsafeRead` idx
           if coeff /= 0 then do
             bit <- getNextBitJpg
-            when (bit && coeff .&. plusOne == 0) $
-                if coeff >= 0 then
-                    lift . (block `MS.unsafeWrite` idx) $ coeff + plusOne
-                else
-                    lift . (block `MS.unsafeWrite` idx) $ coeff + minusOne
+            when (bit && coeff .&. plusOne == 0) $ do
+              let writeCoeff | coeff >= 0 = coeff + plusOne
+                             | otherwise = coeff + minusOne
+              lift $ (block `MS.unsafeWrite` idx) writeCoeff
             updateCoeffs r $ idx + 1
           else
             updateCoeffs (r - 1) $ idx + 1
@@ -279,8 +279,10 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
       forM_ allBlocks $ \compData -> do
         let compBlocks = componentBlocks compData
             cId = componentId compData
-            table = quants ! min 1 cId
             comp = jpgComponents frame !! cId
+            quantId =
+                fromIntegral $ quantizationTableDest comp
+            table = quants ! min 3 quantId
             compW = fromIntegral $ horizontalSamplingFactor comp
             compH = fromIntegral $ verticalSamplingFactor comp
             cw8 = maxiW - fromIntegral (horizontalSamplingFactor comp) + 1

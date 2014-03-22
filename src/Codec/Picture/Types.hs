@@ -94,17 +94,31 @@ import qualified Data.Vector.Storable.Mutable as M
 
 #include "ConvGraph.hs"
 
--- | Image or pixel buffer, the coordinates are assumed to start
--- from the upper-left corner of the image, with the horizontal
--- position first, then the vertical one.
+-- | The main type of this package, one that most
+-- functions work on, is Image.
+--
+-- Parameterized by the underlying pixel format it
+-- forms a rigid type. If you wish to store images
+-- of different or unknown pixel formats use 'DynamicImage'.
+--
+-- Image is essentially a rectangular pixel buffer
+-- of specified width and height. The coordinates are
+-- assumed to start from the upper-left corner
+-- of the image, with the horizontal position first
+-- and vertical second.
 data Image a = Image
     { -- | Width of the image in pixels
       imageWidth  :: {-# UNPACK #-} !Int
       -- | Height of the image in pixels.
     , imageHeight :: {-# UNPACK #-} !Int
 
-      -- | The real image, to extract pixels at some position
-      -- you should use the helpers functions.
+      -- | Image pixel data. To extract pixels at a given position
+      -- you should use the helper functions.
+      --
+      -- Internally pixel data is stored as consecutively packed
+      -- lines from top to bottom, scanned from left to right
+      -- within individual lines, from first to last color
+      -- component within each pixel.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
@@ -161,10 +175,10 @@ data PlaneYellow = PlaneYellow
 data PlaneBlack = PlaneBlack
 
 -- | Extract a color plane from an image given a present plane in the image
--- examples :
+-- examples:
 --
 -- @
---  extractRedPlane :: Image PixelRGB8-> Image Pixel8
+--  extractRedPlane :: Image PixelRGB8 -> Image Pixel8
 --  extractRedPlane = extractComponent PlaneRed
 -- @
 --
@@ -177,10 +191,11 @@ extractComponent :: forall px plane. ( Pixel px
 extractComponent plane = unsafeExtractComponent idx
     where idx = toComponentIndex (undefined :: px) plane
 
--- | Extract an image plane of an image, returning an image which
--- can be represented by a gray scale image.
--- If you ask a component out of bound, the `error` function will
--- be called
+-- | Extract a plane of an image. Returns the requested color
+-- component as a greyscale image.
+--
+-- If you ask for a component out of bound, the `error` function will
+-- be called.
 unsafeExtractComponent :: forall a
                         . ( Pixel a
                           , Pixel (PixelBaseComponent a)
@@ -209,8 +224,8 @@ class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
 
     -- | access the transparency (alpha layer) of a given
     -- transparent pixel type.
-    -- DEPRECATED, you should use `pixelOpacity`
     getTransparency :: a -> PixelBaseComponent a
+{-# DEPRECATED getTransparency "please use 'pixelOpacity' instead" #-}
 
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
@@ -292,8 +307,9 @@ instance NFData (MutableImage s a) where
                                           dat    `seq`
                                           ()
 
--- | Type allowing the loading of an image with different pixel
--- structures
+-- | Image type enumerating all predefined pixel types.
+-- It enables loading and use of images of different
+-- pixel types.
 data DynamicImage =
        -- | A greyscale image.
        ImageY8    (Image Pixel8)
@@ -319,12 +335,12 @@ data DynamicImage =
      | ImageYCbCr8 (Image PixelYCbCr8)
        -- | An image in the colorspace CMYK
      | ImageCMYK8  (Image PixelCMYK8)
-       -- | An image in the colorspace CMYK and 16 bots precision
+       -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of a dynamic image, you can use
--- the following snippet :
+-- the following snippet:
 --
 -- > dynWidth :: DynamicImage -> Int
 -- > dynWidth img = dynamicMap imageWidth img
@@ -408,9 +424,8 @@ type Pixel32 = Word32
 -- > map promotePixel [0, 1 .. 255 :: Pixel8] == [0/255, 1/255 .. 1.0 :: PixelF]
 type PixelF = Float
 
--- | Pixel type storing Luminance (Y) and alpha information
--- on 8 bits.
--- Value are stored in the following order :
+-- | Pixel type storing 8bit Luminance (Y) and alpha (A) information.
+-- Values are stored in the following order:
 --
 --  * Luminance
 --
@@ -420,9 +435,8 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
                          {-# UNPACK #-} !Pixel8  -- Alpha value
               deriving (Eq, Ord, Show)
 
--- | Pixel type storing Luminance (Y) and alpha information
--- on 16 bits.
--- Value are stored in the following order :
+-- | Pixel type storing 16bit Luminance (Y) and alpha (A) information.
+-- Values are stored in the following order:
 --
 --  * Luminance
 --
@@ -432,8 +446,8 @@ data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
                            {-# UNPACK #-} !Pixel16  -- Alpha value
               deriving (Eq, Ord, Show)
 
--- | Pixel type storing classic pixel on 8 bits
--- Value are stored in the following order :
+-- | Classic pixel type storing 8bit red, green and blue (RGB) information.
+-- Values are stored in the following order:
 --
 --  * Red
 --
@@ -446,8 +460,8 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
                            {-# UNPACK #-} !Pixel8 -- Blue
                deriving (Eq, Ord, Show)
 
--- | Pixel type storing pixels on 16 bits
--- Value are stored in the following order :
+-- | Pixel type storing 16bit red, green and blue (RGB) information.
+-- Values are stored in the following order:
 --
 --  * Red
 --
@@ -460,8 +474,9 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                              {-# UNPACK #-} !Pixel16 -- Blue
                deriving (Eq, Ord, Show)
 
--- | Pixel type storing HDR pixel on 32 bits float
--- Values are stored in the following order :
+-- | HDR pixel type storing floating point 32bit red, green and blue (RGB) information.
+-- Same value range and comments apply as for 'PixelF'.
+-- Values are stored in the following order:
 --
 --  * Red
 --
@@ -474,22 +489,22 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Blue
                deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the YCbCr colorspace,
--- values are stored in the following order :
+-- | Pixel type storing 8bit luminance, blue difference and red difference (YCbCr) information.
+-- Values are stored in the following order:
 --
 --  * Y (luminance)
 --
---  * Cr
---
 --  * Cb
 --
+--  * Cr
+--
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
-                               {-# UNPACK #-} !Pixel8 -- Cr red difference
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
+                               {-# UNPACK #-} !Pixel8 -- Cr red difference
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. Values
--- are stored in the following order :
+-- | Pixel type storing 8bit cyan, magenta, yellow and black (CMYK) information.
+-- Values are stored in the following order:
 --
 --   * Cyan
 --
@@ -505,8 +520,8 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Black
                  deriving (Eq, Ord, Show)
 
--- | Pixel storing data in the CMYK colorspace. Values
--- are stored in the following order :
+-- | Pixel type storing 16bit cyan, magenta, yellow and black (CMYK) information.
+-- Values are stored in the following order:
 --
 --   * Cyan
 --
@@ -523,8 +538,8 @@ data PixelCMYK16 = PixelCMYK16 {-# UNPACK #-} !Pixel16 -- Cyan
                  deriving (Eq, Ord, Show)
 
 
--- | Pixel type storing a classic pixel, with an alpha component.
--- Values are stored in the following order
+-- | Classical pixel type storing 8bit red, green, blue and alpha (RGBA) information.
+-- Values are stored in the following order:
 --
 --  * Red
 --
@@ -540,9 +555,8 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Pixel8 -- Red
                              {-# UNPACK #-} !Pixel8 -- Alpha
                 deriving (Eq, Ord, Show)
 
--- | Pixel type storing a RGB information with an alpha
--- channel on 16 bits.
--- Values are stored in the following order
+-- | Pixel type storing 16bit red, green, blue and alpha (RGBA) information.
+-- Values are stored in the following order:
 --
 --  * Red
 --
@@ -568,7 +582,7 @@ class ( Storable (PixelBaseComponent a)
     type PixelBaseComponent a :: *
 
     -- | Call the function for every component of the pixels.
-    -- For example for RGB pixels mixWith is declared like this :
+    -- For example for RGB pixels mixWith is declared like this:
     --
     -- > mixWith f (PixelRGB8 ra ga ba) (PixelRGB8 rb gb bb) =
     -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb)
@@ -576,16 +590,33 @@ class ( Storable (PixelBaseComponent a)
     mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
             -> a -> a -> a
 
+    -- | Extension of the `mixWith` which separate the treatment
+    -- of the color components of the alpha value (transparency component).
+    -- For pixel without alpha components, it is equivalent to mixWith.
+    --
+    -- > mixWith f fa (PixelRGBA8 ra ga ba aa) (PixelRGB8 rb gb bb ab) =
+    -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
+    --
+    mixWithAlpha :: (Int -> PixelBaseComponent a -> PixelBaseComponent a
+                         -> PixelBaseComponent a)  -- ^ Function for color component
+                 -> (PixelBaseComponent a -> PixelBaseComponent a
+                         -> PixelBaseComponent a) -- ^ Function for alpha component
+                 -> a -> a -> a
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f _ = mixWith f
+
     -- | Return the opacity of a pixel, if the pixel has an
     -- alpha layer, return the alpha value. If the pixel
     -- doesn't have an alpha value, return a value
     -- representing the opaqueness.
     pixelOpacity :: a -> PixelBaseComponent a
 
-    -- | Return the number of component of the pixel
+    -- | Return the number of components of the pixel
     componentCount :: a -> Int
 
-    -- | Apply a function to all color component of a pixel.
+    -- | Apply a function to each component of a pixel.
+    -- If the color type possess an alpha (transparency channel),
+    -- it is treated like the other color components.
     colorMap :: (PixelBaseComponent a -> PixelBaseComponent a) -> a -> a
 
     -- | Calculate the index for the begining of the pixel
@@ -656,7 +687,7 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 -- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
 -- left corner of the image, and (width-1, height-1) the lower right corner.
 --
--- for example, to create a small gradient image :
+-- for example, to create a small gradient image:
 --
 -- > imageCreator :: String -> IO ()
 -- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
@@ -739,7 +770,7 @@ generateFoldImage f intialAcc w h =
             frozen <- V.unsafeFreeze arr
             return (foldResult, frozen)
 
--- | Fold over the pixel of an image with a raster scan order :
+-- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
 pixelFold :: (Pixel pixel)
@@ -1150,6 +1181,10 @@ instance Pixel PixelYA16 where
     mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
         PixelYA16 (f 0 ya yb) (f 1 aa ab)
 
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelYA16 ya aa) (PixelYA16 yb ab) =
+        PixelYA16 (f 0 ya yb) (fa aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYA16 y a) = PixelYA16 (f y) (f a)
     componentCount _ = 2
@@ -1196,7 +1231,6 @@ instance TransparentPixel PixelYA16 Pixel16 where
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
-
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const 1.0
@@ -1398,6 +1432,10 @@ instance Pixel PixelRGBA8 where
     mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
         PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
 
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
+        PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
@@ -1463,6 +1501,10 @@ instance Pixel PixelRGBA16 where
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
         PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
+
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
+        PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA16 r g b a) = PixelRGBA16 (f r) (f g) (f b) (f a)

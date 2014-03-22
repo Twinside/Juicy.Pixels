@@ -8,8 +8,6 @@
 module Codec.Picture.Jpg( decodeJpeg
                         , encodeJpegAtQuality
                         , encodeJpeg
-
-                        , jpgMachineStep
                         ) where
 
 import Control.Arrow( (>>>) )
@@ -224,12 +222,13 @@ type JpgScripter s a =
     RWS () [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)] JpgDecoderState a
 
 data JpgDecoderState = JpgDecoderState
-    { dcDecoderTables      :: !(V.Vector HuffmanPackedTree)
-    , acDecoderTables      :: !(V.Vector HuffmanPackedTree)
-    , quantizationMatrices :: !(V.Vector (MacroBlock Int16))
-    , currentRestartInterv :: !Int
-    , currentFrame         :: Maybe JpgFrameHeader
-    , isProgressive        :: !Bool
+    { dcDecoderTables       :: !(V.Vector HuffmanPackedTree)
+    , acDecoderTables       :: !(V.Vector HuffmanPackedTree)
+    , quantizationMatrices  :: !(V.Vector (MacroBlock Int16))
+    , currentRestartInterv  :: !Int
+    , currentFrame          :: Maybe JpgFrameHeader
+    , minimumComponentIndex :: !Int
+    , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
     , seenBlobs                   :: !Int
@@ -237,19 +236,22 @@ data JpgDecoderState = JpgDecoderState
 
 emptyDecoderState :: JpgDecoderState
 emptyDecoderState = JpgDecoderState
-    { dcDecoderTables = V.fromList $ map snd
-            [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
-            , prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
-            ]
+    { dcDecoderTables =
+        let (_, dcLuma) = prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+            (_, dcChroma) = prepareHuffmanTable DcComponent 1 defaultDcChromaHuffmanTable
+        in
+        V.fromList [ dcLuma, dcChroma, dcLuma, dcChroma ]
 
-    , acDecoderTables = V.fromList $ map snd
-            [ prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
-            , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
-            ]
+    , acDecoderTables =
+        let (_, acLuma) = prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+            (_, acChroma) = prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
+        in
+        V.fromList [acLuma, acChroma, acLuma, acChroma]
 
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
     , currentFrame         = Nothing
+    , minimumComponentIndex = 1
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -264,16 +266,23 @@ jpgMachineStep (JpgExtension _ _) = pure ()
 jpgMachineStep (JpgScanBlob hdr raw_data) = do
     let scanCount = length $ scans hdr
     params <- concat <$> mapM (scanSpecifier scanCount) (scans hdr)
+
     modify $ \st -> st { seenBlobs = seenBlobs st + 1 }
     tell [(params, raw_data)  ]
   where (selectionLow, selectionHigh) = spectralSelection hdr
         approxHigh = fromIntegral $ successiveApproxHigh hdr
         approxLow = fromIntegral $ successiveApproxLow hdr
+
         
         scanSpecifier scanCount scanSpec = do
-            let dcIndex = fromIntegral $ dcEntropyCodingTable scanSpec
-                acIndex = fromIntegral $ acEntropyCodingTable scanSpec
-                comp = fromIntegral (componentSelector scanSpec) - 1
+            minimumIndex <- gets minimumComponentIndex
+            let maximumHuffmanTable = 4
+                dcIndex = min (maximumHuffmanTable - 1) 
+                            . fromIntegral $ dcEntropyCodingTable scanSpec
+                acIndex = min (maximumHuffmanTable - 1)
+                            . fromIntegral $ acEntropyCodingTable scanSpec
+                comp = fromIntegral (componentSelector scanSpec) - minimumIndex
+
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
             isProgressiveImage <- gets isProgressive
@@ -319,6 +328,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
 jpgMachineStep (JpgScans kind hdr) = modify $ \s ->
    s { currentFrame = Just hdr
+     , minimumComponentIndex =
+          fromIntegral $ minimum [componentIdentifier comp | comp <- jpgComponents hdr]
      , isProgressive = case kind of
             JpgProgressiveDCTHuffman -> True
             _ -> False
@@ -335,11 +346,15 @@ jpgMachineStep (JpgIntervalRestart restart) =
 jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
   where placeHuffmanTrees (spec, tree) = case huffmanTableClass spec of
             DcComponent -> modify $ \s ->
+              if idx >= V.length (dcDecoderTables s) then s
+              else
                 let neu = dcDecoderTables s // [(idx, tree)] in 
                 s { dcDecoderTables = neu `seq` neu }
                     where idx = fromIntegral $ huffmanTableDest spec
                           
             AcComponent -> modify $ \s ->
+              if idx >= V.length (acDecoderTables s) then s
+              else
                 s { acDecoderTables = acDecoderTables s // [(idx, tree)] }
                     where idx = fromIntegral $ huffmanTableDest spec
 
@@ -394,7 +409,9 @@ decodeImage frame quants lst outImage = do
         let compIdx = componentIndex comp
             dcTree = dcHuffmanTree comp
             acTree = acHuffmanTree comp
-            qTable = quants V.! (min 1 compIdx)
+            quantId = fromIntegral .  quantizationTableDest
+                    $ jpgComponents frame !! compIdx
+            qTable = quants V.! (min 3 quantId)
             xd = blockMcuX comp
             yd = blockMcuY comp
             (subX, subY) = subSampling comp
