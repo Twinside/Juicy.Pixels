@@ -590,6 +590,21 @@ class ( Storable (PixelBaseComponent a)
     mixWith :: (Int -> PixelBaseComponent a -> PixelBaseComponent a -> PixelBaseComponent a)
             -> a -> a -> a
 
+    -- | Extension of the `mixWith` which separate the treatment
+    -- of the color components of the alpha value (transparency component).
+    -- For pixel without alpha components, it is equivalent to mixWith.
+    --
+    -- > mixWith f fa (PixelRGBA8 ra ga ba aa) (PixelRGB8 rb gb bb ab) =
+    -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
+    --
+    mixWithAlpha :: (Int -> PixelBaseComponent a -> PixelBaseComponent a
+                         -> PixelBaseComponent a)  -- ^ Function for color component
+                 -> (PixelBaseComponent a -> PixelBaseComponent a
+                         -> PixelBaseComponent a) -- ^ Function for alpha component
+                 -> a -> a -> a
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f _ = mixWith f
+
     -- | Return the opacity of a pixel, if the pixel has an
     -- alpha layer, return the alpha value. If the pixel
     -- doesn't have an alpha value, return a value
@@ -600,6 +615,8 @@ class ( Storable (PixelBaseComponent a)
     componentCount :: a -> Int
 
     -- | Apply a function to each component of a pixel.
+    -- If the color type possess an alpha (transparency channel),
+    -- it is treated like the other color components.
     colorMap :: (PixelBaseComponent a -> PixelBaseComponent a) -> a -> a
 
     -- | Calculate the index for the begining of the pixel
@@ -1164,6 +1181,10 @@ instance Pixel PixelYA16 where
     mixWith f (PixelYA16 ya aa) (PixelYA16 yb ab) =
         PixelYA16 (f 0 ya yb) (f 1 aa ab)
 
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelYA16 ya aa) (PixelYA16 yb ab) =
+        PixelYA16 (f 0 ya yb) (fa aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelYA16 y a) = PixelYA16 (f y) (f a)
     componentCount _ = 2
@@ -1210,7 +1231,6 @@ instance TransparentPixel PixelYA16 Pixel16 where
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
-
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const 1.0
@@ -1412,6 +1432,10 @@ instance Pixel PixelRGBA8 where
     mixWith f (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
         PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
 
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelRGBA8 ra ga ba aa) (PixelRGBA8 rb gb bb ab) =
+        PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
+
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA8 r g b a) = PixelRGBA8 (f r) (f g) (f b) (f a)
 
@@ -1477,6 +1501,10 @@ instance Pixel PixelRGBA16 where
     {-# INLINE mixWith #-}
     mixWith f (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
         PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (f 3 aa ab)
+
+    {-# INLINE mixWithAlpha #-}
+    mixWithAlpha f fa (PixelRGBA16 ra ga ba aa) (PixelRGBA16 rb gb bb ab) =
+        PixelRGBA16 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
 
     {-# INLINE colorMap #-}
     colorMap f (PixelRGBA16 r g b a) = PixelRGBA16 (f r) (f g) (f b) (f a)
