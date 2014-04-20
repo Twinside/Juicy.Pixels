@@ -594,8 +594,8 @@ class ( Storable (PixelBaseComponent a)
     -- of the color components of the alpha value (transparency component).
     -- For pixel without alpha components, it is equivalent to mixWith.
     --
-    -- > mixWith f fa (PixelRGBA8 ra ga ba aa) (PixelRGB8 rb gb bb ab) =
-    -- >    PixelRGB8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
+    -- > mixWithAlpha f fa (PixelRGBA8 ra ga ba aa) (PixelRGB8 rb gb bb ab) =
+    -- >    PixelRGBA8 (f 0 ra rb) (f 1 ga gb) (f 2 ba bb) (fa aa ab)
     --
     mixWithAlpha :: (Int -> PixelBaseComponent a -> PixelBaseComponent a
                          -> PixelBaseComponent a)  -- ^ Function for color component
