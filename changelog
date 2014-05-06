@@ -1,5 +1,8 @@
 -*-change-log-*-
 
+v3.1.5.2 May 2014
+ * Bumping the transformers dependency
+
 v3.1.5.1 May 2014
  * Adding some INLINE annotations for some pixel functions
 
