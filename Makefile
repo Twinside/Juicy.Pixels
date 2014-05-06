@@ -1,6 +1,6 @@
 
 all:
-	runhaskell Setup.hs build
+	cabal build
 
 conf:
 	cabal configure
