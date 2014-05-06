@@ -2,7 +2,7 @@ module Codec.Picture.Jpg.FastDct( referenceDct, fastDctLibJpeg ) where
 
 import Control.Applicative( (<$>) )
 import Data.Int( Int16, Int32 )
-import Data.Bits( Bits, unsafeShiftR, unsafeShiftL )
+import Data.Bits( unsafeShiftR, unsafeShiftL )
 import Control.Monad.ST( ST )
 
 import qualified Data.Vector.Storable.Mutable as M

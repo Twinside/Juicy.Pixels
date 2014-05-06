@@ -30,7 +30,7 @@ import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
 import Data.Word( Word8, Word32 )
-import Data.Bits( Bits, (.&.), (.|.), unsafeShiftR, unsafeShiftL )
+import Data.Bits( (.&.), (.|.), unsafeShiftR, unsafeShiftL )
 
 import Codec.Picture.VectorByteConversion( blitVector )
 import qualified Data.Vector.Storable.Mutable as M
