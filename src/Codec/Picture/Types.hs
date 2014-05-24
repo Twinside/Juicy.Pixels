@@ -796,7 +796,6 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
 --
 pixelMap :: forall a b. (Pixel a, Pixel b)
          => (a -> b) -> Image a -> Image b
-{-# RULES "pixelMap fusion" forall g f. pixelMap g . pixelMap f = pixelMap (g . f) #-}
 {-# SPECIALIZE INLINE pixelMap :: (PixelYCbCr8 -> PixelRGB8) -> Image PixelYCbCr8 -> Image PixelRGB8 #-}
 {-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelYCbCr8) -> Image PixelRGB8 -> Image PixelYCbCr8 #-}
 {-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGB8) -> Image PixelRGB8 -> Image PixelRGB8 #-}
