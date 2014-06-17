@@ -1466,6 +1466,14 @@ instance ColorConvertible PixelRGB8 PixelRGBF where
     promotePixel (PixelRGB8 r g b) = PixelRGBF (toF r) (toF g) (toF b)
         where toF v = fromIntegral v / 255.0
 
+instance ColorConvertible PixelRGB8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGB16 (promotePixel r) (promotePixel g) (promotePixel b)
+
+instance ColorConvertible PixelRGB8 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGBA16 (promotePixel r) (promotePixel g) (promotePixel b) maxBound
+
 instance ColorPlane PixelRGB8 PlaneRed where
     toComponentIndex _ _ = 0
 
@@ -1547,6 +1555,10 @@ instance Pixel PixelRGBA8 where
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
                               >> M.unsafeWrite v (idx + 3) a
+
+instance ColorConvertible PixelRGBA8 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGBA8 r g b a) = PixelRGBA16 (promotePixel r) (promotePixel g) (promotePixel b) (promotePixel a)
 
 instance ColorPlane PixelRGBA8 PlaneRed where
     toComponentIndex _ _ = 0
