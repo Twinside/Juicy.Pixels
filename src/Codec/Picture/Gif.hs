@@ -214,9 +214,31 @@ putDataBlocks wholeString = putSlices wholeString >> putWord8 0
         putSlices str =
             putWord8 (fromIntegral $ B.length str) >> putByteString str
 
+data DisposalMethod
+    = DisposalAny
+    | DisposalDoNot
+    | DisposalRestoreBackground
+    | DisposalRestorePrevious
+    | DisposalUnknown Word8
+
+disposalMethodOfCode :: Word8 -> DisposalMethod
+disposalMethodOfCode v = case v of
+    0 -> DisposalAny
+    1 -> DisposalDoNot
+    2 -> DisposalRestoreBackground
+    3 -> DisposalRestorePrevious
+    n -> DisposalUnknown n
+
+codeOfDisposalMethod :: DisposalMethod -> Word8
+codeOfDisposalMethod v = case v of
+    DisposalAny -> 0
+    DisposalDoNot -> 1
+    DisposalRestoreBackground -> 2
+    DisposalRestorePrevious -> 3
+    DisposalUnknown n -> n
 
 data GraphicControlExtension = GraphicControlExtension
-    { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
+    { gceDisposalMethod        :: !DisposalMethod -- ^ Stored on 3 bits
     , gceUserInputFlag         :: !Bool
     , gceTransparentFlag       :: !Bool
     , gceDelay                 :: !Word16
@@ -228,8 +250,9 @@ instance Binary GraphicControlExtension where
         putWord8 extensionIntroducer
         putWord8 graphicControlLabel
         putWord8 0x4  -- size
-        let disposalField =
-                (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
+        let disposalCode = codeOfDisposalMethod $ gceDisposalMethod v
+            disposalField =
+                (disposalCode .&. 0x7) `unsafeShiftL` 2
 
             userInputField
                 | gceUserInputFlag v = 0 `setBit` 1
@@ -257,7 +280,9 @@ instance Binary GraphicControlExtension where
         idx              <- getWord8
         _blockTerminator <- getWord8
         return GraphicControlExtension
-            { gceDisposalMethod        = (packedFields `unsafeShiftR` 2) .&. 0x07
+            { gceDisposalMethod        = 
+                disposalMethodOfCode $
+                    (packedFields `unsafeShiftR` 2) .&. 0x07
             , gceUserInputFlag         = packedFields `testBit` 1
             , gceTransparentFlag       = packedFields `testBit` 0
             , gceDelay                 = delay
@@ -631,7 +656,7 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
 
     controlExtension 0 =  Nothing
     controlExtension delay = Just GraphicControlExtension
-        { gceDisposalMethod        = 0
+        { gceDisposalMethod        = DisposalAny
         , gceUserInputFlag         = False
         , gceTransparentFlag       = False
         , gceDelay                 = fromIntegral delay
