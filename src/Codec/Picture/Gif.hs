@@ -526,18 +526,23 @@ decodeAllGifImages GifFile { gifImages = [] } = []
 decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                                                    , gifScreenDescriptor = wholeDescriptor
                                                    }
-                           , gifImages = (_, firstImage) : rest } = map paletteApplyer $
- scanl generator (paletteOf palette firstImage, decodeImage firstImage) rest
-    where globalWidth = fromIntegral $ screenWidth wholeDescriptor
+                           , gifImages = (firstControl, firstImage) : rest } = map paletteApplyer $
+ scanl generator initState  rest
+    where initState = (paletteOf palette firstImage, firstControl, decodeImage firstImage)
+          globalWidth = fromIntegral $ screenWidth wholeDescriptor
           globalHeight = fromIntegral $ screenHeight wholeDescriptor
 
-          {-background = backgroundIndex wholeDescriptor-}
+          background = backgroundIndex wholeDescriptor
+          backgroundImage = generateImage (\_ _ -> background) globalWidth globalHeight
 
-          paletteApplyer (pal, img) = substituteColors pal img
+          paletteApplyer (pal, _, img) = substituteColors pal img
 
-          generator (_, img1) (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
-                        (paletteOf palette img2, generateImage pixeler globalWidth globalHeight)
-               where localWidth = fromIntegral $ gDescImageWidth descriptor
+          generator (_, prevControl, img1)
+                    (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
+                        (thisPalette, controlExt, thisImage)
+               where thisPalette = paletteOf palette img2
+                     thisImage = generateImage pixeler globalWidth globalHeight
+                     localWidth = fromIntegral $ gDescImageWidth descriptor
                      localHeight = fromIntegral $ gDescImageHeight descriptor
 
                      left = fromIntegral $ gDescPixelsFromLeft descriptor
@@ -555,10 +560,18 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                             then fromIntegral $ gceTransparentColorIndex ext
                             else 300
 
+                     oldImage = case gceDisposalMethod <$> prevControl of
+                        Nothing -> img1
+                        Just DisposalAny -> img1
+                        Just DisposalDoNot -> img1
+                        Just DisposalRestoreBackground -> backgroundImage
+                        Just DisposalRestorePrevious -> img1
+                        Just (DisposalUnknown _) -> img1
+
                      pixeler x y
                         | isPixelInLocalImage x y && fromIntegral val /= transparent = val
                             where val = pixelAt decoded (x - left) (y - top)
-                     pixeler x y = pixelAt img1 x y
+                     pixeler x y = pixelAt oldImage x y
 
 decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
 decodeFirstGifImage
