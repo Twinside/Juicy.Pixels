@@ -3,6 +3,8 @@
 v3.1.5.3 ?? 2014
  * Fix bad disposal handling in GIF animations.
  * Added ColorConvertible instance for PixelRGB8 -> PixelRGBA16 (KaiHa)
+ * Fixing a bad handling of tRNS causing bad transprency decoding in
+   some circonstances.
 
 v3.1.5.2 May 2014
  * Bumping the transformers dependency

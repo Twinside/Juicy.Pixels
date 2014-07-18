@@ -407,12 +407,17 @@ applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
           pixels = concat [[r, g, b] | ipx <- V.toList img
                                      , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
 
-applyPaletteWithTransparency :: PngPalette -> Word8 -> V.Vector Word8 -> V.Vector Word8
-applyPaletteWithTransparency pal transp img = V.fromListN ((initSize + 1) * 4) pixels
+applyPaletteWithTransparency :: PngPalette -> Lb.ByteString -> V.Vector Word8
+                             -> V.Vector Word8
+applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) * 4) pixels
     where (_, initSize) = bounds img
-          pixels = concat [ if ipx == transp then [0, 0, 0, 0] else [r, g, b, 255]
-                                     | ipx <- V.toList img
-                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
+          maxi = Lb.length transpBuffer
+          pixels = concat
+            [ [r, g, b, opacity]
+                  | ipx <- V.toList img
+                  , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0
+                        opacity | fromIntegral ipx < maxi = Lb.index transpBuffer $ fromIntegral ipx
+                                | otherwise = 255]
 
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
@@ -454,7 +459,7 @@ decodePng byte = do
         toImage _const1 const2 (Right a) =
             Right . const2 $ Image (fromIntegral w) (fromIntegral h) a
 
-        palette8 palette [(Lb.uncons -> Just (c,_))] (Left img) =
+        palette8 palette [c] (Left img) =
             Right . ImageRGBA8
                   . Image (fromIntegral w) (fromIntegral h)
                   $ applyPaletteWithTransparency palette c img
@@ -494,7 +499,7 @@ decodePng byte = do
     if Lb.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
        else let imgData = Z.decompress compressedImageData
-       	        parseableData = B.concat $ Lb.toChunks imgData
+                parseableData = B.concat $ Lb.toChunks imgData
                 palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
                     Nothing -> Nothing
                     Just p -> case parsePalette p of
