@@ -214,9 +214,31 @@ putDataBlocks wholeString = putSlices wholeString >> putWord8 0
         putSlices str =
             putWord8 (fromIntegral $ B.length str) >> putByteString str
 
+data DisposalMethod
+    = DisposalAny
+    | DisposalDoNot
+    | DisposalRestoreBackground
+    | DisposalRestorePrevious
+    | DisposalUnknown Word8
+
+disposalMethodOfCode :: Word8 -> DisposalMethod
+disposalMethodOfCode v = case v of
+    0 -> DisposalAny
+    1 -> DisposalDoNot
+    2 -> DisposalRestoreBackground
+    3 -> DisposalRestorePrevious
+    n -> DisposalUnknown n
+
+codeOfDisposalMethod :: DisposalMethod -> Word8
+codeOfDisposalMethod v = case v of
+    DisposalAny -> 0
+    DisposalDoNot -> 1
+    DisposalRestoreBackground -> 2
+    DisposalRestorePrevious -> 3
+    DisposalUnknown n -> n
 
 data GraphicControlExtension = GraphicControlExtension
-    { gceDisposalMethod        :: !Word8 -- ^ Stored on 3 bits
+    { gceDisposalMethod        :: !DisposalMethod -- ^ Stored on 3 bits
     , gceUserInputFlag         :: !Bool
     , gceTransparentFlag       :: !Bool
     , gceDelay                 :: !Word16
@@ -228,8 +250,9 @@ instance Binary GraphicControlExtension where
         putWord8 extensionIntroducer
         putWord8 graphicControlLabel
         putWord8 0x4  -- size
-        let disposalField =
-                (gceDisposalMethod v .&. 0x7) `unsafeShiftL` 2
+        let disposalCode = codeOfDisposalMethod $ gceDisposalMethod v
+            disposalField =
+                (disposalCode .&. 0x7) `unsafeShiftL` 2
 
             userInputField
                 | gceUserInputFlag v = 0 `setBit` 1
@@ -257,7 +280,9 @@ instance Binary GraphicControlExtension where
         idx              <- getWord8
         _blockTerminator <- getWord8
         return GraphicControlExtension
-            { gceDisposalMethod        = (packedFields `unsafeShiftR` 2) .&. 0x07
+            { gceDisposalMethod        = 
+                disposalMethodOfCode $
+                    (packedFields `unsafeShiftR` 2) .&. 0x07
             , gceUserInputFlag         = packedFields `testBit` 1
             , gceTransparentFlag       = packedFields `testBit` 0
             , gceDelay                 = delay
@@ -501,18 +526,23 @@ decodeAllGifImages GifFile { gifImages = [] } = []
 decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                                                    , gifScreenDescriptor = wholeDescriptor
                                                    }
-                           , gifImages = (_, firstImage) : rest } = map paletteApplyer $
- scanl generator (paletteOf palette firstImage, decodeImage firstImage) rest
-    where globalWidth = fromIntegral $ screenWidth wholeDescriptor
+                           , gifImages = (firstControl, firstImage) : rest } = map paletteApplyer $
+ scanl generator initState  rest
+    where initState = (paletteOf palette firstImage, firstControl, decodeImage firstImage)
+          globalWidth = fromIntegral $ screenWidth wholeDescriptor
           globalHeight = fromIntegral $ screenHeight wholeDescriptor
 
-          {-background = backgroundIndex wholeDescriptor-}
+          background = backgroundIndex wholeDescriptor
+          backgroundImage = generateImage (\_ _ -> background) globalWidth globalHeight
 
-          paletteApplyer (pal, img) = substituteColors pal img
+          paletteApplyer (pal, _, img) = substituteColors pal img
 
-          generator (_, img1) (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
-                        (paletteOf palette img2, generateImage pixeler globalWidth globalHeight)
-               where localWidth = fromIntegral $ gDescImageWidth descriptor
+          generator (_, prevControl, img1)
+                    (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
+                        (thisPalette, controlExt, thisImage)
+               where thisPalette = paletteOf palette img2
+                     thisImage = generateImage pixeler globalWidth globalHeight
+                     localWidth = fromIntegral $ gDescImageWidth descriptor
                      localHeight = fromIntegral $ gDescImageHeight descriptor
 
                      left = fromIntegral $ gDescPixelsFromLeft descriptor
@@ -530,10 +560,18 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                             then fromIntegral $ gceTransparentColorIndex ext
                             else 300
 
+                     oldImage = case gceDisposalMethod <$> prevControl of
+                        Nothing -> img1
+                        Just DisposalAny -> img1
+                        Just DisposalDoNot -> img1
+                        Just DisposalRestoreBackground -> backgroundImage
+                        Just DisposalRestorePrevious -> img1
+                        Just (DisposalUnknown _) -> img1
+
                      pixeler x y
                         | isPixelInLocalImage x y && fromIntegral val /= transparent = val
                             where val = pixelAt decoded (x - left) (y - top)
-                     pixeler x y = pixelAt img1 x y
+                     pixeler x y = pixelAt oldImage x y
 
 decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
 decodeFirstGifImage
@@ -631,7 +669,7 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
 
     controlExtension 0 =  Nothing
     controlExtension delay = Just GraphicControlExtension
-        { gceDisposalMethod        = 0
+        { gceDisposalMethod        = DisposalAny
         , gceUserInputFlag         = False
         , gceTransparentFlag       = False
         , gceDelay                 = fromIntegral delay

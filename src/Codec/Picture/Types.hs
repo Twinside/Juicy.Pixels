@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
@@ -78,15 +79,22 @@ module Codec.Picture.Types( -- * Types
 
                           , extractComponent
                           , unsafeExtractComponent
+
+                            -- * Packeable writing (unsafe but faster)
+                          , PackeablePixel( .. )
+                          , fillImageWith
+                          , unsafeWritePixelBetweenAt
+                          , writePackedPixelAt
                           ) where
 
 import Control.Monad( foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
+import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
-import Data.Bits( unsafeShiftL, unsafeShiftR )
-import Data.Word( Word8, Word16, Word32 )
+import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.) )
+import Data.Word( Word8, Word16, Word32, Word64 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
@@ -1465,6 +1473,14 @@ instance ColorConvertible PixelRGB8 PixelRGBF where
     promotePixel (PixelRGB8 r g b) = PixelRGBF (toF r) (toF g) (toF b)
         where toF v = fromIntegral v / 255.0
 
+instance ColorConvertible PixelRGB8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGB16 (promotePixel r) (promotePixel g) (promotePixel b)
+
+instance ColorConvertible PixelRGB8 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGB8 r g b) = PixelRGBA16 (promotePixel r) (promotePixel g) (promotePixel b) maxBound
+
 instance ColorPlane PixelRGB8 PlaneRed where
     toComponentIndex _ _ = 0
 
@@ -1546,6 +1562,10 @@ instance Pixel PixelRGBA8 where
         M.unsafeWrite v idx r >> M.unsafeWrite v (idx + 1) g
                               >> M.unsafeWrite v (idx + 2) b
                               >> M.unsafeWrite v (idx + 3) a
+
+instance ColorConvertible PixelRGBA8 PixelRGBA16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelRGBA8 r g b a) = PixelRGBA16 (promotePixel r) (promotePixel g) (promotePixel b) (promotePixel a)
 
 instance ColorPlane PixelRGBA8 PlaneRed where
     toComponentIndex _ _ = 0
@@ -2030,3 +2050,152 @@ toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
  where coeff = exposure * (exposure / maxBrightness + 1.0) / (exposure + 1.0);
        maxBrightness = pixelFold (\luma _ _ px -> max luma $ computeLuma px) 0 img
        scaledData = V.map (* coeff) $ imageData img
+
+--------------------------------------------------
+----            Packable pixel
+--------------------------------------------------
+
+-- | This typeclass exist for performance reason, it allow
+-- to pack a pixel value to a simpler "primitive" data
+-- type to allow faster writing to moemory.
+class PackeablePixel a where
+    -- | Primitive type asociated to the current pixel
+    -- It's Word32 for PixelRGBA8 for instance
+    type PackedRepresentation a
+
+    -- | The packing function, allowing to transform
+    -- to a primitive.
+    packPixel :: a -> PackedRepresentation a
+
+instance PackeablePixel Pixel8 where
+    type PackedRepresentation Pixel8 = Pixel8
+    packPixel = id
+    {-# INLINE packPixel #-}
+
+instance PackeablePixel Pixel16 where
+    type PackedRepresentation Pixel16 = Pixel16
+    packPixel = id
+    {-# INLINE packPixel #-}
+
+instance PackeablePixel Pixel32 where
+    type PackedRepresentation Pixel32 = Pixel32
+    packPixel = id
+    {-# INLINE packPixel #-}
+
+instance PackeablePixel PixelF where
+    type PackedRepresentation PixelF = PixelF
+    packPixel = id
+    {-# INLINE packPixel #-}
+
+
+instance PackeablePixel PixelRGBA8 where
+    type PackedRepresentation PixelRGBA8 = Word32
+    packPixel (PixelRGBA8 r g b a) =
+        (fi r `unsafeShiftL` (0 * bitCount)) .|.
+        (fi g `unsafeShiftL` (1 * bitCount)) .|.
+        (fi b `unsafeShiftL` (2 * bitCount)) .|.
+        (fi a `unsafeShiftL` (3 * bitCount))
+      where fi = fromIntegral
+            bitCount = 8
+
+instance PackeablePixel PixelRGBA16 where
+    type PackedRepresentation PixelRGBA16 = Word64
+    packPixel (PixelRGBA16 r g b a) =
+        (fi r `unsafeShiftL` (0 * bitCount)) .|.
+        (fi g `unsafeShiftL` (1 * bitCount)) .|.
+        (fi b `unsafeShiftL` (2 * bitCount)) .|.
+        (fi a `unsafeShiftL` (3 * bitCount))
+      where fi = fromIntegral
+            bitCount = 16
+
+instance PackeablePixel PixelCMYK8 where
+    type PackedRepresentation PixelCMYK8 = Word32
+    packPixel (PixelCMYK8 c m y k) =
+        (fi c `unsafeShiftL` (0 * bitCount)) .|.
+        (fi m `unsafeShiftL` (1 * bitCount)) .|.
+        (fi y `unsafeShiftL` (2 * bitCount)) .|.
+        (fi k `unsafeShiftL` (3 * bitCount))
+      where fi = fromIntegral
+            bitCount = 8
+
+instance PackeablePixel PixelCMYK16 where
+    type PackedRepresentation PixelCMYK16 = Word64
+    packPixel (PixelCMYK16 c m y k) =
+        (fi c `unsafeShiftL` (0 * bitCount)) .|.
+        (fi m `unsafeShiftL` (1 * bitCount)) .|.
+        (fi y `unsafeShiftL` (2 * bitCount)) .|.
+        (fi k `unsafeShiftL` (3 * bitCount))
+      where fi = fromIntegral
+            bitCount = 16
+
+instance PackeablePixel PixelYA16 where
+    type PackedRepresentation PixelYA16 = Word32
+    packPixel (PixelYA16 y a) =
+        (fi y `unsafeShiftL` (0 * bitCount)) .|.
+        (fi a `unsafeShiftL` (1 * bitCount))
+      where fi = fromIntegral
+            bitCount = 16
+
+instance PackeablePixel PixelYA8 where
+    type PackedRepresentation PixelYA8 = Word16
+    packPixel (PixelYA8 y a) =
+        (fi y `unsafeShiftL` (0 * bitCount)) .|.
+        (fi a `unsafeShiftL` (1 * bitCount))
+      where fi = fromIntegral
+            bitCount = 8
+
+-- | This function will fill an image with a simple packeable
+-- pixel. It will be faster than any unsafeWritePixel.
+fillImageWith :: ( Pixel px, PackeablePixel px
+                 , PrimMonad m
+                 , M.Storable (PackedRepresentation px))
+              => MutableImage (PrimState m) px -> px -> m ()
+fillImageWith img px = M.set converted $ packPixel px
+  where
+    (ptr, s, s2) = M.unsafeToForeignPtr $ mutableImageData img
+    !packedPtr = castForeignPtr ptr
+    !converted =
+        M.unsafeFromForeignPtr packedPtr s (s2 `div` componentCount px)
+
+-- | Fill a packeable pixel between two bounds.
+unsafeWritePixelBetweenAt
+    :: ( PrimMonad m
+       , Pixel px, PackeablePixel px
+       , M.Storable (PackedRepresentation px))
+    => MutableImage (PrimState m) px -- ^ Image to write into
+    -> px                -- ^ Pixel to write
+    -> Int               -- ^ Start index in pixel base component
+    -> Int               -- ^ pixel count of pixel to write
+    -> m ()
+unsafeWritePixelBetweenAt img px start count = M.set converted packed
+  where
+    !packed = packPixel px
+    !pixelData = mutableImageData img
+
+    !toSet = M.slice start count pixelData
+    (ptr, s, s2) = M.unsafeToForeignPtr toSet
+    !packedPtr = castForeignPtr ptr
+    !converted =
+        M.unsafeFromForeignPtr packedPtr s s2
+
+-- | Write a packeable pixel into an image. equivalent to unsafeWritePixel.
+writePackedPixelAt :: ( Pixel px, PackeablePixel px
+                      , M.Storable (PackedRepresentation px)
+                      , PrimMonad m
+                      )
+                   => MutableImage (PrimState m) px -- ^ Image to write into
+                   -> Int  -- ^ Index in (PixelBaseComponent px) count
+                   -> px   -- ^ Pixel to write
+                   -> m ()
+{-# INLINE writePackedPixelAt #-}
+writePackedPixelAt img idx px =
+    M.unsafeWrite converted (idx `div` compCount) packed
+  where
+    !packed = packPixel px
+    !compCount = componentCount px
+
+    (ptr, s, s2) = M.unsafeToForeignPtr $ mutableImageData img
+    !packedPtr = castForeignPtr ptr
+    !converted =
+        M.unsafeFromForeignPtr packedPtr s s2
+

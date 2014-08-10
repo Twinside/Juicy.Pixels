@@ -9,7 +9,7 @@ import Data.Monoid( (<>) )
 import Control.Applicative( pure, (<$>), (<*>) )
 import Control.Monad( when, foldM, foldM_, forM, forM_ )
 import Control.Monad.Trans.Class( lift )
-import Control.Monad.Trans.Error( ErrorT, throwError, runErrorT )
+import Control.Monad.Trans.Except( ExceptT, throwE, runExceptT )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Char8 as BC
@@ -40,7 +40,7 @@ import Codec.Picture.VectorByteConversion
 (.<-.) = M.write 
          {-M.unsafeWrite-}
 
-type HDRReader s a = ErrorT String (ST s) a
+type HDRReader s a = ExceptT String (ST s) a
 
 data RGBE = RGBE !Word8 !Word8 !Word8 !Word8
 
@@ -144,9 +144,9 @@ decodeInfos = do
 --  * PixelRGBF
 --
 decodeHDR :: B.ByteString -> Either String DynamicImage
-decodeHDR str = runST $ runErrorT $ do
+decodeHDR str = runST $ runExceptT $ do
     case runGet decodeHeader $ L.fromChunks [str] of
-      Left err -> throwError err
+      Left err -> throwE err
       Right rez ->
           ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
 
@@ -214,7 +214,7 @@ newStyleRLE :: L.ByteString -> Int -> M.STVector s Word8
             -> HDRReader s Int
 newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
   where dataAt idx
-            | fromIntegral idx >= maxInput = throwError $ "Read index out of bound (" ++ show idx ++ ")"
+            | fromIntegral idx >= maxInput = throwE $ "Read index out of bound (" ++ show idx ++ ")"
             | otherwise = pure $ L.index inputData (fromIntegral idx)
 
         maxOutput = M.length scanline
@@ -223,7 +223,7 @@ newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
 
 
         strideSet count destIndex _ | endIndex > maxOutput + stride =
-          throwError $ "Out of bound HDR scanline " ++ show endIndex ++ " (max " ++ show maxOutput ++ ")"
+          throwE $ "Out of bound HDR scanline " ++ show endIndex ++ " (max " ++ show maxOutput ++ ")"
             where endIndex = destIndex + count * stride
         strideSet count destIndex val = aux destIndex count
             where aux i 0 =  pure i
@@ -233,7 +233,7 @@ newStyleRLE inputData initialIdx scanline = foldM inner initialIdx [0 .. 3]
 
 
         strideCopy _ count destIndex
-            | writeEndBound > maxOutput + stride = throwError "Out of bound HDR scanline"
+            | writeEndBound > maxOutput + stride = throwE "Out of bound HDR scanline"
                 where writeEndBound = destIndex + count * stride
         strideCopy sourceIndex count destIndex = aux sourceIndex destIndex count
           where aux _ j 0 = pure j
@@ -443,7 +443,7 @@ decodeRadiancePicture hdr = do
               inner | isNewRunLengthMarker color = do
                           let calcSize = checkLineLength color
                           when (calcSize /= width)
-                               (throwError "Invalid sanline size")
+                               (throwE "Invalid sanline size")
                           pure $ \idx -> newStyleRLE packedData (idx + 4)
                     | otherwise = pure $ oldStyleRLE packedData
           f <- inner

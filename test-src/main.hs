@@ -396,6 +396,7 @@ gifTest = ["Gif_pixel_cube.gif"
           ,"delta2.gif"
           ,"magceit.gif"
           ,"2k.gif"
+          ,"pikachu.gif"
           ,"huge.gif"
           ]
 
