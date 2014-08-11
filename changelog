@@ -1,5 +1,9 @@
 -*-change-log-*-
 
+v3.1.6.1 August 2014
+ * Fix of Gif palette creation (jeffreyrosenbluth)
+ * Restoring transformers 0.3.* compat
+
 v3.1.6 August 2014
  * Fix bad disposal handling in GIF animations.
  * Added ColorConvertible instance for PixelRGB8 -> PixelRGBA16 (KaiHa)
