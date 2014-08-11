@@ -308,6 +308,7 @@ maxAxis (PixelRGBF r g b) =
     (LT, GT, _)  -> GAxis
     (GT, LT, _)  -> BAxis
     (LT, LT, GT) -> GAxis
+    (EQ, GT, _)  -> RAxix
     (_,  _,  _)  -> BAxis
 
 -- Split a cluster about its largest axis using the mean to divide up the
