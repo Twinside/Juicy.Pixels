@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files.
@@ -455,11 +456,6 @@ decodePng byte = do
                        + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
 
-        toImage const1 _const2 (Left a) =
-            Right . const1 $ Image (fromIntegral w) (fromIntegral h) a
-        toImage _const1 const2 (Right a) =
-            Right . const2 $ Image (fromIntegral w) (fromIntegral h) a
-
         palette8 palette [c] (Left img) =
             Right . ImageRGBA8
                   . Image (fromIntegral w) (fromIntegral h)
@@ -472,6 +468,16 @@ decodePng byte = do
 
         palette8 _ _ (Right _) = Left "Invalid bit depth for paleted image"
 
+        toImage :: forall a pxWord8 pxWord16
+                 . (Image pxWord8 -> DynamicImage) -> (Image pxWord16 -> DynamicImage)
+                -> Either (V.Vector (PixelBaseComponent pxWord8))
+                          (V.Vector (PixelBaseComponent pxWord16))
+                -> Either a DynamicImage
+        toImage const1 _const2 (Left a) =
+            Right . const1 $ Image (fromIntegral w) (fromIntegral h) a
+        toImage _const1 const2 (Right a) =
+            Right . const2 $ Image (fromIntegral w) (fromIntegral h) a
+
         transparencyColor =
             [ chunkData chunk | chunk <- chunks rawImg
                               , chunkType chunk == tRNSSignature ]
@@ -480,22 +486,17 @@ decodePng byte = do
             | bitDepth ihdr == 1 = unparse (Just paletteRGB1) t PngIndexedColor bytes
             | bitDepth ihdr == 2 = unparse (Just paletteRGB2) t PngIndexedColor bytes
             | bitDepth ihdr == 4 = unparse (Just paletteRGB4) t PngIndexedColor bytes
-            | otherwise = toImage ImageY8 ImageY16 $ runST stArray
-                where stArray = deinterlacer ihdr bytes
+            | otherwise = toImage ImageY8 ImageY16 $ runST $ deinterlacer ihdr bytes
 
         unparse Nothing _ PngIndexedColor  _ = Left "no valid palette found"
         unparse _ _ PngTrueColour          bytes =
-            toImage ImageRGB8 ImageRGB16 $ runST stArray
-                where stArray = deinterlacer ihdr bytes
+            toImage ImageRGB8 ImageRGB16 $ runST $ deinterlacer ihdr bytes
         unparse _ _ PngGreyscaleWithAlpha  bytes =
-            toImage ImageYA8 ImageYA16 $ runST stArray
-                where stArray = deinterlacer ihdr bytes
+            toImage ImageYA8 ImageYA16 $ runST $ deinterlacer ihdr bytes
         unparse _ _ PngTrueColourWithAlpha bytes =
-            toImage ImageRGBA8 ImageRGBA16 $ runST stArray
-                where stArray = deinterlacer ihdr bytes
+            toImage ImageRGBA8 ImageRGBA16 $ runST $ deinterlacer ihdr bytes
         unparse (Just plte) transparency PngIndexedColor bytes =
-            palette8 plte transparency $ runST stArray
-                where stArray = deinterlacer ihdr bytes
+            palette8 plte transparency $ runST $ deinterlacer ihdr bytes
 
     if Lb.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
