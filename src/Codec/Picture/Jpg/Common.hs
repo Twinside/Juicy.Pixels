@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Jpg.Common
     ( DctCoefficients
     , JpgUnpackerParameter( .. )

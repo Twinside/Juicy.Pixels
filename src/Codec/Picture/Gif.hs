@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif

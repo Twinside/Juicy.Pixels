@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Module dedicated of Radiance file decompression (.hdr or .pic) file.
 -- Radiance file format is used for High dynamic range imaging.
 module Codec.Picture.HDR( decodeHDR, encodeHDR, writeHDR ) where
