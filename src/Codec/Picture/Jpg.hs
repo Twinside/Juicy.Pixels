@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( decodeJpeg

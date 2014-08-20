@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Modules used for Bitmap file (.bmp) file loading and writing
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmap
