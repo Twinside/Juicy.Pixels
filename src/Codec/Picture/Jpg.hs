@@ -477,10 +477,11 @@ decodeJpeg file = case runGetStrict get file of
             imgHeight = fromIntegral $ jpgHeight scanInfo
 
             imageSize = imgWidth * imgHeight * compCount
-            (st, wrotten) = execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
-            Just fHdr = currentFrame st
 
-            decodeProgressive = runST $
+            decodeProgressive = runST $ do
+                let (st, wrotten) =
+                        execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+                    Just fHdr = currentFrame st
                 progressiveUnpack
                     (maximumHorizontalResolution st, maximumVerticalResolution st)
                     fHdr
@@ -488,6 +489,9 @@ decodeJpeg file = case runGetStrict get file of
                     wrotten >>= unsafeFreezeImage
 
             pixelData = runST $ do
+                let (st, wrotten) =
+                        execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+                    Just fHdr = currentFrame st
                 resultImage <- M.new imageSize
                 let wrapped = MutableImage imgWidth imgHeight resultImage
                 decodeImage 

@@ -1,7 +1,7 @@
 -*-change-log-*-
 
 v3.1.7 ?? 2014
- * Making Juicy.Pixels compatible with GHC 7.9 HEAD
+ * Making Juicy.Pixels compatible with GHC 7.9 HEAD (ggreif)
 
 v3.1.6.1 August 2014
  * Fix of Gif palette creation (jeffreyrosenbluth)
