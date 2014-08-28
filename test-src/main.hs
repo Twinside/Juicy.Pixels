@@ -16,6 +16,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
+import Codec.Picture.HDR
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
@@ -345,6 +346,7 @@ radianceToBitmap path = do
       Right (ImageRGBF img) -> do
           L.writeFile (path ++ ".bmp") . imageToBitmap $ ImageRGBF img
           writeHDR (path ++ ".hdr") img
+          writeRLENewStyleHDR (path ++ ".rle.hdr") img
 
       Right img -> do
           L.writeFile (path ++ ".bmp") $ imageToBitmap img
