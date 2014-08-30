@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
                               , printMacroBlock

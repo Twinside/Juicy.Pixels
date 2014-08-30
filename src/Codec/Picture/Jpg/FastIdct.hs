@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Module providing a 'fast' implementation of IDCT
 --
 -- inverse two dimensional DCT, Chen-Wang algorithm       

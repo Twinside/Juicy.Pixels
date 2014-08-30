@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Jpg.FastDct( referenceDct, fastDctLibJpeg ) where
 
 import Control.Applicative( (<$>) )

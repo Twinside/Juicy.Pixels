@@ -1,5 +1,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | This module provide some color quantisation algorithm
 -- in order to help in the creation of paletted images.
 -- The most important function is `palettize` which will

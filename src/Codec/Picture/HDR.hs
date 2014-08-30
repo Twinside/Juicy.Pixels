@@ -1,7 +1,14 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Module dedicated of Radiance file decompression (.hdr or .pic) file.
 -- Radiance file format is used for High dynamic range imaging.
-module Codec.Picture.HDR( decodeHDR, encodeHDR, writeHDR ) where
+module Codec.Picture.HDR( decodeHDR
+                        , encodeHDR
+                        , encodeRawHDR
+                        , encodeRLENewStyleHDR
+                        , writeHDR
+                        , writeRLENewStyleHDR
+                        ) where
 
 import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )
@@ -384,10 +391,44 @@ encodeScanlineColor vec outVec outIdx = do
 writeHDR :: FilePath -> Image PixelRGBF -> IO ()
 writeHDR filename img = L.writeFile filename $ encodeHDR img
 
+-- | Write a RLE encoded High dynamic range image into a radiance
+-- image file on disk.
+writeRLENewStyleHDR :: FilePath -> Image PixelRGBF -> IO ()
+writeRLENewStyleHDR filename img =
+    L.writeFile filename $ encodeRLENewStyleHDR img
+
 -- | Encode an High dynamic range image into a radiance image
 -- file format.
+-- Alias for encodeRawHDR
 encodeHDR :: Image PixelRGBF -> L.ByteString
-encodeHDR pic = encode $ runST $ do
+encodeHDR = encodeRawHDR
+
+-- | Encode an High dynamic range image into a radiance image
+-- file format. without compression
+encodeRawHDR :: Image PixelRGBF -> L.ByteString
+encodeRawHDR pic = encode descriptor
+  where
+    newImage = pixelMap rgbeInRgba pic
+    -- we are cheating to death here, the layout we want
+    -- correspond to the layout of pixelRGBA8, so we
+    -- convert
+    rgbeInRgba pixel = PixelRGBA8 r g b e
+      where RGBE r g b e = toRGBE pixel
+
+    descriptor = RadianceHeader
+        { radianceInfos = []
+        , radianceFormat = FormatRGBE
+        , radianceHeight = imageHeight pic
+        , radianceWidth  = imageWidth pic
+        , radianceData = L.fromChunks [toByteString $ imageData newImage]
+        }
+
+
+-- | Encode an High dynamic range image into a radiance image
+-- file format using a light RLE compression. Some problems
+-- seem to arise with some image viewer.
+encodeRLENewStyleHDR :: Image PixelRGBF -> L.ByteString
+encodeRLENewStyleHDR pic = encode $ runST $ do
     let w = imageWidth pic
         h = imageHeight pic
 

@@ -52,6 +52,8 @@ module Codec.Picture.Types( -- * Types
                           , pixelMap
                           , pixelMapXY
                           , pixelFold
+                          , pixelFoldM
+
                           , dynamicMap
                           , dynamicPixelMap
                           , dropAlphaLayer
@@ -244,6 +246,12 @@ lineMap :: (Monad m) => Int -> (Int -> m ()) -> m ()
 lineMap count f = go 0
   where go n | n >= count = return ()
         go n = f n >> go (n + 1)
+
+lineFold :: (Monad m) => a -> Int -> (a -> Int -> m a) -> m a
+{-# INLINE lineFold #-}
+lineFold initial count f = go 0 initial
+  where go n acc | n >= count = return acc
+        go n acc = f acc n >>= go (n + 1)
 
 stride :: (Storable (PixelBaseComponent a))
        => Image a -> Int -> Int -> Int -> V.Vector (PixelBaseComponent a)
@@ -710,6 +718,7 @@ generateImage :: forall a. (Pixel a)
               -> Int        -- ^ Width in pixels
               -> Int        -- ^ Height in pixels
               -> Image a
+{-# INLINE generateImage #-}
 generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = generated }
   where compCount = componentCount (undefined :: a)
         generated = runST $ do
@@ -788,10 +797,24 @@ generateFoldImage f intialAcc w h =
 pixelFold :: (Pixel pixel)
           => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
 pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
-  lineFold
-    where pixelFolder y acc x = f acc x y $ pixelAt img x y
-          columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
-          lineFold = foldl' columnFold initialAccumulator [0 .. h - 1]
+  foldl' columnFold initialAccumulator [0 .. h - 1]
+    where
+      pixelFolder y acc x = f acc x y $ pixelAt img x y
+      columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
+
+-- | Fold over the pixel of an image with a raster scan order:
+-- from top to bottom, left to right, carrying out a state
+pixelFoldM :: (Pixel pixel, Monad m)
+           => (acc -> Int -> Int -> pixel -> m acc) -- ^ monadic mapping function
+           -> acc                              -- ^ Initial state
+           -> Image pixel                       -- ^ Image to fold over
+           -> m acc
+{-# INLINE pixelFoldM  #-}
+pixelFoldM action initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
+  lineFold initialAccumulator h columnFold
+    where
+      pixelFolder y acc x = action acc x y $ pixelAt img x y
+      columnFold lineAcc y = lineFold lineAcc w (pixelFolder y)
 
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image

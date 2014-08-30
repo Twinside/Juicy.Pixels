@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
 -- | Main module for image import/export into various image formats.
 --
 -- To use the library without thinking about it, look after 'decodeImage' and

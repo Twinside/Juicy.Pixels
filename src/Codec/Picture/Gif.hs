@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
@@ -39,6 +40,8 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16le
                       , getByteString
+                      , bytesRead
+                      , skip
                       )
 
 import Data.Binary.Put( Put
@@ -186,19 +189,17 @@ data ImageDescriptor = ImageDescriptor
   , gDescLocalColorTableSize    :: !Word8
   }
 
-imageSeparator, extensionIntroducer, gifTrailer, applicationLabel :: Word8
+imageSeparator, extensionIntroducer, gifTrailer :: Word8
 imageSeparator      = 0x2C
 extensionIntroducer = 0x21
 gifTrailer          = 0x3B
+
+graphicControlLabel, commentLabel, plainTextLabel, applicationLabel :: Word8
+plainTextLabel = 0x01
+graphicControlLabel = 0xF9
+commentLabel = 0xFE
 applicationLabel    = 0xFF
 
-graphicControlLabel :: Word8
-graphicControlLabel = 0xF9
-
---commentLabel, graphicControlLabel, 
---
-{-commentLabel        = 0xFE-}
-{-plainTextLabel      = 0x01-}
 
 parseDataBlocks :: Get B.ByteString
 parseDataBlocks = B.concat <$> (getWord8 >>= aux)
@@ -321,19 +322,34 @@ instance Binary GifImage where
 data Block = BlockImage GifImage
            | BlockGraphicControl GraphicControlExtension
 
+skipSubDataBlocks :: Get ()
+skipSubDataBlocks = do
+  s <- fromIntegral <$> getWord8
+  if s == 0 then
+    return ()
+  else
+    skip s >> skipSubDataBlocks
+
 parseGifBlocks :: Get [Block]
 parseGifBlocks = getWord8 >>= blockParse
-  where blockParse v
-          | v == gifTrailer = pure []
-          | v == imageSeparator = (:) <$> (BlockImage <$> get) <*> parseGifBlocks
-          | v == extensionIntroducer = do
-                extensionCode <- getWord8
-                if extensionCode /= graphicControlLabel
-                   then parseDataBlocks >> parseGifBlocks
-                   else (:) <$> (BlockGraphicControl <$> get) <*> parseGifBlocks
+  where
+    blockParse v
+      | v == gifTrailer = pure []
+      | v == imageSeparator = (:) <$> (BlockImage <$> get) <*> parseGifBlocks
+      | v == extensionIntroducer = getWord8 >>= extensionParse
 
-        blockParse v = do
-            fail ("Unrecognized gif block " ++ show v)
+    blockParse v = do
+      readPosition <- bytesRead
+      fail ("Unrecognized gif block " ++ show v ++ " @" ++ show readPosition)
+
+    extensionParse code
+     | code == graphicControlLabel =
+        (:) <$> (BlockGraphicControl <$> get) <*> parseGifBlocks
+     | code == commentLabel = skipSubDataBlocks >> parseGifBlocks
+     | code `elem` [plainTextLabel, applicationLabel] =
+        fromIntegral <$> getWord8 >>= skip >> skipSubDataBlocks >> parseGifBlocks
+     | otherwise = parseDataBlocks >> parseGifBlocks
+
 
 instance Binary ImageDescriptor where
     put v = do
@@ -390,7 +406,8 @@ instance Binary ImageDescriptor where
 ----            Palette
 --------------------------------------------------
 getPalette :: Word8 -> Get Palette
-getPalette bitDepth = replicateM (size * 3) get >>= return . Image size 1 . V.fromList
+getPalette bitDepth = 
+    replicateM (size * 3) get >>= return . Image size 1 . V.fromList
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
 putPalette :: Int -> Palette -> Put
@@ -419,7 +436,13 @@ instance Binary GifHeader where
     get = do
         version    <- get
         screenDesc <- get
-        palette    <- getPalette $ colorTableSize screenDesc
+        
+        palette <- 
+          if hasGlobalMap screenDesc then
+            getPalette $ colorTableSize screenDesc
+          else
+            return $ Image 0 1 V.empty
+
         return GifHeader
             { gifVersion = version
             , gifScreenDescriptor = screenDesc
