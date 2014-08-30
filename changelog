@@ -1,7 +1,11 @@
 -*-change-log-*-
 
-v3.1.7 ?? 2014
+v3.1.7 August 2014
  * Making Juicy.Pixels compatible with GHC 7.9 HEAD (ggreif)
+ * Adding writing to uncompressed radiance file, due to
+   problems with Mac OS X "preview" application
+ * Fixing problem of gif parsing without global palette
+ * Some inlining annotations on some functions
 
 v3.1.6.1 August 2014
  * Fix of Gif palette creation (jeffreyrosenbluth)
