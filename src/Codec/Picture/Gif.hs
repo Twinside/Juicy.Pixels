@@ -441,7 +441,7 @@ instance Binary GifHeader where
           if hasGlobalMap screenDesc then
             getPalette $ colorTableSize screenDesc
           else
-            return $ Image 0 1 V.empty
+            return $ greyPalette
 
         return GifHeader
             { gifVersion = version
@@ -597,9 +597,10 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                      pixeler x y = pixelAt oldImage x y
 
 decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
-decodeFirstGifImage
-        GifFile { gifHeader = GifHeader { gifGlobalMap = palette}
-                , gifImages = ((_, gif):_) } = Right . substituteColors palette $ decodeImage gif
+decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
+    case decodeAllGifImages img { gifImages = [firstImage] } of
+      [] -> Left "No image after decoding"
+      (i:_) -> Right i
 decodeFirstGifImage _ = Left "No image in gif file"
 
 -- | Transform a raw gif image to an image, witout
