@@ -1,5 +1,10 @@
 -*-change-log-*-
 
+v3.1.7.1 August 2014
+ * Previous gif fix was not working withing the readImage
+   function, only in specialized gif images. Correcting
+   miscorection
+
 v3.1.7 August 2014
  * Making Juicy.Pixels compatible with GHC 7.9 HEAD (ggreif)
  * Adding writing to uncompressed radiance file, due to
