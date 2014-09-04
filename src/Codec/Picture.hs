@@ -153,6 +153,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
+import Codec.Picture.Tga
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import Codec.Picture.ColorQuant
