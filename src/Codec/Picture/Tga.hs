@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Tga where
 
-import Control.Monad.ST( runST )
+import Control.Monad.ST( ST, runST )
 import Control.Applicative( (<$>), (<*>) )
 import Data.Bits( (.&.), testBit, setBit )
 import Data.Monoid( mempty )
@@ -51,6 +51,13 @@ data TgaImageType
   | ImageTypeColorMapped Bool
   | ImageTypeTrueColor Bool
   | ImageTypeMonochrome Bool
+
+isRleEncoded :: TgaImageType -> Bool
+isRleEncoded v = case v of
+  ImageTypeNoData      yn -> yn
+  ImageTypeColorMapped yn -> yn
+  ImageTypeTrueColor   yn -> yn
+  ImageTypeMonochrome  yn -> yn
 
 imageTypeOfCode :: Monad m => Word8 -> m TgaImageType
 imageTypeOfCode v = case v .&. 3 of
@@ -164,6 +171,70 @@ instance TGAPixel Depth8 where
    packedByteSize _ = 1
    tgaUnpack _ = U.unsafeIndex
 
+instance TGAPixel Depth24 where
+   type Unpacked Depth24 = PixelRGB8
+   packedByteSize _ = 3
+   tgaUnpack _ str ix = PixelRGB8 r g b
+     where
+       r = U.unsafeIndex str ix
+       g = U.unsafeIndex str (ix + 1)
+       b = U.unsafeIndex str (ix + 2)
+
+instance TGAPixel Depth32 where
+   type Unpacked Depth32 = PixelRGBA8
+   packedByteSize _ = 3
+   tgaUnpack _ str ix = PixelRGBA8 r g b a
+     where
+       r = U.unsafeIndex str ix
+       g = U.unsafeIndex str (ix + 1)
+       b = U.unsafeIndex str (ix + 2)
+       a = U.unsafeIndex str (ix + 3)
+
+
+{-
+unparse :: TgaFile -> Either String DynamicImage
+unparse file = case _tgaHdrImageType file of
+  ImageTypeNoData _ -> Right "No data detected in TGA file"
+  ImageTypeColorMapped _ ->
+  ImageTypeTrueColor _ ->
+  ImageTypeMonochrome _ ->
+      Right $ 
+      -- -}
+
+writeRun :: forall s px
+          . (Pixel px)
+         => M.STVector s (PixelBaseComponent px) -> Int -> px -> Int
+         -> ST s Int
+writeRun imgData localMaxi px = run
+  where
+    writeDelta = componentCount (undefined :: px)
+    run writeIndex 
+      | writeIndex >= localMaxi = return writeIndex
+    run writeIndex = do
+      unsafeWritePixel imgData writeIndex px
+      run $ writeIndex + writeDelta
+
+copyData :: forall tgapx s
+          . (TGAPixel tgapx)
+         => tgapx
+         -> M.STVector s (PixelBaseComponent (Unpacked tgapx))
+         -> B.ByteString
+         -> Int -> Int
+         -> Int -> Int
+         -> ST s (Int, Int)
+copyData tgapx imgData readData maxi maxRead = go
+  where
+    readDelta = packedByteSize tgapx
+    writeDelta = componentCount (undefined :: Unpacked tgapx)
+
+    go writeIndex readIndex
+      | writeIndex >= maxi ||
+        readIndex >= maxRead = return (writeIndex, readIndex)
+    go writeIndex readIndex = do
+      let px = tgaUnpack tgapx readData readIndex :: Unpacked tgapx
+      unsafeWritePixel imgData writeIndex px
+      go (writeIndex + writeDelta) (readIndex + readDelta)
+
 unpackUncompressedTga :: forall tgapx
                        . (TGAPixel tgapx)
                       => tgapx -- ^ Type witness
@@ -172,16 +243,7 @@ unpackUncompressedTga :: forall tgapx
 unpackUncompressedTga tga file = runST $ do
     img <- MutableImage width height <$> M.new maxi
     let imgData = mutableImageData img
-
-        go writeIndex readIndex
-            | writeIndex >= maxi = return () 
-            | readIndex >= maxRead = return ()
-        go writeIndex readIndex = do
-          let px = tgaUnpack tga readData readIndex :: Unpacked tgapx
-          unsafeWritePixel imgData writeIndex px
-          go (writeIndex + writeDelta) (readIndex + readDelta)
-
-    go 0 0
+    _ <- copyData tga imgData readData maxi maxRead 0 0
     unsafeFreezeImage img
 
   where
@@ -191,11 +253,15 @@ unpackUncompressedTga tga file = runST $ do
 
     readData = _tgaFileRest file
 
-    maxi = width * height * writeDelta
+    compCount = componentCount (undefined :: Unpacked tgapx)
+    maxi = width * height * compCount
     maxRead = B.length readData
 
-    readDelta = packedByteSize tga
-    writeDelta = componentCount (undefined :: Unpacked tgapx)
+isRleChunk :: Word8 -> Bool
+isRleChunk v = testBit v 7
+
+runLength :: Word8 -> Int
+runLength v = fromIntegral $ v .&. 0x7F
 
 unpackRLETga :: forall tgapx
               . (TGAPixel tgapx)
@@ -210,10 +276,19 @@ unpackRLETga tga file = runST $ do
             | writeIndex >= maxi = return () 
             | readIndex >= maxRead = return ()
         go writeIndex readIndex = do
-          let code = B.unsafeIndex readIndex
-          let px = tgaUnpack tga readData readIndex :: Unpacked tgapx
-          unsafeWritePixel imgData writeIndex px
-          go (writeIndex + writeDelta) (readIndex + readDelta)
+          let code = U.unsafeIndex readData readIndex
+              copyMax = min maxi $ writeIndex + runLength code
+          
+          if isRleChunk code then do
+            let px = tgaUnpack tga readData (readIndex + 1) :: Unpacked tgapx
+            lastWriteIndex <- writeRun imgData copyMax px writeIndex
+            go lastWriteIndex $ readIndex + 1 + readDelta
+
+          else do
+            (newWrite, newRead) <-
+                copyData tga imgData readData copyMax maxRead
+                    writeIndex (readIndex + 1)
+            go newWrite newRead
 
     go 0 0
     unsafeFreezeImage img
@@ -225,9 +300,9 @@ unpackRLETga tga file = runST $ do
 
     readData = _tgaFileRest file
 
-    maxi = width * height * writeDelta
+    compCount = componentCount (undefined :: Unpacked tgapx)
+    maxi = width * height * compCount
     maxRead = B.length readData
 
     readDelta = packedByteSize tga
-    writeDelta = componentCount (undefined :: Unpacked tgapx)
 
