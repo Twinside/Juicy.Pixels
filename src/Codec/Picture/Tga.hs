@@ -21,8 +21,6 @@ import Data.Binary.Get( Get
                       , getByteString 
                       , getWord8
                       , getWord16le
-                      , bytesRead
-                      , skip
                       )
 import Data.Binary.Put( putWord8
                       , putWord16le
@@ -30,14 +28,11 @@ import Data.Binary.Put( putWord8
                       )
 
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Unsafe as U
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.InternalHelper
-import Text.Printf
-import Debug.Trace
 
 data TgaColorMapType
   = ColorMapWithoutTable
@@ -170,17 +165,17 @@ data TgaFile = TgaFile
   }
 
 getPalette :: TgaHeader -> Get B.ByteString
-getPalette hdr | _tgaHdrMapStart hdr <= 0 = trace "Not loading palette" $ return mempty
-getPalette hdr = trace "Loading palette" $ do
-  pos <- fromIntegral <$> bytesRead
-  skip $ fromIntegral (_tgaHdrMapStart hdr) - pos
-  getByteString . fromIntegral $ _tgaHdrMapLength hdr
+getPalette hdr | _tgaHdrMapLength hdr <= 0 = return mempty
+getPalette hdr = getByteString $ bytePerPixel * pixelCount
+  where
+    bytePerPixel = fromIntegral $ _tgaHdrMapDepth hdr `div` 8
+    pixelCount = fromIntegral $ _tgaHdrMapLength hdr
 
 instance Binary TgaFile where
   get = do
     hdr <- get
-    fileId <- trace (show hdr) $ getByteString . fromIntegral $ _tgaHdrIdLength hdr
-    palette <- trace ("FILEID: " ++ BC.unpack fileId) $ getPalette hdr
+    fileId <- getByteString . fromIntegral $ _tgaHdrIdLength hdr
+    palette <- getPalette hdr
     rest <- getRemainingBytes
 
     return TgaFile {
@@ -254,6 +249,15 @@ prepareUnpacker file f =
     32 -> pure . ImageRGBA8 $ f Depth32 file
     n  -> fail $ "Invalid bit depth (" ++ show n ++ ")"
 
+applyPalette :: (Pixel px)
+             => (Image px -> DynamicImage) -> Image px
+             -> DynamicImage
+             -> Either String DynamicImage
+applyPalette f palette (ImageY8 img) =
+  pure . f $ pixelMap (\v -> pixelAt palette (fromIntegral v) 0) img
+applyPalette _ _ _ =
+  fail "Bad colorspace for image"
+
 unparse :: TgaFile -> Either String DynamicImage
 unparse file =
   let hdr = _tgaFileHeader file
@@ -263,15 +267,33 @@ unparse file =
                => tgapx -> TgaFile -> Image (Unpacked tgapx)
       unpacker | isRleEncoded imageType = unpackRLETga
                | otherwise = unpackUncompressedTga
+
+      decodedPalette = unparse file
+        { _tgaFileHeader = hdr
+            { _tgaHdrHeight = 1
+            , _tgaHdrWidth = _tgaHdrMapLength hdr
+            , _tgaHdrPixelDepth = _tgaHdrMapDepth hdr
+            , _tgaHdrImageType = ImageTypeTrueColor False
+            }
+        , _tgaFileRest = _tgaPalette file
+        }
   in
   case imageType of
     ImageTypeNoData _ -> fail "No data detected in TGA file"
-    ImageTypeColorMapped _ ->
-        fail "Palette not handled yet"
     ImageTypeTrueColor _ ->
-        prepareUnpacker file unpacker
+      prepareUnpacker file unpacker
     ImageTypeMonochrome _ ->
-        prepareUnpacker file unpacker
+      prepareUnpacker file unpacker
+    ImageTypeColorMapped _ ->
+      case decodedPalette of
+        Left str -> Left str
+        Right (ImageY8 img) ->
+          prepareUnpacker file unpacker >>= applyPalette ImageY8 img
+        Right (ImageRGB8 img) ->
+          prepareUnpacker file unpacker >>= applyPalette ImageRGB8 img
+        Right (ImageRGBA8 img) ->
+          prepareUnpacker file unpacker >>= applyPalette ImageRGBA8 img
+        Right _ -> fail "Unknown pixel type"
 
 writeRun :: (Pixel px)
          => M.STVector s (PixelBaseComponent px) -> Int -> px -> Int
@@ -311,8 +333,7 @@ unpackUncompressedTga :: forall tgapx
                       => tgapx -- ^ Type witness
                       -> TgaFile
                       -> Image (Unpacked tgapx)
-unpackUncompressedTga tga file =
- trace (printf "UNCOMPRESSED compCount:%d maxi:%d maxRead:%d" compCount maxi maxRead) $ runST $ do
+unpackUncompressedTga tga file = runST $ do
     img <- MutableImage width height <$> M.new maxi
     let imgData = mutableImageData img
     _ <- copyData tga imgData readData maxi maxRead 0 0
@@ -338,7 +359,7 @@ unpackRLETga :: forall tgapx
              => tgapx -- ^ Type witness
              -> TgaFile
              -> Image (Unpacked tgapx)
-unpackRLETga tga file = trace "RLEDECOMP" $ runST $ do
+unpackRLETga tga file = runST $ do
     img <- MutableImage width height <$> M.new maxi
     let imgData = mutableImageData img
 

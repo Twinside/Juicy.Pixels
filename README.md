@@ -69,7 +69,10 @@ Status
     * Writing
 
  - Tga
-    * Reading 8, 16, 24 & 32 bits unpaletted images (RLE encoded or not).
+    * Reading
+        - 8, 16, 24 & 32 bits
+        - paletted and unpaletted
+        - RLE encoded or uncompressed
 
  - Tiff
     * Reading
