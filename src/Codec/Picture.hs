@@ -74,6 +74,10 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** TGA handling
+                     , readTGA
+                     , decodeTga
+
                      -- ** Tiff handling
                      , readTiff
                      , TiffSaveable
@@ -237,6 +241,7 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("GIF", decodeGif)
                                  ,("HDR", decodeHDR)
                                  ,("Tiff", decodeTiff)
+                                 ,("TGA", decodeTga)
                                  ]
 
 -- | Helper function trying to load a png file from a file on disk.
@@ -270,6 +275,10 @@ readBitmap = withImageDecoder decodeBitmap
 -- RGB with floating point precision.
 readHDR :: FilePath -> IO (Either String DynamicImage)
 readHDR = withImageDecoder decodeHDR
+
+-- | Try to load a .tga file from disk.
+readTGA :: FilePath -> IO (Either String DynamicImage)
+readTGA = withImageDecoder decodeTga
 
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()

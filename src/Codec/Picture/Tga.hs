@@ -2,11 +2,18 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-module Codec.Picture.Tga where
+{-# LANGUAGE RankNTypes #-}
+module Codec.Picture.Tga( decodeTga )  where
 
 import Control.Monad.ST( ST, runST )
-import Control.Applicative( (<$>), (<*>) )
-import Data.Bits( (.&.), testBit, setBit )
+import Control.Applicative( (<$>), (<*>), pure )
+import Data.Bits( (.&.)
+                , (.|.)
+                , bit
+                , testBit
+                , setBit
+                , unsafeShiftL
+                , unsafeShiftR )
 import Data.Monoid( mempty )
 import Data.Word( Word8, Word16 )
 import Data.Binary( Binary( .. ) )
@@ -14,7 +21,8 @@ import Data.Binary.Get( Get
                       , getByteString 
                       , getWord8
                       , getWord16le
-                      , getRemainingLazyByteString
+                      , bytesRead
+                      , skip
                       )
 import Data.Binary.Put( putWord8
                       , putWord16le
@@ -22,16 +30,20 @@ import Data.Binary.Put( putWord8
                       )
 
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Unsafe as U
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
+import Codec.Picture.InternalHelper
+import Text.Printf
+import Debug.Trace
 
 data TgaColorMapType
   = ColorMapWithoutTable
   | ColorMapWithTable
   | ColorMapUnknown Word8
+  deriving Show
 
 instance Binary TgaColorMapType where
   get = do
@@ -51,6 +63,7 @@ data TgaImageType
   | ImageTypeColorMapped Bool
   | ImageTypeTrueColor Bool
   | ImageTypeMonochrome Bool
+  deriving Show
 
 isRleEncoded :: TgaImageType -> Bool
 isRleEncoded v = case v of
@@ -67,7 +80,7 @@ imageTypeOfCode v = case v .&. 3 of
     3 -> return $ ImageTypeMonochrome isEncoded
     _ -> fail $ "Unknown TGA image type " ++ show v
   where
-    isEncoded = testBit v 2
+    isEncoded = testBit v 3
 
 codeOfImageType :: TgaImageType -> Word8
 codeOfImageType v = case v of
@@ -76,13 +89,38 @@ codeOfImageType v = case v of
     ImageTypeTrueColor encoded -> setVal 2 encoded
     ImageTypeMonochrome encoded -> setVal 3 encoded
     where
-      setVal vv True = setBit vv 2
+      setVal vv True = setBit vv 3
       setVal vv False = vv
 
 instance Binary TgaImageType where
   get = getWord8 >>= imageTypeOfCode
   put = putWord8 . codeOfImageType
     
+data TgaImageDescription = TgaImageDescription
+  { _tgaIdXOrigin       :: Bool
+  , _tgaIdYOrigin       :: Bool
+  , _tgaIdAttributeBits :: Word8
+  }
+  deriving Show
+
+instance Binary TgaImageDescription where
+  put desc = putWord8 $ xOrig .|. yOrig .|. attr
+    where
+      xOrig | _tgaIdXOrigin desc = bit 4
+            | otherwise = 0
+
+      yOrig | _tgaIdXOrigin desc = bit 5
+            | otherwise = 0
+      
+      attr = _tgaIdAttributeBits desc .&. 0xF
+
+  get = toDescr <$> getWord8 where
+    toDescr v = TgaImageDescription
+      { _tgaIdXOrigin       = testBit v 4
+      , _tgaIdYOrigin       = testBit v 5
+      , _tgaIdAttributeBits = v .&. 0xF
+      }
+
 data TgaHeader = TgaHeader
   { _tgaHdrIdLength         :: {-# UNPACK #-} !Word8
   , _tgaHdrColorMapType     :: !TgaColorMapType
@@ -95,13 +133,14 @@ data TgaHeader = TgaHeader
   , _tgaHdrWidth            :: {-# UNPACK #-} !Word16
   , _tgaHdrHeight           :: {-# UNPACK #-} !Word16
   , _tgaHdrPixelDepth       :: {-# UNPACK #-} !Word8
-  , _tgaHdrImageDescription :: {-# UNPACK #-} !Word8
+  , _tgaHdrImageDescription :: {-# UNPACK #-} !TgaImageDescription
   }
+  deriving Show
 
 instance Binary TgaHeader where
   get = TgaHeader
      <$> g8 <*> get <*> get <*> g16 <*> g16 <*> g8
-     <*> g16 <*> g16 <*> g16 <*> g16 <*> g8 <*> g8
+     <*> g16 <*> g16 <*> g16 <*> g16 <*> g8 <*> get
    where g16 = getWord16le
          g8 = getWord8
 
@@ -120,7 +159,7 @@ instance Binary TgaHeader where
     p16 $ _tgaHdrWidth v
     p16 $ _tgaHdrHeight v
     p8  $ _tgaHdrPixelDepth v
-    p8  $ _tgaHdrImageDescription v
+    put $ _tgaHdrImageDescription v
 
 
 data TgaFile = TgaFile
@@ -131,23 +170,24 @@ data TgaFile = TgaFile
   }
 
 getPalette :: TgaHeader -> Get B.ByteString
-getPalette _ = return mempty
-
-toStrict :: L.ByteString -> B.ByteString
-toStrict = B.concat . L.toChunks
+getPalette hdr | _tgaHdrMapStart hdr <= 0 = trace "Not loading palette" $ return mempty
+getPalette hdr = trace "Loading palette" $ do
+  pos <- fromIntegral <$> bytesRead
+  skip $ fromIntegral (_tgaHdrMapStart hdr) - pos
+  getByteString . fromIntegral $ _tgaHdrMapLength hdr
 
 instance Binary TgaFile where
   get = do
     hdr <- get
-    fileId <- getByteString . fromIntegral $ _tgaHdrIdLength hdr
-    palette <- getPalette hdr
-    rest <- getRemainingLazyByteString
+    fileId <- trace (show hdr) $ getByteString . fromIntegral $ _tgaHdrIdLength hdr
+    palette <- trace ("FILEID: " ++ BC.unpack fileId) $ getPalette hdr
+    rest <- getRemainingBytes
 
     return TgaFile {
         _tgaFileHeader = hdr
       , _tgaFileId = fileId
       , _tgaPalette = palette
-      , _tgaFileRest = toStrict rest
+      , _tgaFileRest = rest
       }
 
   put file = do
@@ -171,43 +211,74 @@ instance TGAPixel Depth8 where
    packedByteSize _ = 1
    tgaUnpack _ = U.unsafeIndex
 
+instance TGAPixel Depth15 where
+   type Unpacked Depth15 = PixelRGBA8
+   packedByteSize _ = 2
+   tgaUnpack _ str ix = PixelRGBA8 r g b a
+      where
+        v0 = U.unsafeIndex str ix
+        v1 = U.unsafeIndex str $ ix + 1
+        r = (v1 .&. 0x7c) `unsafeShiftL` 1;
+        g = ((v1 .&. 0x03) `unsafeShiftL` 6) .|. ((v0 .&. 0xe0) `unsafeShiftR` 2);
+        b = (v0 .&. 0x1f) `unsafeShiftL` 3
+        a = 255 -- v1 .&. 0x80
+
 instance TGAPixel Depth24 where
    type Unpacked Depth24 = PixelRGB8
    packedByteSize _ = 3
    tgaUnpack _ str ix = PixelRGB8 r g b
      where
-       r = U.unsafeIndex str ix
+       b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
-       b = U.unsafeIndex str (ix + 2)
+       r = U.unsafeIndex str (ix + 2)
 
 instance TGAPixel Depth32 where
    type Unpacked Depth32 = PixelRGBA8
-   packedByteSize _ = 3
+   packedByteSize _ = 4
    tgaUnpack _ str ix = PixelRGBA8 r g b a
      where
-       r = U.unsafeIndex str ix
+       b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
-       b = U.unsafeIndex str (ix + 2)
-       a = U.unsafeIndex str (ix + 3)
+       r = U.unsafeIndex str (ix + 2)
+       a = 255 - U.unsafeIndex str (ix + 3)
 
+prepareUnpacker :: TgaFile
+                -> (forall tgapx. (TGAPixel tgapx) => tgapx -> TgaFile -> Image (Unpacked tgapx))
+                -> Either String DynamicImage
+prepareUnpacker file f =
+  let hdr = _tgaFileHeader file in
+  case _tgaHdrPixelDepth hdr of
+    8  -> pure . ImageY8 $ f Depth8 file
+    16 -> pure . ImageRGBA8 $ f Depth15 file
+    24 -> pure . ImageRGB8 $ f Depth24 file
+    32 -> pure . ImageRGBA8 $ f Depth32 file
+    n  -> fail $ "Invalid bit depth (" ++ show n ++ ")"
 
-{-
 unparse :: TgaFile -> Either String DynamicImage
-unparse file = case _tgaHdrImageType file of
-  ImageTypeNoData _ -> Right "No data detected in TGA file"
-  ImageTypeColorMapped _ ->
-  ImageTypeTrueColor _ ->
-  ImageTypeMonochrome _ ->
-      Right $ 
-      -- -}
+unparse file =
+  let hdr = _tgaFileHeader file
+      imageType = _tgaHdrImageType hdr
 
-writeRun :: forall s px
-          . (Pixel px)
+      unpacker :: forall tgapx. (TGAPixel tgapx)
+               => tgapx -> TgaFile -> Image (Unpacked tgapx)
+      unpacker | isRleEncoded imageType = unpackRLETga
+               | otherwise = unpackUncompressedTga
+  in
+  case imageType of
+    ImageTypeNoData _ -> fail "No data detected in TGA file"
+    ImageTypeColorMapped _ ->
+        fail "Palette not handled yet"
+    ImageTypeTrueColor _ ->
+        prepareUnpacker file unpacker
+    ImageTypeMonochrome _ ->
+        prepareUnpacker file unpacker
+
+writeRun :: (Pixel px)
          => M.STVector s (PixelBaseComponent px) -> Int -> px -> Int
          -> ST s Int
 writeRun imgData localMaxi px = run
   where
-    writeDelta = componentCount (undefined :: px)
+    writeDelta = componentCount px
     run writeIndex 
       | writeIndex >= localMaxi = return writeIndex
     run writeIndex = do
@@ -240,7 +311,8 @@ unpackUncompressedTga :: forall tgapx
                       => tgapx -- ^ Type witness
                       -> TgaFile
                       -> Image (Unpacked tgapx)
-unpackUncompressedTga tga file = runST $ do
+unpackUncompressedTga tga file =
+ trace (printf "UNCOMPRESSED compCount:%d maxi:%d maxRead:%d" compCount maxi maxRead) $ runST $ do
     img <- MutableImage width height <$> M.new maxi
     let imgData = mutableImageData img
     _ <- copyData tga imgData readData maxi maxRead 0 0
@@ -250,9 +322,7 @@ unpackUncompressedTga tga file = runST $ do
     hdr = _tgaFileHeader file
     width = fromIntegral $ _tgaHdrWidth hdr
     height = fromIntegral $ _tgaHdrHeight hdr
-
     readData = _tgaFileRest file
-
     compCount = componentCount (undefined :: Unpacked tgapx)
     maxi = width * height * compCount
     maxRead = B.length readData
@@ -261,14 +331,14 @@ isRleChunk :: Word8 -> Bool
 isRleChunk v = testBit v 7
 
 runLength :: Word8 -> Int
-runLength v = fromIntegral $ v .&. 0x7F
+runLength v = fromIntegral (v .&. 0x7F) + 1
 
 unpackRLETga :: forall tgapx
               . (TGAPixel tgapx)
              => tgapx -- ^ Type witness
              -> TgaFile
              -> Image (Unpacked tgapx)
-unpackRLETga tga file = runST $ do
+unpackRLETga tga file = trace "RLEDECOMP" $ runST $ do
     img <- MutableImage width height <$> M.new maxi
     let imgData = mutableImageData img
 
@@ -277,7 +347,7 @@ unpackRLETga tga file = runST $ do
             | readIndex >= maxRead = return ()
         go writeIndex readIndex = do
           let code = U.unsafeIndex readData readIndex
-              copyMax = min maxi $ writeIndex + runLength code
+              copyMax = min maxi $ writeIndex + runLength code * compCount
           
           if isRleChunk code then do
             let px = tgaUnpack tga readData (readIndex + 1) :: Unpacked tgapx
@@ -297,12 +367,24 @@ unpackRLETga tga file = runST $ do
     hdr = _tgaFileHeader file
     width = fromIntegral $ _tgaHdrWidth hdr
     height = fromIntegral $ _tgaHdrHeight hdr
-
     readData = _tgaFileRest file
-
     compCount = componentCount (undefined :: Unpacked tgapx)
     maxi = width * height * compCount
     maxRead = B.length readData
-
     readDelta = packedByteSize tga
+
+
+-- | Transform a raw tga image to an image, without modifying
+-- the underlying pixel type.
+--
+-- This function can output the following pixel types:
+--
+--    * PixelY8
+--
+--    * PixelRGB8
+--
+--    * PixelRGBA8
+--
+decodeTga :: B.ByteString -> Either String DynamicImage
+decodeTga byte = runGetStrict get byte >>= unparse
 

@@ -110,6 +110,34 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "bad.jpg"
                  ]
  
+tgaValidTests :: [FilePath]
+tgaValidTests =
+    [ "CBW8.TGA"
+    , "CTC16.TGA"
+    , "CTC24.TGA"
+    , "CTC32.TGA"
+    , "FLAG_B16.TGA"
+    , "FLAG_B24.TGA"
+    , "FLAG_B32.TGA"
+    , "FLAG_T16.TGA"
+    , "FLAG_T32.TGA"
+    , "MARBLES.TGA"
+
+    , "UTC16.TGA"
+    , "UTC24.TGA"
+    , "UTC32.TGA"
+    , "XING_B16.TGA"
+    , "XING_B24.TGA"
+    , "XING_B32.TGA"
+    , "XING_T16.TGA"
+    , "XING_T24.TGA"
+    , "XING_T32.TGA"
+
+    , "CCM8.TGA"
+    , "UBW8.TGA"
+    , "UCM8.TGA"
+    ]
+
 bmpValidTests :: [FilePath]
 bmpValidTests =
     ["simple_bitmap_24bits.bmp"
@@ -424,6 +452,7 @@ testSuite = do
     mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
+    mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests
 
 jpegToPng :: IO ()
 jpegToPng = do

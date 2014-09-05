@@ -68,6 +68,9 @@ Status
     * Reading
     * Writing
 
+ - Tga
+    * Reading 8, 16, 24 & 32 bits unpaletted images (RLE encoded or not).
+
  - Tiff
     * Reading
         - 2, 4, 8, 16 bit depth reading (planar and contiguous for each)
