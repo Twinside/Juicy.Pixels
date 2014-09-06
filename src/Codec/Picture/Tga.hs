@@ -4,7 +4,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
-module Codec.Picture.Tga( decodeTga )  where
+-- | Module implementing function to read and write
+-- Targa (*.tga) files.
+module Codec.Picture.Tga( decodeTga
+                        , TgaSaveable
+                        , encodeTga
+                        , writeTga
+                        )  where
 
 import Control.Monad.ST( ST, runST )
 import Control.Applicative( (<$>), (<*>), pure )
@@ -17,7 +23,7 @@ import Data.Bits( (.&.)
                 , unsafeShiftR )
 import Data.Monoid( mempty )
 import Data.Word( Word8, Word16 )
-import Data.Binary( Binary( .. ) )
+import Data.Binary( Binary( .. ), encode )
 import Data.Binary.Get( Get
                       , getByteString 
                       , getWord8
@@ -29,11 +35,13 @@ import Data.Binary.Put( putWord8
                       )
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as Lb
 import qualified Data.ByteString.Unsafe as U
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.InternalHelper
+import Codec.Picture.VectorByteConversion
 
 data TgaColorMapType
   = ColorMapWithoutTable
@@ -436,4 +444,63 @@ validateTga tga = pure tga
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
 decodeTga byte = runGetStrict get byte >>= validateTga >>= unparse
+
+-- | This typeclass determine if a pixel can be saved in the
+-- TGA format.
+class TgaSaveable a where
+    tgaDataOfImage :: Image a -> B.ByteString
+    tgaPixelDepthOfImage :: Image a -> Word8
+    tgaTypeOfImage :: Image a -> TgaImageType
+
+instance TgaSaveable Pixel8 where
+    tgaDataOfImage = toByteString . imageData
+    tgaPixelDepthOfImage _ = 8
+    tgaTypeOfImage _ = ImageTypeMonochrome False
+
+instance TgaSaveable PixelRGB8 where
+    tgaPixelDepthOfImage _ = 24
+    tgaTypeOfImage _ = ImageTypeTrueColor False
+    tgaDataOfImage = toByteString . imageData . pixelMap flipRgb
+      where
+        flipRgb (PixelRGB8 r g b) = PixelRGB8 b g r
+
+instance TgaSaveable PixelRGBA8 where
+    tgaPixelDepthOfImage _ = 32
+    tgaTypeOfImage _ = ImageTypeTrueColor False
+    tgaDataOfImage = toByteString . imageData . pixelMap flipRgba
+      where
+        flipRgba (PixelRGBA8 r g b a) = PixelRGBA8 b g r a
+
+-- | Helper function to directly write an image a tga on disk.
+writeTga :: (TgaSaveable pixel) => FilePath -> Image pixel -> IO ()
+writeTga path img = Lb.writeFile path $ encodeTga img
+
+-- | Transform a compatible image to a raw bytestring
+-- representing a Targa file.
+encodeTga :: (TgaSaveable px) => Image px -> Lb.ByteString
+encodeTga img = encode file
+  where
+    file = TgaFile
+      { _tgaFileHeader = TgaHeader
+            { _tgaHdrIdLength         = 0
+            , _tgaHdrColorMapType     = ColorMapWithoutTable
+            , _tgaHdrImageType        = tgaTypeOfImage img
+            , _tgaHdrMapStart         = 0
+            , _tgaHdrMapLength        = 0
+            , _tgaHdrMapDepth         = 0
+            , _tgaHdrXOffset          = 0
+            , _tgaHdrYOffset          = 0
+            , _tgaHdrWidth            = fromIntegral $ imageWidth img
+            , _tgaHdrHeight           = fromIntegral $ imageHeight img
+            , _tgaHdrPixelDepth       = tgaPixelDepthOfImage img
+            , _tgaHdrImageDescription = TgaImageDescription
+                    { _tgaIdXOrigin       = False
+                    , _tgaIdYOrigin       = False
+                    , _tgaIdAttributeBits = 0
+                    }
+            }
+      , _tgaFileId     = mempty
+      , _tgaPalette    = mempty
+      , _tgaFileRest   = tgaDataOfImage img
+      }
 

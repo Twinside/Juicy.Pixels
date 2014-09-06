@@ -77,6 +77,9 @@ module Codec.Picture (
                      -- ** TGA handling
                      , readTGA
                      , decodeTga
+                     , TgaSaveable
+                     , encodeTga
+                     , writeTga
 
                      -- ** Tiff handling
                      , readTiff
@@ -157,7 +160,11 @@ import Codec.Picture.Tiff( decodeTiff
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
-import Codec.Picture.Tga
+import Codec.Picture.Tga( TgaSaveable
+                        , decodeTga
+                        , encodeTga
+                        , writeTga
+                        )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import Codec.Picture.ColorQuant

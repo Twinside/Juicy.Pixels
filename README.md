@@ -73,6 +73,10 @@ Status
         - 8, 16, 24 & 32 bits
         - paletted and unpaletted
         - RLE encoded or uncompressed
+    * Writing
+        - uncompressed 8bits (Pixel8)
+        - uncompressed 24bits (PixelRGB8)
+        - uncompressed 32bits (PixelRGBA8)
 
  - Tiff
     * Reading
