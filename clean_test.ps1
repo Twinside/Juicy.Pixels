@@ -14,6 +14,11 @@ rm tests/gif/*.jpg
 rm tests/gif/*.bmp
 rm tests/gif/*.png
 rm tests/gif/*.tiff
+rm tests/tga/*.jpg
+rm tests/tga/*.png
+rm tests/tga/*.gif
+rm tests/tga/*.tiff
+rm tests/tga/*.bmp
 rm tests/tiff/*.png
 rm tests/tiff/*.gif
 rm tests/tiff/*.jpg

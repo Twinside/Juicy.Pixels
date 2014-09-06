@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
 module Codec.Picture.Tga( decodeTga )  where
 
 import Control.Monad.ST( ST, runST )
@@ -104,7 +105,7 @@ instance Binary TgaImageDescription where
       xOrig | _tgaIdXOrigin desc = bit 4
             | otherwise = 0
 
-      yOrig | _tgaIdXOrigin desc = bit 5
+      yOrig | not $ _tgaIdYOrigin desc = bit 5
             | otherwise = 0
       
       attr = _tgaIdAttributeBits desc .&. 0xF
@@ -112,7 +113,7 @@ instance Binary TgaImageDescription where
   get = toDescr <$> getWord8 where
     toDescr v = TgaImageDescription
       { _tgaIdXOrigin       = testBit v 4
-      , _tgaIdYOrigin       = testBit v 5
+      , _tgaIdYOrigin       = not $ testBit v 5
       , _tgaIdAttributeBits = v .&. 0xF
       }
 
@@ -241,12 +242,15 @@ prepareUnpacker :: TgaFile
                 -> (forall tgapx. (TGAPixel tgapx) => tgapx -> TgaFile -> Image (Unpacked tgapx))
                 -> Either String DynamicImage
 prepareUnpacker file f =
-  let hdr = _tgaFileHeader file in
+  let hdr = _tgaFileHeader file
+      flipper :: (Pixel px) => Image px -> Image px
+      flipper = flipImage $ _tgaHdrImageDescription hdr
+  in
   case _tgaHdrPixelDepth hdr of
-    8  -> pure . ImageY8 $ f Depth8 file
-    16 -> pure . ImageRGBA8 $ f Depth15 file
-    24 -> pure . ImageRGB8 $ f Depth24 file
-    32 -> pure . ImageRGBA8 $ f Depth32 file
+    8  -> pure . ImageY8 . flipper $ f Depth8 file
+    16 -> pure . ImageRGBA8 . flipper $ f Depth15 file
+    24 -> pure . ImageRGB8 . flipper $ f Depth24 file
+    32 -> pure . ImageRGBA8 . flipper $ f Depth32 file
     n  -> fail $ "Invalid bit depth (" ++ show n ++ ")"
 
 applyPalette :: (Pixel px)
@@ -394,6 +398,30 @@ unpackRLETga tga file = runST $ do
     maxRead = B.length readData
     readDelta = packedByteSize tga
 
+flipImage :: (Pixel px)
+          => TgaImageDescription -> Image px -> Image px
+flipImage desc img
+    | xFlip && yFlip =
+        generateImage (\x y -> pixelAt img (wMax - x) (hMax - y)) w h
+    | xFlip =
+        generateImage (\x y -> pixelAt img (wMax - x) y) w h
+    | yFlip =
+        generateImage (\x y -> pixelAt img x (hMax - y)) w h
+    | otherwise = img
+  where
+    xFlip = _tgaIdXOrigin desc
+    yFlip = _tgaIdYOrigin desc
+    w = imageWidth img
+    h = imageHeight img
+
+    !wMax = w - 1
+    !hMax = h - 1
+
+validateTga :: TgaFile -> Either String TgaFile
+validateTga TgaFile { _tgaFileHeader = hdr }
+    | _tgaHdrWidth hdr <= 0 = fail "Width is null or negative"
+    | _tgaHdrHeight hdr <= 0 = fail "Height is null or negative"
+validateTga tga = pure tga
 
 -- | Transform a raw tga image to an image, without modifying
 -- the underlying pixel type.
@@ -407,5 +435,5 @@ unpackRLETga tga file = runST $ do
 --    * PixelRGBA8
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
-decodeTga byte = runGetStrict get byte >>= unparse
+decodeTga byte = runGetStrict get byte >>= validateTga >>= unparse
 
