@@ -183,6 +183,7 @@ getPalette hdr = getByteString $ bytePerPixel * pixelCount
 instance Binary TgaFile where
   get = do
     hdr <- get
+    validateTga hdr
     fileId <- getByteString . fromIntegral $ _tgaHdrIdLength hdr
     palette <- getPalette hdr
     rest <- getRemainingBytes
@@ -425,11 +426,11 @@ flipImage desc img
     !wMax = w - 1
     !hMax = h - 1
 
-validateTga :: TgaFile -> Either String TgaFile
-validateTga TgaFile { _tgaFileHeader = hdr }
+validateTga :: (Monad m) => TgaFile -> m ()
+validateTga hdr
     | _tgaHdrWidth hdr <= 0 = fail "Width is null or negative"
     | _tgaHdrHeight hdr <= 0 = fail "Height is null or negative"
-validateTga tga = pure tga
+validateTga _ = pure ()
 
 -- | Transform a raw tga image to an image, without modifying
 -- the underlying pixel type.
@@ -443,7 +444,7 @@ validateTga tga = pure tga
 --    * PixelRGBA8
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
-decodeTga byte = runGetStrict get byte >>= validateTga >>= unparse
+decodeTga byte = runGetStrict get byte >>= unparse
 
 -- | This typeclass determine if a pixel can be saved in the
 -- TGA format.
