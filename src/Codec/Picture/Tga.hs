@@ -47,7 +47,6 @@ data TgaColorMapType
   = ColorMapWithoutTable
   | ColorMapWithTable
   | ColorMapUnknown Word8
-  deriving Show
 
 instance Binary TgaColorMapType where
   get = do
@@ -67,7 +66,6 @@ data TgaImageType
   | ImageTypeColorMapped Bool
   | ImageTypeTrueColor Bool
   | ImageTypeMonochrome Bool
-  deriving Show
 
 isRleEncoded :: TgaImageType -> Bool
 isRleEncoded v = case v of
@@ -105,7 +103,6 @@ data TgaImageDescription = TgaImageDescription
   , _tgaIdYOrigin       :: Bool
   , _tgaIdAttributeBits :: Word8
   }
-  deriving Show
 
 instance Binary TgaImageDescription where
   put desc = putWord8 $ xOrig .|. yOrig .|. attr
@@ -139,7 +136,6 @@ data TgaHeader = TgaHeader
   , _tgaHdrPixelDepth       :: {-# UNPACK #-} !Word8
   , _tgaHdrImageDescription :: {-# UNPACK #-} !TgaImageDescription
   }
-  deriving Show
 
 instance Binary TgaHeader where
   get = TgaHeader
@@ -426,11 +422,11 @@ flipImage desc img
     !wMax = w - 1
     !hMax = h - 1
 
-validateTga :: (Monad m) => TgaFile -> m ()
+validateTga :: (Monad m) => TgaHeader -> m ()
 validateTga hdr
     | _tgaHdrWidth hdr <= 0 = fail "Width is null or negative"
     | _tgaHdrHeight hdr <= 0 = fail "Height is null or negative"
-validateTga _ = pure ()
+validateTga _ = return ()
 
 -- | Transform a raw tga image to an image, without modifying
 -- the underlying pixel type.
