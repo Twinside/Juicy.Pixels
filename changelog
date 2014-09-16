@@ -3,6 +3,7 @@
 v3.1.8 2014
  * Adding TGA reading.
  * Adding TGA writing.
+ * Packeable pixel unpack.
 
 v3.1.7.1 August 2014
  * Previous gif fix was not working withing the readImage
