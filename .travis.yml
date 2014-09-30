@@ -1,21 +1,12 @@
 language: haskell
 
-env:
-  matrix:
-    - HPVER=2012.4.0.0
-    - HPVER=2013.2.0.0
-    - GHCVER=7.4.2
-    - GHCVER=7.6.3
-    - GHCVER=7.8.3
-    - GHCVER=head
-    
-global:
-  - CABALVER=1.18
-  - SKIP_HADDOCK=1
+ghc:
+  - 7.6
+  - 7.4
+  - 7.8
   
-matrix:
-  allow_failures:
-    - env: GHCVER=head
+global:
+  - SKIP_HADDOCK=1
 
 script:
   - cabal install --only-dependencies && cabal configure && cabal build
