@@ -265,7 +265,7 @@ readTiff = withImageDecoder decodeTiff
 
 -- | Helper function trying to load all the images of an animated
 -- gif file.
-readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
+readGifImages :: FilePath -> IO (Either String [DynamicImage])
 readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still

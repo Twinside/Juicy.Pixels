@@ -192,7 +192,9 @@ gifToImg path = do
     rez <- readGifImages path
     case rez of
         Left err -> putStrLn $ "Error : " ++ err
-        Right v -> forM_ (zip [0..] v) $ \(i :: Int, img) -> do
+        Right [] -> putStrLn "No image in gif file"
+        Right v@(ImageRGB8 _ : _) ->
+          forM_ (zip [0..] v) $ \(i :: Int, ImageRGB8 img) -> do
             let ycbcr = convertImage img
                 jpg = validationJpegEncode ycbcr
                 png = encodePng img
@@ -211,6 +213,31 @@ gifToImg path = do
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
             putStrLn "-> Tiff"
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.tiff") tiff
+
+        Right v@(ImageRGBA8 _ : _) ->
+          forM_ (zip [0..] v) $ \(i :: Int, ImageRGBA8 img) -> do
+            let ycbcr = convertImage $ dropAlphaLayer img
+                jpg = validationJpegEncode ycbcr
+                png = encodePng img
+                tga = encodeTga img
+                bmp = encodeBitmap img
+                tiff = encodeTiff img
+            putStrLn $ "PixelRGB8 : " ++ path
+
+            putStrLn "-> BMP"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.bmp") bmp
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.png") png
+            putStrLn "-> TGA"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.tga") tga
+            putStrLn "-> JPG"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.jpg") jpg
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.tiff") tiff
+
+        Right _ ->
+            putStrLn "Error : unexpected colorspace from GIF file"
+
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -435,6 +462,7 @@ planeSeparationYA8Test = do
 
 gifTest :: [FilePath]
 gifTest = ["Gif_pixel_cube.gif"
+          ,"fgs.gif"
           ,"animated.gif"
           ,"interleaved.gif"
           ,"delta.gif"
