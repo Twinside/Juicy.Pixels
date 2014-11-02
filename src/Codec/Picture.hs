@@ -204,7 +204,7 @@ writeColorReducedGifImage path img =
 -- All the images of the animation are separated
 -- by the same delay.
 encodeGifAnimation :: GifDelay -> GifLooping
-                   -> [Image PixelRGB8] -> Either String (L.ByteString)
+                   -> [Image PixelRGB8] -> Either String L.ByteString
 encodeGifAnimation delay looping lst =
     encodeGifImages looping
         [(pal, delay, img)

@@ -21,7 +21,7 @@ module Codec.Picture.Gif ( -- * Reading
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( replicateM, replicateM_ )
+import Control.Monad( replicateM, replicateM_, unless )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
@@ -327,9 +327,7 @@ data Block = BlockImage GifImage
 skipSubDataBlocks :: Get ()
 skipSubDataBlocks = do
   s <- fromIntegral <$> getWord8
-  if s == 0 then
-    return ()
-  else
+  unless (s == 0) $
     skip s >> skipSubDataBlocks
 
 parseGifBlocks :: Get [Block]
@@ -409,7 +407,7 @@ instance Binary ImageDescriptor where
 --------------------------------------------------
 getPalette :: Word8 -> Get Palette
 getPalette bitDepth = 
-    replicateM (size * 3) get >>= return . Image size 1 . V.fromList
+    Image size 1 . V.fromList <$> replicateM (size * 3) get
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
 putPalette :: Int -> Palette -> Put
@@ -432,7 +430,7 @@ instance Binary GifHeader where
     put v = do
       put $ gifVersion v
       let descr = gifScreenDescriptor v
-      put $ descr
+      put descr
       putPalette (fromIntegral $ colorTableSize descr) $ gifGlobalMap v
 
     get = do
@@ -443,7 +441,7 @@ instance Binary GifHeader where
           if hasGlobalMap screenDesc then
             getPalette $ colorTableSize screenDesc
           else
-            return $ greyPalette
+            return greyPalette
 
         return GifHeader
             { gifVersion = version
@@ -602,7 +600,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
       globalHeight = fromIntegral $ screenHeight wholeDescriptor
 
 gifAnimationApplyer :: forall px.
-                      (Pixel px, ColorConvertible PixelRGB8 px)
+                       (Pixel px, ColorConvertible PixelRGB8 px)
                     => (Int, Int) -> Image px -> Image px
                     -> (Image px, Maybe GraphicControlExtension, Image px)
                     -> (Maybe GraphicControlExtension, GifImage)
@@ -661,6 +659,8 @@ decodeFirstGifImage _ = Left "No image in gif file"
 -- This function can output the following pixel types :
 --
 --  * PixelRGB8
+--
+--  * PixelRGBA8
 --
 decodeGif :: B.ByteString -> Either String DynamicImage
 decodeGif img = decode img >>= decodeFirstGifImage
@@ -756,7 +756,7 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
     toSerialize = [(controlExtension delay, GifImage
         { imgDescriptor = imageDescriptor lzwKeySize (paletteEqual palette) img
         , imgLocalPalette = Just palette
-        , imgLzwRootSize = fromIntegral $ lzwKeySize
+        , imgLzwRootSize = fromIntegral lzwKeySize
         , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
         }) | (palette, delay, img) <- imageList
            , let lzwKeySize = computeMinimumLzwKeySize palette

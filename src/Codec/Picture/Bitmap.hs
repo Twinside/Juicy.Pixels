@@ -174,7 +174,7 @@ instance BmpEncodable Pixel8 where
                   let lineIdx = line * w
                       inner col | col >= w = return ()
                       inner col = do
-                          let v = (arr `VS.unsafeIndex` (lineIdx + col))
+                          let v = arr `VS.unsafeIndex` (lineIdx + col)
                           (buff `M.unsafeWrite` col) v
                           inner (col + 1)
 
@@ -226,9 +226,9 @@ instance BmpEncodable PixelRGB8 where
               let initialIndex = line * w * 3
                   inner col _ _ | col >= w = return ()
                   inner col writeIdx readIdx = do
-                      let r = (arr `VS.unsafeIndex` readIdx)
-                          g = (arr `VS.unsafeIndex` (readIdx + 1))
-                          b = (arr `VS.unsafeIndex` (readIdx + 2))
+                      let r = arr `VS.unsafeIndex` readIdx
+                          g = arr `VS.unsafeIndex` (readIdx + 1)
+                          b = arr `VS.unsafeIndex` (readIdx + 2)
                       
                       (buff `M.unsafeWrite` writeIdx) b
                       (buff `M.unsafeWrite` (writeIdx + 1)) g
@@ -270,7 +270,7 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
   where wi = fromIntegral w
         hi = fromIntegral h
         stArray = runST $ do
-            arr <- M.new (fromIntegral $ w * h * 1)
+            arr <- M.new . fromIntegral $ w * h
             forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
             VS.unsafeFreeze arr
 
@@ -278,9 +278,9 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
         
         readLine :: forall s. M.MVector s Word8 -> Int -> ST s ()
         readLine arr line =
-            let readIndex = (wi * 1 + stride) * line
-                lastIndex = wi * (hi - 1 - line + 1) * 1
-                writeIndex = wi * (hi - 1 - line) * 1
+            let readIndex = (wi + stride) * line
+                lastIndex = wi * (hi - 1 - line + 1)
+                writeIndex = wi * (hi - 1 - line)
 
                 inner _ writeIdx | writeIdx >= lastIndex = return ()
                 inner readIdx writeIdx = do

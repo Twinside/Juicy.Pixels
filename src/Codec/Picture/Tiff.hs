@@ -27,11 +27,11 @@
 module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) where
 
 import Control.Applicative( (<$>), (<*>), pure )
-import Control.Monad( when, replicateM, foldM_ )
+import Control.Monad( when, replicateM, foldM_, unless )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Writer.Strict( execWriter, tell, Writer )
 import Data.Int( Int8 )
-import Data.Word( Word8, Word16 )
+import Data.Word( Word8, Word16, Word32 )
 import Data.Bits( (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
@@ -51,7 +51,6 @@ import Data.List( sortBy, mapAccumL )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
-import Data.Word( Word32 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as Lb
 import qualified Data.ByteString.Unsafe as BU
@@ -614,7 +613,7 @@ unpackPackBit str outVec stride writeIndex (offset, size) = loop fromi writeInde
 
                 choice
                     -- data
-                    | 0    <= v = do
+                    | 0    <= v =
                         copyByteString str outVec stride writeIdx
                                         (fromIntegral $ i + 1, fromIntegral v + 1)
                             >>= loop (i + 2 + fromIntegral v)
@@ -1055,7 +1054,7 @@ instance BinaryParam B.ByteString TiffInfo where
                 $ tiffExtraSample nfo
 
             let subSampling = tiffYCbCrSubsampling nfo
-            when (not $ V.null subSampling) $
+            unless (V.null subSampling) $
                  ifdShorts TagYCbCrSubsampling subSampling
 
     putByteString rawData
@@ -1139,8 +1138,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffCMYK
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
         pure . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
 
-unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
-  | otherwise = do
+unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
     img <- unpack file (nfo { tiffColorspace = TiffMonochrome })
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
@@ -1149,7 +1147,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 }
                     in pure . ImageYA8 $ pixelMap negative i
       ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
                      in pure . ImageYA16 $ pixelMap negative i
-      _ -> fail $ "Unsupported color type used with colorspace MonochromeWhite0"
+      _ -> fail "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
@@ -1168,7 +1166,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
         let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
             img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
         in
-        pure . ImageY16 $ pixelMap (toWord16) img
+        pure . ImageY16 $ pixelMap toWord16 img
   | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
         pure . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
@@ -1308,7 +1306,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
   where intSampleCount = componentCount (undefined :: px)
         sampleCount = fromIntegral intSampleCount
 
-        sampleType = (undefined :: PixelBaseComponent px)
+        sampleType = undefined :: PixelBaseComponent px
         pixelData = imageData img
 
         rawPixelData = toByteString pixelData
@@ -1328,7 +1326,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffWidth              = width
             , tiffHeight             = height
             , tiffColorspace         = colorSpaceOfPixel (undefined :: px)
-            , tiffSampleCount        = fromIntegral $ sampleCount
+            , tiffSampleCount        = fromIntegral sampleCount
             , tiffRowPerStrip        = fromIntegral $ imageHeight img
             , tiffPlaneConfiguration = PlanarConfigContig
             , tiffSampleFormat       = [TiffSampleUint]

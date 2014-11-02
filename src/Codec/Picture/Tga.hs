@@ -205,7 +205,7 @@ data Depth32 = Depth32
 class (Pixel (Unpacked a)) => TGAPixel a where
    type Unpacked a
    packedByteSize :: a -> Int
-   tgaUnpack      :: a -> B.ByteString -> Int -> (Unpacked a)
+   tgaUnpack      :: a -> B.ByteString -> Int -> Unpacked a
 
 instance TGAPixel Depth8 where
    type Unpacked Depth8 = Pixel8

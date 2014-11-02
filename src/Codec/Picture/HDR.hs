@@ -15,7 +15,7 @@ import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
 import Data.Monoid( (<>) )
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( when, foldM, foldM_, forM, forM_ )
+import Control.Monad( when, foldM, foldM_, forM, forM_, unless )
 import Control.Monad.Trans.Class( lift )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -166,7 +166,7 @@ decodeInfos = do
 --  * PixelRGBF
 --
 decodeHDR :: B.ByteString -> Either String DynamicImage
-decodeHDR str = runST $ runExceptT $ do
+decodeHDR str = runST $ runExceptT $
     case runGet decodeHeader $ L.fromChunks [str] of
       Left err -> throwE err
       Right rez ->
@@ -187,11 +187,11 @@ decodeNum = do
     letter <- getChar8
     space <- getChar8
 
-    when (not $ isSign sign && isAxisLetter letter && space == ' ')
-         (fail "Invalid radiance size declaration")
+    unless (isSign sign && isAxisLetter letter && space == ' ')
+           (fail "Invalid radiance size declaration")
 
     let numDec acc c | isDigit c =
-            getChar8 >>= numDec (acc * 10 + ord c - (ord '0'))
+            getChar8 >>= numDec (acc * 10 + ord c - ord '0')
         numDec acc _
             | sign == '-' = pure $ negate acc
             | otherwise = pure acc
@@ -371,7 +371,7 @@ encodeScanlineColor vec outVec outIdx = do
             case val == prev of
                True -> runLength (n + 1) 0 prev (idx + 1) at
                False | n < 4 -> runLength 0 (n + 1) val (idx + 1) at
-               False -> do
+               False ->
                     pushRun n prev at >>=
                         runLength 1 0 val (idx + 1)
 
@@ -379,7 +379,7 @@ encodeScanlineColor vec outVec outIdx = do
             val <- vec `M.unsafeRead` idx
             if val /= prev
                then runLength 0 (n + 1) val (idx + 1) at
-               else do
+               else
                 pushData (idx - 1) (n - 1) at >>=
                     runLength (2 :: Int) 0 val (idx + 1)
 
@@ -464,7 +464,7 @@ encodeRLENewStyleHDR pic = encode $ runST $ do
 
             (\v -> blitVector v 0 endIndex) <$> V.unsafeFreeze buff
 
-    pure $ RadianceHeader
+    pure RadianceHeader
         { radianceInfos = []
         , radianceFormat = FormatRGBE
         , radianceHeight = h
@@ -473,7 +473,7 @@ encodeRLENewStyleHDR pic = encode $ runST $ do
         }
     
 
-decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s (PixelRGBF))
+decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s PixelRGBF)
 decodeRadiancePicture hdr = do
     let width = abs $ radianceWidth hdr
         height = abs $ radianceHeight hdr

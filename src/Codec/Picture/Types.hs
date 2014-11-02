@@ -929,7 +929,7 @@ zipPixelComponent3 f i1@(Image { imageWidth = w, imageHeight = h }) i2 i3
 -- of an image or a pixel
 class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- | Compute the luminance part of a pixel
-    computeLuma      :: a -> (PixelBaseComponent a)
+    computeLuma      :: a -> PixelBaseComponent a
 
     -- | Extract a luma plane out of an image. This
     -- method is in the typeclass to help performant
@@ -1777,11 +1777,11 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
               rY  = fix 0.29900
               gY  = fix 0.58700
               bY  = fix 0.11400
-              rCb = (- fix 0.16874)
-              gCb = (- fix 0.33126)
+              rCb = - fix 0.16874
+              gCb = - fix 0.33126
               bCb = fix 0.5
-              gCr = (- fix 0.41869)
-              bCr = (- fix 0.08131)
+              gCr = - fix 0.41869
+              bCr = - fix 0.08131
 
               newData = runST $ do
                 block <- M.new $ maxi * 3
@@ -1953,7 +1953,7 @@ integralRGBToCMYK build (r, g, b) =
           m = (ig - kInt) `div` ik
           y = (ib - kInt) `div` ik
 
-          clamp = fromIntegral . (max 0)
+          clamp = fromIntegral . max 0
 
 instance ColorSpaceConvertible PixelRGB8 PixelCMYK8 where
   convertPixel (PixelRGB8 r g b) = integralRGBToCMYK PixelCMYK8 (r, g, b)

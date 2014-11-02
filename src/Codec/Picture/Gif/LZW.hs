@@ -2,7 +2,7 @@ module Codec.Picture.Gif.LZW( decodeLzw, decodeLzwTiff ) where
 
 import Data.Word( Word8 )
 import Control.Applicative( (<$>) )
-import Control.Monad( when )
+import Control.Monad( when, unless )
 
 import Data.Bits( (.&.) )
 
@@ -122,9 +122,7 @@ lzw variant nMaxBitKeySize initialKeySize initialWriteIdx outVec = do
           | code == endOfInfo = return ()
           | code == clearCode = do
               toOutput <- getNextCode startCodeSize
-              if toOutput == endOfInfo then
-                return ()
-              else do
+              unless (toOutput == endOfInfo) $ do
                 dataSize <- writeString outWriteIdx toOutput
                 getNextCode startCodeSize >>=
                   loop (outWriteIdx + dataSize)
