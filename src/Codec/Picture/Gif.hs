@@ -569,7 +569,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                            , gifImages = (firstControl, firstImage) : rest }
   | not (hasTransparency firstControl) =
       let backImage =
-              generateImage (\_ _ -> PixelRGB8 0 0 0) globalWidth globalHeight
+              generateImage (\_ _ -> backgroundColor) globalWidth globalHeight
           thisPalette = paletteOf palette firstImage
           initState =
             (thisPalette, firstControl, substituteColors thisPalette $ decodeImage firstImage)
@@ -580,7 +580,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
   | otherwise =
       let backImage :: Image PixelRGBA8
           backImage =
-            generateImage (\_ _ -> PixelRGBA8 0 0 0 0) globalWidth globalHeight
+            generateImage (\_ _ -> transparentBackground) globalWidth globalHeight
 
           thisPalette :: Image PixelRGBA8
           thisPalette = paletteOf (promoteImage palette) firstImage
@@ -598,6 +598,14 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
     where 
       globalWidth = fromIntegral $ screenWidth wholeDescriptor
       globalHeight = fromIntegral $ screenHeight wholeDescriptor
+
+      transparentBackground = PixelRGBA8 r g b 0
+          where PixelRGB8 r g b = backgroundColor
+
+      backgroundColor
+        | hasGlobalMap wholeDescriptor =
+            pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
+        | otherwise = PixelRGB8 0 0 0
 
 gifAnimationApplyer :: forall px.
                        (Pixel px, ColorConvertible PixelRGB8 px)

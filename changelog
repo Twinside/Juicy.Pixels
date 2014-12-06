@@ -1,6 +1,9 @@
 -*-change-log-*-
 
 v3.2 2014
+ BREAKING CHANGES:
+   the Codec.Picture.Gif functions has changed interfaces.
+
  * Adding TGA reading.
  * Adding TGA writing.
  * Packeable pixel unpack.
