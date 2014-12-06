@@ -29,7 +29,9 @@ test:
 	dist\build\imageTest\imageTest.exe debug
 
 lint:
-	hlint Codec
+	hlint lint src \
+		--cpp-define=MIN_VERSION_transformers=1 \
+		--cpp-define=MIN_VERSION_binary=1
 
 sdist: docimages/pixelgraph.svg
 	runhaskell Setup.hs sdist

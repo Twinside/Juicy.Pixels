@@ -10,6 +10,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , iDATSignature
                              , iENDSignature
                              , tRNSSignature
+                             , gammaSignature
                              -- * Low level types
                              , ChunkSignature
                              , PngRawImage( .. )
@@ -292,6 +293,9 @@ iENDSignature = signature "IEND"
 
 tRNSSignature :: ChunkSignature
 tRNSSignature = signature "tRNS"
+
+gammaSignature :: ChunkSignature
+gammaSignature = signature "gAMA"
 
 instance Binary PngImageType where
     put PngGreyscale = putWord8 0

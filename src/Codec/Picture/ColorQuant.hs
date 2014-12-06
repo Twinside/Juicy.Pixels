@@ -211,7 +211,7 @@ instance Applicative (Fold a) where
     (Fold stepL beginL doneL) <*> (Fold stepR beginR doneR) =
         let step (Pair xL xR) a = Pair (stepL xL a) (stepR xR a)
             begin = Pair beginL beginR
-            done (Pair xL xR) = (doneL xL) (doneR xR)
+            done (Pair xL xR) = doneL xL $ doneR xR
         in  Fold step begin done
     {-# INLINABLE (<*>) #-}
 
@@ -321,9 +321,9 @@ subdivide cluster = (mkCluster px1, mkCluster px2)
     (PixelRGBF mr mg mb) = meanColor cluster
     (px1, px2) = VU.partition (cond . rgbIntUnpack) $ colors cluster
     cond = case maxAxis $ dims cluster of
-      RAxis -> (\(PixelRGB8 r _ _) -> fromIntegral r < mr)
-      GAxis -> (\(PixelRGB8 _ g _) -> fromIntegral g < mg)
-      BAxis -> (\(PixelRGB8 _ _ b) -> fromIntegral b < mb)
+      RAxis -> \(PixelRGB8 r _ _) -> fromIntegral r < mr
+      GAxis -> \(PixelRGB8 _ g _) -> fromIntegral g < mg
+      BAxis -> \(PixelRGB8 _ _ b) -> fromIntegral b < mb
 
 rgbIntPack :: PixelRGB8 -> PackedRGB
 rgbIntPack (PixelRGB8 r g b) =
@@ -337,7 +337,7 @@ rgbIntUnpack v = PixelRGB8 r g b
   where
     r = fromIntegral $ v `unsafeShiftR` (2 * 8)
     g = fromIntegral $ v `unsafeShiftR` 8
-    b = fromIntegral $ v
+    b = fromIntegral v
 
 initCluster :: Image PixelRGB8 -> Cluster
 initCluster img = mkCluster $ VU.generate ((w * h) `div` subSampling) packer
@@ -379,4 +379,4 @@ dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
       , fromIntegral b1 - fromIntegral b2 )
 
 nearestColorIdx :: PixelRGB8 -> Vector PixelRGB8 -> Pixel8
-nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (\px -> dist2Px px p) ps)
+nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (`dist2Px` p) ps)

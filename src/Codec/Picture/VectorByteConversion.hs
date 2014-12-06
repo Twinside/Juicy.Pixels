@@ -15,7 +15,7 @@ import qualified Data.ByteString.Internal as S
 import Codec.Picture.Types
 
 blitVector :: Vector Word8 -> Int -> Int -> B.ByteString
-blitVector vec atIndex blitSize = S.PS ptr (offset + atIndex) blitSize
+blitVector vec atIndex = S.PS ptr (offset + atIndex)
   where (ptr, offset, _length) = unsafeToForeignPtr vec
 
 toByteString :: forall a. (Storable a) => Vector a -> B.ByteString

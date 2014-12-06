@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
@@ -27,7 +26,7 @@ module Codec.Picture.Png( -- * High level functions
                         ) where
 
 import Control.Applicative( (<$>) )
-import Control.Monad( forM_, foldM_, when )
+import Control.Monad( forM_, foldM_, when, void )
 import Control.Monad.ST( ST, runST )
 import Data.Binary( Binary( get) )
 
@@ -151,7 +150,7 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) str initialIdx = do
                                                  b' = fromIntegral valB
                                                  average = fromIntegral ((a' + b') `div` (2 :: Word16)) 
                                                  writeVal = byte + average 
-                                             (thisLine `M.unsafeWrite` idx) $ writeVal
+                                             (thisLine `M.unsafeWrite` idx) writeVal
                                              inner (idx + 1) $ readIdx + 1
 
           filterPaeth !previousLine !thisLine = inner beginZeroes
@@ -297,7 +296,7 @@ shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIm
             lowBits <- line `M.unsafeRead` (srcPixelIndex + sample * 2 + 1)
             let fullValue = fromIntegral lowBits .|. (fromIntegral highBits `unsafeShiftL` 8)
                 writeIdx = destSampleIndex + sample
-            (arr `M.unsafeWrite` writeIdx) $ fullValue
+            (arr `M.unsafeWrite` writeIdx) fullValue
 
 -- | Transform a scanline to a bunch of bytes. Bytes are then packed
 -- into pixels at a further step.
@@ -317,7 +316,7 @@ scanLineInterleaving :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -
                      -> B.ByteString
                      -> ST s ()
 scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker str =
-    pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight) str 0 >> return ()
+    void $ pngFiltering (unpacker (1,1) (0, 0)) strideInfo (byteWidth, imgHeight) str 0
         where byteWidth = byteSizeOfBitLength depth sampleCount imgWidth
               strideInfo | depth < 8 = 1
                          | otherwise = sampleCount * (depth `div` 8)
@@ -327,7 +326,7 @@ scanLineInterleaving depth sampleCount (imgWidth, imgHeight) unpacker str =
 adam7Unpack :: Int -> Int -> (Int, Int) -> (StrideInfo -> BeginOffset -> LineUnpacker s)
             -> B.ByteString -> ST s ()
 adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker str =
-  foldM_ (\i f -> f i) 0 subImages >> return ()
+  void $ foldM_ (\i f -> f i) 0 subImages
     where Adam7MatrixInfo { adam7StartingRow  = startRows
                           , adam7RowIncrement = rowIncrement
                           , adam7StartingCol  = startCols

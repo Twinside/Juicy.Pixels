@@ -1,4 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
@@ -19,7 +21,7 @@ module Codec.Picture.Gif ( -- * Reading
                          ) where
 
 import Control.Applicative( pure, (<$>), (<*>) )
-import Control.Monad( replicateM, replicateM_ )
+import Control.Monad( replicateM, replicateM_, unless )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
 
@@ -325,9 +327,7 @@ data Block = BlockImage GifImage
 skipSubDataBlocks :: Get ()
 skipSubDataBlocks = do
   s <- fromIntegral <$> getWord8
-  if s == 0 then
-    return ()
-  else
+  unless (s == 0) $
     skip s >> skipSubDataBlocks
 
 parseGifBlocks :: Get [Block]
@@ -407,7 +407,7 @@ instance Binary ImageDescriptor where
 --------------------------------------------------
 getPalette :: Word8 -> Get Palette
 getPalette bitDepth = 
-    replicateM (size * 3) get >>= return . Image size 1 . V.fromList
+    Image size 1 . V.fromList <$> replicateM (size * 3) get
   where size = 2 ^ (fromIntegral bitDepth :: Int)
 
 putPalette :: Int -> Palette -> Put
@@ -430,7 +430,7 @@ instance Binary GifHeader where
     put v = do
       put $ gifVersion v
       let descr = gifScreenDescriptor v
-      put $ descr
+      put descr
       putPalette (fromIntegral $ colorTableSize descr) $ gifGlobalMap v
 
     get = do
@@ -441,7 +441,7 @@ instance Binary GifHeader where
           if hasGlobalMap screenDesc then
             getPalette $ colorTableSize screenDesc
           else
-            return $ greyPalette
+            return greyPalette
 
         return GifHeader
             { gifVersion = version
@@ -498,6 +498,13 @@ substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
 substituteColors palette = pixelMap swaper
   where swaper n = pixelAt palette (fromIntegral n) 0
 
+substituteColorsWithTransparency :: Int -> Image PixelRGBA8 -> Image Pixel8 -> Image PixelRGBA8
+substituteColorsWithTransparency transparent palette = pixelMap swaper where
+  swaper n | ix == transparent = PixelRGBA8 0 0 0 0
+           | otherwise = promotePixel $ pixelAt palette ix 0
+    where ix = fromIntegral n
+
+
 decodeImage :: GifImage -> Image Pixel8
 decodeImage img = runST $ runBoolReader $ do
     outputVector <- lift . M.new $ width * height
@@ -532,9 +539,10 @@ gifInterlacingIndices height = V.accum (\_ v -> v) (V.replicate height 0) indice
                        , [1, 1 + 2 .. height - 1]
                        ]
 
-paletteOf :: Palette -> GifImage -> Palette
+paletteOf :: (ColorConvertible PixelRGB8 px)
+          => Image px -> GifImage -> Image px
 paletteOf global GifImage { imgLocalPalette = Nothing } = global
-paletteOf      _ GifImage { imgLocalPalette = Just p  } = p
+paletteOf      _ GifImage { imgLocalPalette = Just p  } = promoteImage p
 
 getFrameDelays :: GifFile -> [GifDelay]
 getFrameDelays GifFile { gifImages = [] } = []
@@ -544,59 +552,110 @@ getFrameDelays GifFile { gifImages = imgs } = map extractDelay imgs
                 Nothing -> 0
                 Just e -> fromIntegral $ gceDelay e
 
-decodeAllGifImages :: GifFile -> [Image PixelRGB8]
+transparentColorOf :: Maybe GraphicControlExtension -> Int
+transparentColorOf Nothing = 300
+transparentColorOf (Just ext)
+  | gceTransparentFlag ext = fromIntegral $ gceTransparentColorIndex ext
+  | otherwise = 300
+
+hasTransparency :: Maybe GraphicControlExtension -> Bool
+hasTransparency Nothing = False
+hasTransparency (Just control) = gceTransparentFlag control
+
+decodeAllGifImages :: GifFile -> [DynamicImage]
 decodeAllGifImages GifFile { gifImages = [] } = []
 decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
-                                                   , gifScreenDescriptor = wholeDescriptor
-                                                   }
-                           , gifImages = (firstControl, firstImage) : rest } = map paletteApplyer $
- scanl generator initState  rest
-    where initState = (paletteOf palette firstImage, firstControl, decodeImage firstImage)
-          globalWidth = fromIntegral $ screenWidth wholeDescriptor
-          globalHeight = fromIntegral $ screenHeight wholeDescriptor
+                                                   , gifScreenDescriptor = wholeDescriptor }
+                           , gifImages = (firstControl, firstImage) : rest }
+  | not (hasTransparency firstControl) =
+      let backImage =
+              generateImage (\_ _ -> backgroundColor) globalWidth globalHeight
+          thisPalette = paletteOf palette firstImage
+          initState =
+            (thisPalette, firstControl, substituteColors thisPalette $ decodeImage firstImage)
+          scanner = gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage
+      in
+      [ImageRGB8 img | (_, _, img) <- scanl scanner initState rest]
 
-          background = backgroundIndex wholeDescriptor
-          backgroundImage = generateImage (\_ _ -> background) globalWidth globalHeight
+  | otherwise =
+      let backImage :: Image PixelRGBA8
+          backImage =
+            generateImage (\_ _ -> transparentBackground) globalWidth globalHeight
 
-          paletteApplyer (pal, _, img) = substituteColors pal img
+          thisPalette :: Image PixelRGBA8
+          thisPalette = paletteOf (promoteImage palette) firstImage
 
-          generator (_, prevControl, img1)
-                    (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
-                        (thisPalette, controlExt, thisImage)
-               where thisPalette = paletteOf palette img2
-                     thisImage = generateImage pixeler globalWidth globalHeight
-                     localWidth = fromIntegral $ gDescImageWidth descriptor
-                     localHeight = fromIntegral $ gDescImageHeight descriptor
+          transparentCode = transparentColorOf firstControl
+          decoded = 
+            substituteColorsWithTransparency transparentCode thisPalette $
+                decodeImage firstImage
 
-                     left = fromIntegral $ gDescPixelsFromLeft descriptor
-                     top = fromIntegral $ gDescPixelsFromTop descriptor
+          initState = (thisPalette, firstControl, decoded)
+          scanner =
+            gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage in
+      [ImageRGBA8 img | (_, _, img) <- scanl scanner initState rest]
 
-                     isPixelInLocalImage x y =
-                         x >= left && x < left + localWidth && y >= top && y < top + localHeight
+    where 
+      globalWidth = fromIntegral $ screenWidth wholeDescriptor
+      globalHeight = fromIntegral $ screenHeight wholeDescriptor
 
-                     decoded = decodeImage img2
+      transparentBackground = PixelRGBA8 r g b 0
+          where PixelRGB8 r g b = backgroundColor
 
-                     transparent :: Int
-                     transparent = case controlExt of
-                        Nothing  -> 300
-                        Just ext -> if gceTransparentFlag ext
-                            then fromIntegral $ gceTransparentColorIndex ext
-                            else 300
+      backgroundColor
+        | hasGlobalMap wholeDescriptor =
+            pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
+        | otherwise = PixelRGB8 0 0 0
 
-                     oldImage = case gceDisposalMethod <$> prevControl of
-                        Nothing -> img1
-                        Just DisposalAny -> img1
-                        Just DisposalDoNot -> img1
-                        Just DisposalRestoreBackground -> backgroundImage
-                        Just DisposalRestorePrevious -> img1
-                        Just (DisposalUnknown _) -> img1
+gifAnimationApplyer :: forall px.
+                       (Pixel px, ColorConvertible PixelRGB8 px)
+                    => (Int, Int) -> Image px -> Image px
+                    -> (Image px, Maybe GraphicControlExtension, Image px)
+                    -> (Maybe GraphicControlExtension, GifImage)
+                    -> (Image px, Maybe GraphicControlExtension, Image px)
+gifAnimationApplyer (globalWidth, globalHeight) globalPalette backgroundImage
+          (_, prevControl, img1)
+          (controlExt, img2@(GifImage { imgDescriptor = descriptor })) =
+            (thisPalette, controlExt, thisImage)
+  where
+    thisPalette :: Image px
+    thisPalette = paletteOf globalPalette img2
 
-                     pixeler x y
-                        | isPixelInLocalImage x y && fromIntegral val /= transparent = val
-                            where val = pixelAt decoded (x - left) (y - top)
-                     pixeler x y = pixelAt oldImage x y
+    thisImage = generateImage pixeler globalWidth globalHeight
+    localWidth = fromIntegral $ gDescImageWidth descriptor
+    localHeight = fromIntegral $ gDescImageHeight descriptor
 
-decodeFirstGifImage :: GifFile -> Either String (Image PixelRGB8)
+    left = fromIntegral $ gDescPixelsFromLeft descriptor
+    top = fromIntegral $ gDescPixelsFromTop descriptor
+
+    isPixelInLocalImage x y =
+        x >= left && x < left + localWidth && y >= top && y < top + localHeight
+
+    decoded :: Image Pixel8
+    decoded = decodeImage img2
+
+    transparent :: Int
+    transparent = case controlExt of
+        Nothing  -> 300
+        Just ext -> if gceTransparentFlag ext
+            then fromIntegral $ gceTransparentColorIndex ext
+            else 300
+
+    oldImage = case gceDisposalMethod <$> prevControl of
+        Nothing -> img1
+        Just DisposalAny -> img1
+        Just DisposalDoNot -> img1
+        Just DisposalRestoreBackground -> backgroundImage
+        Just DisposalRestorePrevious -> img1
+        Just (DisposalUnknown _) -> img1
+
+    pixeler x y
+      | isPixelInLocalImage x y && code /= transparent = val where
+          code = fromIntegral $ pixelAt decoded (x - left) (y - top)
+          val = pixelAt thisPalette (fromIntegral code) 0
+    pixeler x y = pixelAt oldImage x y
+
+decodeFirstGifImage :: GifFile -> Either String DynamicImage
 decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
     case decodeAllGifImages img { gifImages = [firstImage] } of
       [] -> Left "No image after decoding"
@@ -609,12 +668,14 @@ decodeFirstGifImage _ = Left "No image in gif file"
 --
 --  * PixelRGB8
 --
+--  * PixelRGBA8
+--
 decodeGif :: B.ByteString -> Either String DynamicImage
-decodeGif img = ImageRGB8 <$> (decode img >>= decodeFirstGifImage)
+decodeGif img = decode img >>= decodeFirstGifImage
 
 -- | Transform a raw gif to a list of images, representing
 -- all the images of an animation.
-decodeGifImages :: B.ByteString -> Either String [Image PixelRGB8]
+decodeGifImages :: B.ByteString -> Either String [DynamicImage]
 decodeGifImages img = decodeAllGifImages <$> decode img
 
 -- | Extract a list of frame delays from a raw gif.
@@ -703,7 +764,7 @@ encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ enc
     toSerialize = [(controlExtension delay, GifImage
         { imgDescriptor = imageDescriptor lzwKeySize (paletteEqual palette) img
         , imgLocalPalette = Just palette
-        , imgLzwRootSize = fromIntegral $ lzwKeySize
+        , imgLzwRootSize = fromIntegral lzwKeySize
         , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
         }) | (palette, delay, img) <- imageList
            , let lzwKeySize = computeMinimumLzwKeySize palette

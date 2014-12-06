@@ -144,7 +144,7 @@ unpack444Ycbcr compIdx x y
             val7 <- pixelClamp <$> (block `M.unsafeRead` (readIdx + 7))
 
             (img `M.unsafeWrite` idx) val0
-            (img `M.unsafeWrite` (idx + (3 * 1))) val1
+            (img `M.unsafeWrite` (idx + (3    ))) val1
             (img `M.unsafeWrite` (idx + (3 * 2))) val2
             (img `M.unsafeWrite` (idx + (3 * 3))) val3
             (img `M.unsafeWrite` (idx + (3 * 4))) val4
@@ -189,8 +189,8 @@ unpack421Ycbcr compIdx x y
             (img `M.unsafeWrite` idx)       v0
             (img `M.unsafeWrite` (idx + 3)) v0
 
-            (img `M.unsafeWrite` (idx + 6 * 1))      v1
-            (img `M.unsafeWrite` (idx + 6 * 1 + 3))  v1
+            (img `M.unsafeWrite` (idx + 6    ))      v1
+            (img `M.unsafeWrite` (idx + 6     + 3))  v1
 
             (img `M.unsafeWrite` (idx + 6 * 2))      v2
             (img `M.unsafeWrite` (idx + 6 * 2 + 3))  v2
@@ -350,7 +350,7 @@ jpgMachineStep (JpgHuffmanTable tables) = mapM_ placeHuffmanTrees tables
               if idx >= V.length (dcDecoderTables s) then s
               else
                 let neu = dcDecoderTables s // [(idx, tree)] in 
-                s { dcDecoderTables = neu `seq` neu }
+                s { dcDecoderTables = neu }
                     where idx = fromIntegral $ huffmanTableDest spec
                           
             AcComponent -> modify $ \s ->
@@ -412,7 +412,7 @@ decodeImage frame quants lst outImage = do
             acTree = acHuffmanTree comp
             quantId = fromIntegral .  quantizationTableDest
                     $ jpgComponents frame !! compIdx
-            qTable = quants V.! (min 3 quantId)
+            qTable = quants V.! min 3 quantId
             xd = blockMcuX comp
             yd = blockMcuY comp
             (subX, subY) = subSampling comp
@@ -730,8 +730,8 @@ encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = en
                                   let blockY = my * sizeY + subY
                                       blockX = mx * sizeX + subX
                                   prev_dc <- dc_table `M.unsafeRead` comp
-                                  (dc_coeff, neo_block) <- (extractor comp blockX blockY >>=
-                                                          encodeMacroBlock table workData zigzaged prev_dc)
+                                  (dc_coeff, neo_block) <- extractor comp blockX blockY >>=
+                                                          encodeMacroBlock table workData zigzaged prev_dc
                                   (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
                                   serializeMacroBlock writeState dc ac neo_block
 

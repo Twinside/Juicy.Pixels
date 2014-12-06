@@ -85,8 +85,9 @@ module Codec.Picture.Types( -- * Types
                             -- * Packeable writing (unsafe but faster)
                           , PackeablePixel( .. )
                           , fillImageWith
-                          , unsafeWritePixelBetweenAt
+                          , readPackedPixelAt
                           , writePackedPixelAt
+                          , unsafeWritePixelBetweenAt
                           ) where
 
 import Control.Monad( foldM, liftM, ap )
@@ -95,7 +96,7 @@ import Control.Monad.ST( runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
-import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.) )
+import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.), (.&.) )
 import Data.Word( Word8, Word16, Word32, Word64 )
 import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
@@ -928,7 +929,7 @@ zipPixelComponent3 f i1@(Image { imageWidth = w, imageHeight = h }) i2 i3
 -- of an image or a pixel
 class (Pixel a, Pixel (PixelBaseComponent a)) => LumaPlaneExtractable a where
     -- | Compute the luminance part of a pixel
-    computeLuma      :: a -> (PixelBaseComponent a)
+    computeLuma      :: a -> PixelBaseComponent a
 
     -- | Extract a luma plane out of an image. This
     -- method is in the typeclass to help performant
@@ -1776,11 +1777,11 @@ instance ColorSpaceConvertible PixelRGB8 PixelYCbCr8 where
               rY  = fix 0.29900
               gY  = fix 0.58700
               bY  = fix 0.11400
-              rCb = (- fix 0.16874)
-              gCb = (- fix 0.33126)
+              rCb = - fix 0.16874
+              gCb = - fix 0.33126
               bCb = fix 0.5
-              gCr = (- fix 0.41869)
-              bCr = (- fix 0.08131)
+              gCr = - fix 0.41869
+              bCr = - fix 0.08131
 
               newData = runST $ do
                 block <- M.new $ maxi * 3
@@ -1952,7 +1953,7 @@ integralRGBToCMYK build (r, g, b) =
           m = (ig - kInt) `div` ik
           y = (ib - kInt) `div` ik
 
-          clamp = fromIntegral . (max 0)
+          clamp = fromIntegral . max 0
 
 instance ColorSpaceConvertible PixelRGB8 PixelCMYK8 where
   convertPixel (PixelRGB8 r g b) = integralRGBToCMYK PixelCMYK8 (r, g, b)
@@ -2090,29 +2091,42 @@ class PackeablePixel a where
     -- to a primitive.
     packPixel :: a -> PackedRepresentation a
 
+    -- | Inverse transformation, to speed up
+    -- reading
+    unpackPixel :: PackedRepresentation a -> a
+
 instance PackeablePixel Pixel8 where
     type PackedRepresentation Pixel8 = Pixel8
     packPixel = id
     {-# INLINE packPixel #-}
+    unpackPixel = id
+    {-# INLINE unpackPixel #-}
 
 instance PackeablePixel Pixel16 where
     type PackedRepresentation Pixel16 = Pixel16
     packPixel = id
     {-# INLINE packPixel #-}
+    unpackPixel = id
+    {-# INLINE unpackPixel #-}
 
 instance PackeablePixel Pixel32 where
     type PackedRepresentation Pixel32 = Pixel32
     packPixel = id
     {-# INLINE packPixel #-}
+    unpackPixel = id
+    {-# INLINE unpackPixel #-}
 
 instance PackeablePixel PixelF where
     type PackedRepresentation PixelF = PixelF
     packPixel = id
     {-# INLINE packPixel #-}
+    unpackPixel = id
+    {-# INLINE unpackPixel #-}
 
 
 instance PackeablePixel PixelRGBA8 where
     type PackedRepresentation PixelRGBA8 = Word32
+    {-# INLINE packPixel #-}
     packPixel (PixelRGBA8 r g b a) =
         (fi r `unsafeShiftL` (0 * bitCount)) .|.
         (fi g `unsafeShiftL` (1 * bitCount)) .|.
@@ -2121,8 +2135,19 @@ instance PackeablePixel PixelRGBA8 where
       where fi = fromIntegral
             bitCount = 8
 
+    {-# INLINE unpackPixel #-}
+    unpackPixel w =
+        PixelRGBA8 (low w)
+                   (low $ w `unsafeShiftR` bitCount)
+                   (low $ w `unsafeShiftR` (2 * bitCount))
+                   (low $ w `unsafeShiftR` (3 * bitCount))
+      where
+        low v = fromIntegral (v .&. 0xFF)
+        bitCount = 8
+
 instance PackeablePixel PixelRGBA16 where
     type PackedRepresentation PixelRGBA16 = Word64
+    {-# INLINE packPixel #-}
     packPixel (PixelRGBA16 r g b a) =
         (fi r `unsafeShiftL` (0 * bitCount)) .|.
         (fi g `unsafeShiftL` (1 * bitCount)) .|.
@@ -2131,8 +2156,19 @@ instance PackeablePixel PixelRGBA16 where
       where fi = fromIntegral
             bitCount = 16
 
+    {-# INLINE unpackPixel #-}
+    unpackPixel w =
+        PixelRGBA16 (low w)
+                    (low $ w `unsafeShiftR` bitCount)
+                    (low $ w `unsafeShiftR` (2 * bitCount))
+                    (low $ w `unsafeShiftR` (3 * bitCount))
+      where
+        low v = fromIntegral (v .&. 0xFFFF)
+        bitCount = 16
+
 instance PackeablePixel PixelCMYK8 where
     type PackedRepresentation PixelCMYK8 = Word32
+    {-# INLINE packPixel #-}
     packPixel (PixelCMYK8 c m y k) =
         (fi c `unsafeShiftL` (0 * bitCount)) .|.
         (fi m `unsafeShiftL` (1 * bitCount)) .|.
@@ -2141,8 +2177,19 @@ instance PackeablePixel PixelCMYK8 where
       where fi = fromIntegral
             bitCount = 8
 
+    {-# INLINE unpackPixel #-}
+    unpackPixel w =
+        PixelCMYK8 (low w)
+                   (low $ w `unsafeShiftR` bitCount)
+                   (low $ w `unsafeShiftR` (2 * bitCount))
+                   (low $ w `unsafeShiftR` (3 * bitCount))
+      where
+        low v = fromIntegral (v .&. 0xFF)
+        bitCount = 8
+
 instance PackeablePixel PixelCMYK16 where
     type PackedRepresentation PixelCMYK16 = Word64
+    {-# INLINE packPixel #-}
     packPixel (PixelCMYK16 c m y k) =
         (fi c `unsafeShiftL` (0 * bitCount)) .|.
         (fi m `unsafeShiftL` (1 * bitCount)) .|.
@@ -2151,21 +2198,45 @@ instance PackeablePixel PixelCMYK16 where
       where fi = fromIntegral
             bitCount = 16
 
+    {-# INLINE unpackPixel #-}
+    unpackPixel w =
+        PixelCMYK16 (low w)
+                    (low $ w `unsafeShiftR` bitCount)
+                    (low $ w `unsafeShiftR` (2 * bitCount))
+                    (low $ w `unsafeShiftR` (3 * bitCount))
+      where
+        low v = fromIntegral (v .&. 0xFFFF)
+        bitCount = 16
+
 instance PackeablePixel PixelYA16 where
     type PackedRepresentation PixelYA16 = Word32
+    {-# INLINE packPixel #-}
     packPixel (PixelYA16 y a) =
         (fi y `unsafeShiftL` (0 * bitCount)) .|.
         (fi a `unsafeShiftL` (1 * bitCount))
       where fi = fromIntegral
             bitCount = 16
 
+    {-# INLINE unpackPixel #-}
+    unpackPixel w = PixelYA16 (low w) (low $ w `unsafeShiftR` bitCount)
+      where
+        low v = fromIntegral (v .&. 0xFFFF)
+        bitCount = 16
+
 instance PackeablePixel PixelYA8 where
     type PackedRepresentation PixelYA8 = Word16
+    {-# INLINE packPixel #-}
     packPixel (PixelYA8 y a) =
         (fi y `unsafeShiftL` (0 * bitCount)) .|.
         (fi a `unsafeShiftL` (1 * bitCount))
       where fi = fromIntegral
             bitCount = 8
+
+    {-# INLINE unpackPixel #-}
+    unpackPixel w = PixelYA8 (low w) (low $ w `unsafeShiftR` bitCount)
+      where
+        low v = fromIntegral (v .&. 0xFF)
+        bitCount = 8
 
 -- | This function will fill an image with a simple packeable
 -- pixel. It will be faster than any unsafeWritePixel.
@@ -2200,6 +2271,28 @@ unsafeWritePixelBetweenAt img px start count = M.set converted packed
     !packedPtr = castForeignPtr ptr
     !converted =
         M.unsafeFromForeignPtr packedPtr s s2
+
+-- | Read a packeable pixel from an image. Equivalent to
+-- unsafeReadPixel
+readPackedPixelAt :: forall m px.
+                     ( Pixel px, PackeablePixel px
+                     , M.Storable (PackedRepresentation px)
+                     , PrimMonad m
+                     )
+                  => MutableImage (PrimState m) px -- ^ Image to read from
+                  -> Int  -- ^ Index in (PixelBaseComponent px) count
+                  -> m px
+{-# INLINE readPackedPixelAt #-}
+readPackedPixelAt img idx = do
+    unpacked <- M.unsafeRead converted (idx `div` compCount)
+    return $ unpackPixel unpacked
+    where
+    !compCount = componentCount (undefined :: px)
+    (ptr, s, s2) = M.unsafeToForeignPtr $ mutableImageData img
+    !packedPtr = castForeignPtr ptr
+    !converted =
+        M.unsafeFromForeignPtr packedPtr s s2
+
 
 -- | Write a packeable pixel into an image. equivalent to unsafeWritePixel.
 writePackedPixelAt :: ( Pixel px, PackeablePixel px

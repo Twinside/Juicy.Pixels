@@ -110,6 +110,34 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "bad.jpg"
                  ]
  
+tgaValidTests :: [FilePath]
+tgaValidTests =
+    [ "CBW8.TGA"
+    , "CTC16.TGA"
+    , "CTC24.TGA"
+    , "CTC32.TGA"
+    , "FLAG_B16.TGA"
+    , "FLAG_B24.TGA"
+    , "FLAG_B32.TGA"
+    , "FLAG_T16.TGA"
+    , "FLAG_T32.TGA"
+    , "MARBLES.TGA"
+
+    , "UTC16.TGA"
+    , "UTC24.TGA"
+    , "UTC32.TGA"
+    , "XING_B16.TGA"
+    , "XING_B24.TGA"
+    , "XING_B32.TGA"
+    , "XING_T16.TGA"
+    , "XING_T24.TGA"
+    , "XING_T32.TGA"
+
+    , "CCM8.TGA"
+    , "UBW8.TGA"
+    , "UCM8.TGA"
+    ]
+
 bmpValidTests :: [FilePath]
 bmpValidTests =
     ["simple_bitmap_24bits.bmp"
@@ -164,10 +192,13 @@ gifToImg path = do
     rez <- readGifImages path
     case rez of
         Left err -> putStrLn $ "Error : " ++ err
-        Right v -> forM_ (zip [0..] v) $ \(i :: Int, img) -> do
+        Right [] -> putStrLn "No image in gif file"
+        Right v@(ImageRGB8 _ : _) ->
+          forM_ (zip [0..] v) $ \(i :: Int, ImageRGB8 img) -> do
             let ycbcr = convertImage img
                 jpg = validationJpegEncode ycbcr
                 png = encodePng img
+                tga = encodeTga img
                 bmp = encodeBitmap img
                 tiff = encodeTiff img
             putStrLn $ "PixelRGB8 : " ++ path
@@ -176,10 +207,37 @@ gifToImg path = do
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.bmp") bmp
             putStrLn "-> PNG"
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.png") png
+            putStrLn "-> TGA"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.tga") tga
             putStrLn "-> JPG"
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.jpg") jpg
             putStrLn "-> Tiff"
             L.writeFile (path ++ "_" ++ show i ++ "._fromRGB8.tiff") tiff
+
+        Right v@(ImageRGBA8 _ : _) ->
+          forM_ (zip [0..] v) $ \(i :: Int, ImageRGBA8 img) -> do
+            let ycbcr = convertImage $ dropAlphaLayer img
+                jpg = validationJpegEncode ycbcr
+                png = encodePng img
+                tga = encodeTga img
+                bmp = encodeBitmap img
+                tiff = encodeTiff img
+            putStrLn $ "PixelRGB8 : " ++ path
+
+            putStrLn "-> BMP"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.bmp") bmp
+            putStrLn "-> PNG"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.png") png
+            putStrLn "-> TGA"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.tga") tga
+            putStrLn "-> JPG"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.jpg") jpg
+            putStrLn "-> Tiff"
+            L.writeFile (path ++ "_" ++ show i ++ "._fromRGBA8.tiff") tiff
+
+        Right _ ->
+            putStrLn "Error : unexpected colorspace from GIF file"
+
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
@@ -189,6 +247,7 @@ imgToImg path = do
             let rgb = convertImage img :: Image PixelRGB8
                 jpg = validationJpegEncode img
                 png = encodePng rgb
+                tga = encodeTga rgb
                 bmp = encodeBitmap rgb
                 tiff = encodeTiff img
             putStrLn $ "YCbCr : " ++ path
@@ -200,6 +259,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromYCbCr8.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromYCbCr8.tiff") tiff
+            putStrLn "-> TGA"
+            L.writeFile (path ++ "._fromYCbCr8.tga") tga
             putStrLn "-> Gif"
             eitherDo $ writeColorReducedGifImage (path ++ "._fromYCbCr8.gif") rgb
 
@@ -231,6 +292,7 @@ imgToImg path = do
             let jpg = validationJpegEncode (convertImage img)
                 png = encodePng img
                 bmp = encodeBitmap img
+                tga = encodeTga img
                 tiff = encodeTiff img
             putStrLn $ "RGB8 : " ++ path
             putStrLn "-> BMP"
@@ -243,6 +305,8 @@ imgToImg path = do
             eitherDo $ writeColorReducedGifImage (path ++ "._fromRGB8.gif") img
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromRGB8.tiff") tiff
+            putStrLn "-> Tga"
+            L.writeFile (path ++ "._fromRGB8.tga") tga
 
         Right (ImageY16 img) -> do
             let pngFile = encodePng img
@@ -283,6 +347,7 @@ imgToImg path = do
                 jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
                 png = encodePng img
                 tiff = encodeTiff img
+                tga = encodeTga img
             putStrLn $ "RGBA8 : " ++ path
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromRGBA8.bmp") bmp
@@ -292,12 +357,15 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGBA8.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromRGBA8.tiff") tiff
+            putStrLn "-> Tga"
+            L.writeFile (path ++ "._fromRGBA8.tga") tga
 
         Right (ImageY8 img) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng img
                 tiff = encodeTiff img
+                tga = encodeTiff img
                 gif = encodeGifImage img
             putStrLn $ "Y8 : " ++ path
             putStrLn "-> BMP"
@@ -308,6 +376,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromY8.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromY8.tiff") tiff
+            putStrLn "-> Tga"
+            L.writeFile (path ++ "._fromY8.tga") tga
             putStrLn "-> Gif"
             L.writeFile (path ++ "._fromY8.gif") gif
 
@@ -392,6 +462,7 @@ planeSeparationYA8Test = do
 
 gifTest :: [FilePath]
 gifTest = ["Gif_pixel_cube.gif"
+          ,"fgs.gif"
           ,"animated.gif"
           ,"interleaved.gif"
           ,"delta.gif"
@@ -424,6 +495,7 @@ testSuite = do
     mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
+    mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests
 
 jpegToPng :: IO ()
 jpegToPng = do

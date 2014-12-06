@@ -27,7 +27,7 @@ componentToLDR :: Float -> Word8
 componentToLDR = truncate . (255 *) . min 1.0 . max 0.0
 
 toStandardDef :: Image PixelRGBF -> Image PixelRGB8
-toStandardDef img = pixelMap pixelConverter img
+toStandardDef = pixelMap pixelConverter
   where pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
           where r = componentToLDR rf
                 g = componentToLDR gf

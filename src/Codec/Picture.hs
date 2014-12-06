@@ -74,6 +74,13 @@ module Codec.Picture (
                      , encodeDynamicPng
                      , writeDynamicPng
 
+                     -- ** TGA handling
+                     , readTGA
+                     , decodeTga
+                     , TgaSaveable
+                     , encodeTga
+                     , writeTga
+
                      -- ** Tiff handling
                      , readTiff
                      , TiffSaveable
@@ -153,6 +160,11 @@ import Codec.Picture.Tiff( decodeTiff
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
+import Codec.Picture.Tga( TgaSaveable
+                        , decodeTga
+                        , encodeTga
+                        , writeTga
+                        )
 import Codec.Picture.Saving
 import Codec.Picture.Types
 import Codec.Picture.ColorQuant
@@ -192,7 +204,7 @@ writeColorReducedGifImage path img =
 -- All the images of the animation are separated
 -- by the same delay.
 encodeGifAnimation :: GifDelay -> GifLooping
-                   -> [Image PixelRGB8] -> Either String (L.ByteString)
+                   -> [Image PixelRGB8] -> Either String L.ByteString
 encodeGifAnimation delay looping lst =
     encodeGifImages looping
         [(pal, delay, img)
@@ -236,6 +248,7 @@ decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
                                  ,("GIF", decodeGif)
                                  ,("HDR", decodeHDR)
                                  ,("Tiff", decodeTiff)
+                                 ,("TGA", decodeTga)
                                  ]
 
 -- | Helper function trying to load a png file from a file on disk.
@@ -252,7 +265,7 @@ readTiff = withImageDecoder decodeTiff
 
 -- | Helper function trying to load all the images of an animated
 -- gif file.
-readGifImages :: FilePath -> IO (Either String [Image PixelRGB8])
+readGifImages :: FilePath -> IO (Either String [DynamicImage])
 readGifImages = withImageDecoder decodeGifImages
 
 -- | Try to load a jpeg file and decompress. The colorspace is still
@@ -269,6 +282,10 @@ readBitmap = withImageDecoder decodeBitmap
 -- RGB with floating point precision.
 readHDR :: FilePath -> IO (Either String DynamicImage)
 readHDR = withImageDecoder decodeHDR
+
+-- | Try to load a .tga file from disk.
+readTGA :: FilePath -> IO (Either String DynamicImage)
+readTGA = withImageDecoder decodeTga
 
 -- | Save an image to a '.jpg' file, will do everything it can to save an image.
 saveJpgImage :: Int -> FilePath -> DynamicImage -> IO ()

@@ -17,15 +17,30 @@ tags
 
 *._fromRGB8.png
 *.fromRGBA8.png
+*._fromRGBA8.png
+*._fromRGBA16.png
+*._fromRGB16.png
 *._fromYCbCr8.png
 *._fromY8.png
 *._fromYA8.png
+*._fromYA16.png
 
 *._fromRGB8.bmp
 *.fromRGBA8.bmp
 *._fromYCbCr8.bmp
 *._fromY8.bmp
 *._fromYA8.bmp
+
+*._fromRGB8.tga
+*._fromRGBA8.tga
+*._fromYCbCr8.tga
+*._fromY8.tga
+*._fromYA8.tga
+
+*._fromYA8.tiff
+*._fromRGB16.tiff
+
+*._fromYA8.gif
 
 cabal-dev
 .cabal-sandbox

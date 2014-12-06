@@ -111,7 +111,7 @@ getNextBitMSB = do
 
 {-# INLINE getNextBitsMSBFirst #-}
 getNextBitsMSBFirst :: Int -> BoolReader s Word32
-getNextBitsMSBFirst count = aux 0 count
+getNextBitsMSBFirst = aux 0
   where aux acc 0 = return acc
         aux acc n = do
             bit <- getNextBitMSB
@@ -274,7 +274,7 @@ writeBitsGif st d c = do
     currWord <- readSTRef $ bwsBitAcc st
     currCount <- readSTRef $  bwsBitReaded st
     serialize d c currWord currCount
-  where dumpByte    i = pushByte' st i
+  where dumpByte = pushByte' st
 
         serialize bitData bitCount currentWord count
             | bitCount + count == 8 = do
