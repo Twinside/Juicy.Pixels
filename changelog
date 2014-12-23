@@ -1,6 +1,10 @@
 -*-change-log-*-
 
-v3.2 2014
+v3.2.1 December 2014
+ * Bumping deepseq dependencies preparing for GHC 7.10
+   release.
+
+v3.2 December 2014
  BREAKING CHANGES:
    the Codec.Picture.Gif functions has changed interfaces.
 

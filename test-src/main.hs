@@ -20,7 +20,6 @@ import Codec.Picture.HDR
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
-import qualified Criterion.Config as C
 import Criterion.Main
 import Control.DeepSeq
 
@@ -549,8 +548,7 @@ benchMark = do
 
     jpegToPng >> pngToJpeg
 
-    let myConfig = C.defaultConfig { C.cfgSamples = C.ljust 12 }
-    defaultMainWith myConfig (return ()) [
+    defaultMainWith defaultConfig [
         bgroup "trad"
             [ bench "JPG -> PNG" $ whnfIO jpegToPng
             , bench "PNG -> JPG" $ whnfIO pngToJpeg
