@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
                               , printMacroBlock
@@ -19,7 +20,12 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , dctBlockSize
                               ) where
 
-import Control.Applicative( (<$>), (<*>))
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( (<*>))
+#endif
+
+import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )

@@ -1,12 +1,16 @@
 {-# LANGUAGE BangPatterns, CPP #-}
 module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
 
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+#endif
+
 import Control.Applicative( (<$>) )
 import Control.Monad.ST( runST )
 import qualified Data.ByteString.Lazy as L
 import Data.Maybe( fromMaybe )
-import Data.Monoid( mempty )
 import Data.Word( Word8 )
+
 #if MIN_VERSION_containers(0,5,0)
 import qualified Data.IntMap.Strict as I
 #else

@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 -- | Module implementing function to read and write
 -- Targa (*.tga) files.
 module Codec.Picture.Tga( decodeTga
@@ -12,8 +13,15 @@ module Codec.Picture.Tga( decodeTga
                         , writeTga
                         )  where
 
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+import Control.Applicative( (<*>), pure )
+#endif
+
+import Control.Applicative( (<$>) )
+
 import Control.Monad.ST( ST, runST )
-import Control.Applicative( (<$>), (<*>), pure )
 import Data.Bits( (.&.)
                 , (.|.)
                 , bit
@@ -21,7 +29,6 @@ import Data.Bits( (.&.)
                 , setBit
                 , unsafeShiftL
                 , unsafeShiftR )
-import Data.Monoid( mempty )
 import Data.Word( Word8, Word16 )
 import Data.Binary( Binary( .. ), encode )
 import Data.Binary.Get( Get

@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
@@ -20,7 +21,12 @@ module Codec.Picture.Gif ( -- * Reading
                          , greyPalette
                          ) where
 
-import Control.Applicative( pure, (<$>), (<*>) )
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( pure, (<*>) )
+#endif
+
+import Control.Applicative( (<$>) )
+
 import Control.Monad( replicateM, replicateM_, unless )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
