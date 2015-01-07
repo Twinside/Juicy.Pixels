@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 -- | Module implementing TIFF decoding.
 --
 -- Supported compression schemes:
@@ -26,7 +27,13 @@
 --
 module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) where
 
-import Control.Applicative( (<$>), (<*>), pure )
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( (<*>), pure )
+#endif
+
+import Control.Applicative( (<$>) )
+
 import Control.Monad( when, replicateM, foldM_, unless )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Writer.Strict( execWriter, tell, Writer )

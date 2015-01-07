@@ -119,9 +119,9 @@ data PngLowLevel a = PngLowLevel
 data PngFilter =
     -- | Filt(x) = Orig(x), Recon(x) = Filt(x)
       FilterNone
-    -- | Filt(x) = Orig(x) - Orig(a), 	Recon(x) = Filt(x) + Recon(a)
+    -- | Filt(x) = Orig(x) - Orig(a),     Recon(x) = Filt(x) + Recon(a)
     | FilterSub
-    -- | Filt(x) = Orig(x) - Orig(b), 	Recon(x) = Filt(x) + Recon(b)
+    -- | Filt(x) = Orig(x) - Orig(b),     Recon(x) = Filt(x) + Recon(b)
     | FilterUp
     -- | Filt(x) = Orig(x) - floor((Orig(a) + Orig(b)) / 2),
     -- Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
@@ -183,10 +183,10 @@ instance Binary PngRawChunk where
              (fail $ "Invalid CRC : " ++ show computedCrc ++ ", "
                                       ++ show crc)
         return PngRawChunk {
-        	chunkLength = size,
-        	chunkData = imgData,
-        	chunkCRC = crc,
-        	chunkType = chunkSig
+            chunkLength = size,
+            chunkData = imgData,
+            chunkCRC = crc,
+            chunkType = chunkSig
         }
 
 instance Binary PngIHdr where
@@ -219,10 +219,10 @@ instance Binary PngIHdr where
         interlace <- get
         _crc <- getWord32be
         return PngIHdr {
-        	width = w,
-        	height = h,
-        	bitDepth = depth,
-        	colourType = colorType,
+            width = w,
+            height = h,
+            bitDepth = depth,
+            colourType = colorType,
             compressionMethod = compression,
             filterMethod = filtermethod,
             interlaceMethod = interlace

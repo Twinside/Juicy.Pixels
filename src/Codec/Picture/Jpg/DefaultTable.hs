@@ -3,35 +3,35 @@
 -- | Module used by the jpeg decoder internally, shouldn't be used
 -- in user code.
 module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
-									 , HuffmanTree( .. )
-									 , HuffmanTable
-									 , HuffmanPackedTree
-									 , MacroBlock
-									 , QuantificationTable
-									 , HuffmanWriterCode 
-									 , scaleQuantisationMatrix
-									 , makeMacroBlock
-									 , makeInverseTable
-									 , buildHuffmanTree
-									 , packHuffmanTree
-									 , huffmanPackedDecode
+                                     , HuffmanTree( .. )
+                                     , HuffmanTable
+                                     , HuffmanPackedTree
+                                     , MacroBlock
+                                     , QuantificationTable
+                                     , HuffmanWriterCode 
+                                     , scaleQuantisationMatrix
+                                     , makeMacroBlock
+                                     , makeInverseTable
+                                     , buildHuffmanTree
+                                     , packHuffmanTree
+                                     , huffmanPackedDecode
 
-									 , defaultChromaQuantizationTable
+                                     , defaultChromaQuantizationTable
 
-									 , defaultLumaQuantizationTable
+                                     , defaultLumaQuantizationTable
 
-									 , defaultAcChromaHuffmanTree
-									 , defaultAcChromaHuffmanTable
+                                     , defaultAcChromaHuffmanTree
+                                     , defaultAcChromaHuffmanTable
 
-									 , defaultAcLumaHuffmanTree 
-									 , defaultAcLumaHuffmanTable 
+                                     , defaultAcLumaHuffmanTree 
+                                     , defaultAcLumaHuffmanTable 
 
-									 , defaultDcChromaHuffmanTree 
-									 , defaultDcChromaHuffmanTable
+                                     , defaultDcChromaHuffmanTree 
+                                     , defaultDcChromaHuffmanTable
 
                                      , defaultDcLumaHuffmanTree
-									 , defaultDcLumaHuffmanTable
-									 ) where
+                                     , defaultDcLumaHuffmanTable
+                                     ) where
 
 import Data.Int( Int16 )
 import Foreign.Storable ( Storable )

@@ -1,5 +1,8 @@
 -*-change-log-*-
 
+v3.2.2 January 2015
+ * Squashing GHC 7.10 warnings
+
 v3.2.1 December 2014
  * Bumping deepseq dependencies preparing for GHC 7.10
    release.

@@ -1,4 +1,5 @@
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE CPP #-}
 -- | This module implement helper functions to read & write data
 -- at bits level.
 module Codec.Picture.BitWriter( BoolReader
@@ -24,8 +25,12 @@ module Codec.Picture.BitWriter( BoolReader
                               , runBoolReaderWith
                               ) where
 
-import Data.STRef
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>), (<*>) )
+#endif
+
+import Data.STRef
+import Control.Applicative( (<$>) )
 import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S

@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 -- | This module provide some color quantisation algorithm
 -- in order to help in the creation of paletted images.
 -- The most important function is `palettize` which will
@@ -14,7 +15,11 @@ module Codec.Picture.ColorQuant
     , PaletteOptions( .. )
     ) where
 
-import           Control.Applicative (Applicative (..), (<$>))
+#if !MIN_VERSION_base(4,8,0)
+import           Control.Applicative (Applicative (..))
+#endif
+
+import           Control.Applicative ((<$>))
 import           Data.Bits           (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
 import           Data.List           (elemIndex)
 import           Data.Maybe          (fromMaybe)

@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( decodeJpeg
@@ -11,8 +12,13 @@ module Codec.Picture.Jpg( decodeJpeg
                         , encodeJpeg
                         ) where
 
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( pure )
+#endif
+
+import Control.Applicative( (<$>) )
+
 import Control.Arrow( (>>>) )
-import Control.Applicative( pure, (<$>) )
 import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Trans( lift )

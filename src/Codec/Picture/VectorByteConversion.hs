@@ -1,13 +1,20 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 module Codec.Picture.VectorByteConversion( blitVector
                                          , toByteString
                                          , imageFromUnsafePtr ) where
 
 import Data.Word( Word8 )
 import Data.Vector.Storable( Vector, unsafeToForeignPtr, unsafeFromForeignPtr0 )
-import Foreign.ForeignPtr.Safe( ForeignPtr, castForeignPtr )
 import Foreign.Storable( Storable, sizeOf )
+
+#if !MIN_VERSION_base(4,8,0)
+import Foreign.ForeignPtr.Safe( ForeignPtr, castForeignPtr )
+#else
+import Foreign.ForeignPtr( ForeignPtr, castForeignPtr )
+#endif
+
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as S

@@ -10,11 +10,16 @@ module Codec.Picture.HDR( decodeHDR
                         , writeRLENewStyleHDR
                         ) where
 
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( pure, (<*>) )
+#endif
+
+import Control.Applicative( (<$>) )
+
 import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
 import Data.Monoid( (<>) )
-import Control.Applicative( pure, (<$>), (<*>) )
 import Control.Monad( when, foldM, foldM_, forM, forM_, unless )
 import Control.Monad.Trans.Class( lift )
 import qualified Data.ByteString as B
