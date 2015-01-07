@@ -1,6 +1,7 @@
 -- test file, don't care about unused, on the contrary...
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 import Codec.Picture
 import Codec.Picture.Jpg( encodeJpeg )
 import Codec.Picture.Gif
