@@ -390,7 +390,7 @@ dynamicMap f (ImageCMYK16 i) = f i
 -- without caring about colorspace, you can use the following snippet.
 --
 -- > dynSquare :: DynamicImage -> DynamicImage
--- > dynSquare = dynMap squareImage
+-- > dynSquare = dynamicPixelMap squareImage
 -- >
 -- > squareImage :: Pixel a => Image a -> Image a
 -- > squareImage img = generateImage (\x y -> pixelAt img x y) edge edge
