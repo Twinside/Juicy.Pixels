@@ -18,8 +18,8 @@ Build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 Cabal-version:       >= 1.10
 
-extra-source-files: changelog, docimages/*.png, docimages/*.svg
-extra-doc-files: docimages/*.png, docimages/*.svg
+extra-source-files: changelog, docimages/*.png
+extra-doc-files: docimages/*.png
 
 Source-Repository head
     Type:      git
