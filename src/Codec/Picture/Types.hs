@@ -19,6 +19,7 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Image functions
                           , createMutableImage
+                          , newMutableImage
                           , freezeImage
                           , unsafeFreezeImage
                           , thawImage
@@ -321,6 +322,15 @@ createMutableImage :: (Pixel px, PrimMonad m)
                    -> m (MutableImage (PrimState m) px)
 createMutableImage width height background =
    unsafeThawImage $ generateImage (\_ _ -> background) width height
+
+-- | Create a mutable image with garbage as content. All data
+-- is uninitialized.
+newMutableImage :: forall px m. (Pixel px, PrimMonad m)
+                => Int -- ^ Width
+                -> Int -- ^ Height
+                -> m (MutableImage (PrimState m) px)
+newMutableImage w h = MutableImage w h `liftM` M.new (w * h * compCount)
+  where compCount = componentCount (undefined :: px)
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
