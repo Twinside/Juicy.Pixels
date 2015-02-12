@@ -41,20 +41,7 @@ import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
 
-#if MIN_VERSION_transformers(0, 4, 0)
 import Control.Monad.Trans.Except( ExceptT, throwE, runExceptT )
-#else
--- Transfomers 0.3 compat
-import Control.Monad.Trans.Error( Error, ErrorT, throwError, runErrorT )
-
-type ExceptT = ErrorT
-
-throwE :: (Monad m, Error e) => e -> ErrorT e m a
-throwE = throwError
-
-runExceptT :: ErrorT e m a -> m (Either e a)
-runExceptT = runErrorT
-#endif
 
 {-# INLINE (.<<.) #-}
 (.<<.), (.>>.) :: (Bits a) => a -> Int -> a
