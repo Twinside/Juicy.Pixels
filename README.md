@@ -2,7 +2,7 @@
 
 
 [![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
-[![Hackage](https://img.shields.io/hackage/v/JuicyPixels.svg)]()
+[![Hackage](https://img.shields.io/hackage/v/JuicyPixels.svg)](http://hackage.haskell.org/package/JuicyPixels)
 
 Juicy.Pixels
 ============
