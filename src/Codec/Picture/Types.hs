@@ -54,6 +54,7 @@ module Codec.Picture.Types( -- * Types
                           , pixelMapXY
                           , pixelFold
                           , pixelFoldM
+                          , pixelFoldMap
 
                           , dynamicMap
                           , dynamicPixelMap
@@ -91,6 +92,11 @@ module Codec.Picture.Types( -- * Types
                           , unsafeWritePixelBetweenAt
                           ) where
 
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+#endif
+
+import Data.Monoid( (<>) )
 import Control.Monad( foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( runST )
@@ -827,6 +833,20 @@ pixelFoldM action initialAccumulator img@(Image { imageWidth = w, imageHeight = 
     where
       pixelFolder y acc x = action acc x y $ pixelAt img x y
       columnFold lineAcc y = lineFold lineAcc w (pixelFolder y)
+
+
+-- | Fold over the pixel of an image with a raster scan order:
+-- from top to bottom, left to right. This functions is analog
+-- to the foldMap from the 'Foldable' typeclass, but due to the
+-- Pixel constraint, Image cannot be made an instance of it.
+pixelFoldMap :: forall m px. (Pixel px, Monoid m) => (px -> m) -> Image px -> m
+pixelFoldMap f Image { imageWidth = w, imageHeight = h, imageData = vec } = folder 0
+  where
+    compCount = componentCount (undefined :: px)
+    maxi = w * h * compCount
+
+    folder idx | idx >= maxi = mempty
+    folder idx = f (unsafePixelAt vec idx) <> folder (idx + compCount)
 
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
