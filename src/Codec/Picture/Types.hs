@@ -93,7 +93,7 @@ module Codec.Picture.Types( -- * Types
                           ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Data.Monoid( mempty )
+import Data.Monoid( Monoid, mempty )
 #endif
 
 import Data.Monoid( (<>) )
