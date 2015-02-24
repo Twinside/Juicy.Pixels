@@ -741,9 +741,9 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
   where compCount = componentCount (undefined :: a)
         generated = runST $ do
             arr <- M.new (w * h * compCount)
-            let lineGenerator _ y | y >= h = return ()
-                lineGenerator lineIdx y = column lineIdx 0
-                  where column idx x | x >= w = lineGenerator idx $ y + 1
+            let lineGenerator _ !y | y >= h = return ()
+                lineGenerator !lineIdx y = column lineIdx 0
+                  where column !idx !x | x >= w = lineGenerator idx $ y + 1
                         column idx x = do
                             unsafeWritePixel arr idx $ f x y
                             column (idx + compCount) $ x + 1
@@ -812,13 +812,22 @@ generateFoldImage f intialAcc w h =
 -- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
-pixelFold :: (Pixel pixel)
+pixelFold :: forall acc pixel. (Pixel pixel)
           => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
 pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
-  foldl' columnFold initialAccumulator [0 .. h - 1]
+  columnFold 0 initialAccumulator 0
     where
-      pixelFolder y acc x = f acc x y $ pixelAt img x y
-      columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
+      !compCount = componentCount (undefined :: pixel)
+      !vec = imageData img
+
+      lineFold !y acc !x !idx
+        | x >= w = columnFold (y + 1) acc idx
+        | otherwise = 
+            lineFold y (f acc x y $ unsafePixelAt vec idx) (x + 1) (idx + compCount)
+
+      columnFold !y lineAcc !readIdx
+        | y >= h = lineAcc
+        | otherwise = lineFold y lineAcc 0 readIdx
 
 -- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right, carrying out a state
