@@ -16,6 +16,7 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , JpgHuffmanTableSpec( .. )
                               , JpgImageKind( .. )
                               , JpgScanSpecification( .. )
+                              , JpgColorSpace( .. )
                               , calculateSize
                               , dctBlockSize
                               ) where
@@ -96,6 +97,7 @@ data JpgFrameKind =
 
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
+    | JpgAdobeAPP14      !JpgAdobeApp14
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
     | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanPackedTree)]
@@ -103,6 +105,37 @@ data JpgFrame =
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
     deriving Show
+
+data JpgColorSpace
+  = JpgColorSpaceYCbCr
+  | JpgColorSpaceYCC
+  | JpgColorSpaceY
+  | JpgColorSpaceYA
+  | JpgColorSpaceYCCA
+  | JpgColorSpaceYCCK
+  | JpgColorSpaceCMYK
+  | JpgColorSpaceRGB
+  | JpgColorSpaceRGBA
+  deriving Show
+
+data JpgAdobeApp14 = JpgAdobeApp14
+  { _adobeDctVersion :: !Word8
+  , _adobeFlag0      :: !Word16
+  , _adobeFlag1      :: !Word16
+  , _adobeTransform  :: !Word8
+  }
+  deriving Show
+
+instance Binary JpgAdobeApp14 where
+  get = JpgAdobeApp14
+     <$> getWord8 <*> getWord16be <*> getWord16be <*> getWord8
+
+  put (JpgAdobeApp14 v f0 f1 t) = do
+    putWord8 v
+    putWord16be f0
+    putWord16be f1
+    putWord8 t
+
 
 data JpgFrameHeader = JpgFrameHeader
     { jpgFrameHeaderLength   :: !Word16
@@ -288,6 +321,7 @@ takeCurrentFrame = do
     getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
+putFrame (JpgAdobeAPP14 _adobe) = return ()
 putFrame (JpgAppFrame appCode str) =
     put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
 putFrame (JpgExtension appCode str) =
@@ -327,6 +361,12 @@ extractScanContent str = aux 0
                   vNext = str `L.index` (n + 1)
                   isReset = 0xD0 <= vNext && vNext <= 0xD7
 
+parseAdobe14 :: B.ByteString -> [JpgFrame] -> [JpgFrame]
+parseAdobe14 str lst = go where
+  go = case runGetStrict get str of
+    Left _err -> lst
+    Right app14 -> JpgAdobeAPP14 app14 : lst
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -340,6 +380,8 @@ parseFrames = do
 
     case kind of
         JpgEndOfImage -> return []
+        JpgAppSegment 14 ->
+            parseAdobe14 <$> takeCurrentFrame <*> parseNextFrame
         JpgAppSegment c ->
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgExtensionSegment c ->

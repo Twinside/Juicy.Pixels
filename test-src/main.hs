@@ -493,7 +493,6 @@ testSuite = do
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) jpegValidTests
     mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests

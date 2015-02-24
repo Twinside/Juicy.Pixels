@@ -1,6 +1,7 @@
 -*-change-log-*-
 
 v3.2.3 February 2015
+ * Adding: Support for RGB in jpeg (yeah, that exist...)
  * Addinng: a pixelFoldMap functions analog to the `foldMap` function
   of the Foldable type class.
 
