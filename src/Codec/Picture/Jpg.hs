@@ -234,7 +234,7 @@ data JpgDecoderState = JpgDecoderState
     , quantizationMatrices  :: !(V.Vector (MacroBlock Int16))
     , currentRestartInterv  :: !Int
     , currentFrame          :: Maybe JpgFrameHeader
-    , minimumComponentIndex :: !Int
+    , componentIndexMapping :: ![(Word8, Int)]
     , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
@@ -258,7 +258,7 @@ emptyDecoderState = JpgDecoderState
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
     , currentFrame         = Nothing
-    , minimumComponentIndex = 1
+    , componentIndexMapping = []
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -282,13 +282,15 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
         
         scanSpecifier scanCount scanSpec = do
-            minimumIndex <- gets minimumComponentIndex
+            compMapping <- gets componentIndexMapping
+            comp <- case lookup (componentSelector scanSpec) compMapping of
+                Nothing -> fail "Jpg decoding error - bad component selector in blob."
+                Just v -> return v
             let maximumHuffmanTable = 4
                 dcIndex = min (maximumHuffmanTable - 1) 
                             . fromIntegral $ dcEntropyCodingTable scanSpec
                 acIndex = min (maximumHuffmanTable - 1)
                             . fromIntegral $ acEntropyCodingTable scanSpec
-                comp = fromIntegral (componentSelector scanSpec) - minimumIndex
 
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
@@ -335,8 +337,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
 jpgMachineStep (JpgScans kind hdr) = modify $ \s ->
    s { currentFrame = Just hdr
-     , minimumComponentIndex =
-          fromIntegral $ minimum [componentIdentifier comp | comp <- jpgComponents hdr]
+     , componentIndexMapping =
+          [(componentIdentifier comp, ix) | (ix, comp) <- zip [0..] $ jpgComponents hdr]
      , isProgressive = case kind of
             JpgProgressiveDCTHuffman -> True
             _ -> False

@@ -93,6 +93,7 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "8x8jpeg.jpg"
                  , "avatar.jpg"
                  , "fenek.jpg"
+                 , "rgb.jpg"
                  , "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg"
                  , "JPEG_example_JPG_RIP_025.jpg"
@@ -492,6 +493,7 @@ testSuite = do
     mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
     mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
     mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) jpegValidTests
     mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
     mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
     mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
