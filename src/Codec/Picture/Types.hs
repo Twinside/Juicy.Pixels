@@ -40,6 +40,7 @@ module Codec.Picture.Types( -- * Types
                           , PixelCMYK8( .. )
                           , PixelCMYK16( .. )
                           , PixelYCbCr8( .. )
+                          , PixelYCbCrK8( .. )
 
                           -- * Type classes
                           , ColorConvertible( .. )
@@ -105,7 +106,6 @@ import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.), (.&.) )
 import Data.Word( Word8, Word16, Word32, Word64 )
-import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -498,6 +498,22 @@ data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
                            {-# UNPACK #-} !Pixel8 -- Blue
                deriving (Eq, Ord, Show)
 
+-- | Pixel type storing value for the YCCK color space:
+--
+-- * Y (Luminance)
+--
+-- * Cb
+--
+-- * Cr
+--
+-- * Black
+--
+data PixelYCbCrK8 = PixelYCbCrK8 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
+               deriving (Eq, Ord, Show)
+
 -- | Pixel type storing 16bit red, green and blue (RGB) information.
 -- Values are stored in the following order:
 --
@@ -820,14 +836,14 @@ pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
       !compCount = componentCount (undefined :: pixel)
       !vec = imageData img
 
-      lineFold !y acc !x !idx
+      lfold !y acc !x !idx
         | x >= w = columnFold (y + 1) acc idx
         | otherwise = 
-            lineFold y (f acc x y $ unsafePixelAt vec idx) (x + 1) (idx + compCount)
+            lfold y (f acc x y $ unsafePixelAt vec idx) (x + 1) (idx + compCount)
 
       columnFold !y lineAcc !readIdx
         | y >= h = lineAcc
-        | otherwise = lineFold y lineAcc 0 readIdx
+        | otherwise = lfold y lineAcc 0 readIdx
 
 -- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right, carrying out a state
@@ -1969,6 +1985,86 @@ instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
           g = (255 - fromIntegral m) * ik
           b = (255 - fromIntegral y) * ik
 
+--------------------------------------------------
+----            PixelYCbCrK8 instances
+--------------------------------------------------
+instance Pixel PixelYCbCrK8 where
+    type PixelBaseComponent PixelYCbCrK8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYCbCrK8 ya cba cra ka) (PixelYCbCrK8 yb cbb crb kb) =
+        PixelYCbCrK8 (f 0 ya yb) (f 1 cba cbb) (f 2 cra crb) (f 3 ka kb)
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelYCbCrK8 y cb cr k) = PixelYCbCrK8 (f y) (f cb) (f cr) (f k)
+
+    {-# INLINE componentCount #-}
+    componentCount _ = 4
+
+    {-# INLINE pixelAt #-}
+    pixelAt image@(Image { imageData = arr }) x y =
+        PixelYCbCrK8 (arr ! (baseIdx + 0)) (arr ! (baseIdx + 1))
+                     (arr ! (baseIdx + 2)) (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    {-# INLINE readPixel #-}
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        yv <- arr `M.read` baseIdx
+        cbv <- arr `M.read` (baseIdx + 1)
+        crv <- arr `M.read` (baseIdx + 2)
+        kv <- arr `M.read` (baseIdx + 3)
+        return $ PixelYCbCrK8 yv cbv crv kv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    {-# INLINE writePixel #-}
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYCbCrK8 yv cbv crv kv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr `M.write` (baseIdx + 0)) yv
+        (arr `M.write` (baseIdx + 1)) cbv
+        (arr `M.write` (baseIdx + 2)) crv
+        (arr `M.write` (baseIdx + 3)) kv
+
+    {-# INLINE unsafePixelAt #-}
+    unsafePixelAt v idx =
+        PixelYCbCrK8 (V.unsafeIndex v idx)
+                     (V.unsafeIndex v $ idx + 1)
+                     (V.unsafeIndex v $ idx + 2)
+                     (V.unsafeIndex v $ idx + 3)
+
+    {-# INLINE unsafeReadPixel #-}
+    unsafeReadPixel vec idx =
+      PixelYCbCrK8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
+
+    {-# INLINE unsafeWritePixel #-}
+    unsafeWritePixel v idx (PixelYCbCrK8 y cb cr k) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) cb
+                              >> M.unsafeWrite v (idx + 2) cr
+                              >> M.unsafeWrite v (idx + 3) k
+
+instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
+  convertPixel (PixelYCbCrK8 y cb cr k) = PixelCMYK8 c m ye k
+    where
+      tof :: Word8 -> Float
+      tof v = fromIntegral v
+
+      clamp :: Float -> Word8
+      clamp = max 0 . min 255 . floor
+
+      yf = tof y
+
+      r = yf + 1.402 * tof cr - 179.456
+      g = yf - 0.34414 * tof cb - 0.71414 * tof cr + 135.45984
+      b = yf + 1.772 * tof cb - 226.816
+
+      c = 255 - clamp r
+      m = 255 - clamp g
+      ye = 255 - clamp b
 
 {-# SPECIALIZE integralRGBToCMYK :: (Word8 -> Word8 -> Word8 -> Word8 -> b)
                                  -> (Word8, Word8, Word8) -> b #-}

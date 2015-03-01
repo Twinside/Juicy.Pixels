@@ -17,6 +17,8 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , JpgImageKind( .. )
                               , JpgScanSpecification( .. )
                               , JpgColorSpace( .. )
+                              , AdobeTransform( .. )
+                              , JpgAdobeApp14( .. )
                               , calculateSize
                               , dctBlockSize
                               ) where
@@ -37,6 +39,7 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 
 import Data.Int( Int16 )
@@ -55,6 +58,7 @@ import Data.Binary.Put( Put
                       , putWord8
                       , putWord16be
                       , putLazyByteString
+                      , putByteString
                       )
 
 import Codec.Picture.InternalHelper
@@ -118,23 +122,53 @@ data JpgColorSpace
   | JpgColorSpaceRGBA
   deriving Show
 
+data AdobeTransform
+  = AdobeUnknown    -- ^ Value 0
+  | AdobeYCbCr      -- ^ value 1
+  | AdobeYCck       -- ^ value 2
+  deriving Show
+
 data JpgAdobeApp14 = JpgAdobeApp14
-  { _adobeDctVersion :: !Word8
+  { _adobeDctVersion :: !Word16
   , _adobeFlag0      :: !Word16
   , _adobeFlag1      :: !Word16
-  , _adobeTransform  :: !Word8
+  , _adobeTransform  :: !AdobeTransform
   }
   deriving Show
 
+instance Binary AdobeTransform where
+  put v = case v of
+    AdobeUnknown -> putWord8 0
+    AdobeYCbCr -> putWord8 1
+    AdobeYCck -> putWord8 2
+
+  get = do
+    v <- getWord8
+    pure $ case v of
+      0 -> AdobeUnknown
+      1 -> AdobeYCbCr
+      2 -> AdobeYCck
+      _ -> AdobeUnknown
+
 instance Binary JpgAdobeApp14 where
-  get = JpgAdobeApp14
-     <$> getWord8 <*> getWord16be <*> getWord16be <*> getWord8
+  get = do
+    let sig = BC.pack "Adobe"
+    fileSig <- getByteString 5
+    when (fileSig /= sig) $
+       fail "Invalid Adobe APP14 marker"
+    version <- getWord16be
+    when (version /= 100) $
+       fail $ "Invalid Adobe APP14 version " ++ show version
+    JpgAdobeApp14 version
+                  <$> getWord16be
+                  <*> getWord16be <*> get
 
   put (JpgAdobeApp14 v f0 f1 t) = do
-    putWord8 v
+    putByteString $ BC.pack "Adobe"
+    putWord16be v
     putWord16be f0
     putWord16be f1
-    putWord8 t
+    put t
 
 
 data JpgFrameHeader = JpgFrameHeader
@@ -430,7 +464,7 @@ secondStartOfFrameByteOfKind = aux
     aux JpgStartOfScan = 0xDA
     aux JpgRestartInterval = 0xDD
     aux (JpgRestartIntervalEnd v) = v
-    aux (JpgAppSegment a) = a
+    aux (JpgAppSegment a) = (a + 0xE0)
     aux (JpgExtensionSegment a) = a
 
 data JpgImageKind = BaseLineDCT | ProgressiveDCT
@@ -461,7 +495,7 @@ instance Binary JpgFrameKind where
             0xDB -> JpgQuantizationTable
             0xDD -> JpgRestartInterval
             a | a >= 0xF0 -> JpgExtensionSegment a
-              | a >= 0xE0 -> JpgAppSegment a
+              | a >= 0xE0 -> JpgAppSegment (a - 0xE0)
               | a >= 0xD0 && a <= 0xD7 -> JpgRestartIntervalEnd a
               | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
 

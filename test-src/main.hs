@@ -93,7 +93,9 @@ jpegValidTests = [ "explore_jpeg.jpg"
                  , "8x8jpeg.jpg"
                  , "avatar.jpg"
                  , "fenek.jpg"
+                 , "Channel_digital_image_CMYK_color.jpg"
                  , "rgb.jpg"
+                 , "img_cmyk.jpg"
                  , "JPEG_example_JPG_RIP_001.jpg"
                  , "JPEG_example_JPG_RIP_010.jpg"
                  , "JPEG_example_JPG_RIP_025.jpg"
@@ -272,6 +274,7 @@ imgToImg path = do
                 rgbimg = convertImage img
                 png = encodePng rgbimg
                 tiff = encodeTiff img
+            putStrLn $ "CMYK16 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK16.png") png
             putStrLn "-> Tiff"
@@ -282,6 +285,7 @@ imgToImg path = do
                 rgbimg = convertImage img
                 png = encodePng rgbimg
                 tiff = encodeTiff img
+            putStrLn $ "CMYK8 : " ++ path
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK8.png") png
             putStrLn "-> Gif"

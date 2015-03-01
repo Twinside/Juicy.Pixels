@@ -1,25 +1,27 @@
 -*-change-log-*-
 
-v3.2.3 February 2015
+v3.2.3 March 2015
  * Adding: Support for RGB in jpeg (yeah, that exist...)
+ * Adding: Support of CMYK & YCrCbK color space in jpeg files.
  * Addinng: a pixelFoldMap functions analog to the `foldMap` function
   of the Foldable type class.
+ * Fix: better performances for the pixelFold* functions
 
 v3.2.2 January 2015
- * Squashing GHC 7.10 warnings
+ * Fix: Squashing GHC 7.10 warnings
 
 v3.2.1 December 2014
- * Bumping deepseq dependencies preparing for GHC 7.10
+ * Fix: Bumping deepseq dependencies preparing for GHC 7.10
    release.
 
 v3.2 December 2014
  BREAKING CHANGES:
    the Codec.Picture.Gif functions has changed interfaces.
 
- * Adding TGA reading.
- * Adding TGA writing.
- * Packeable pixel unpack.
- * Returning gif with transparency (breaking Codec.Picture.Gif interface)
+ * Adding: TGA reading.
+ * Adding: TGA writing.
+ * Adding: Packeable pixel unpack.
+ * Fix: Returning gif with transparency (breaking Codec.Picture.Gif interface)
 
 v3.1.7.1 August 2014
  * Previous gif fix was not working withing the readImage
