@@ -16,7 +16,7 @@ module Codec.Picture.Jpg( decodeJpeg
 import Control.Applicative( pure )
 #endif
 
-import Control.Applicative( (<$>) )
+import Control.Applicative( (<|>), (<$>) )
 
 import Control.Arrow( (>>>) )
 import Control.Monad( when, forM_ )
@@ -234,7 +234,8 @@ data JpgDecoderState = JpgDecoderState
     , quantizationMatrices  :: !(V.Vector (MacroBlock Int16))
     , currentRestartInterv  :: !Int
     , currentFrame          :: Maybe JpgFrameHeader
-    , minimumComponentIndex :: !Int
+    , app14Marker           :: !(Maybe JpgAdobeApp14)
+    , componentIndexMapping :: ![(Word8, Int)]
     , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
     , maximumVerticalResolution   :: !Int
@@ -258,7 +259,8 @@ emptyDecoderState = JpgDecoderState
     , quantizationMatrices = V.replicate 4 (VS.replicate (8 * 8) 1)
     , currentRestartInterv = -1
     , currentFrame         = Nothing
-    , minimumComponentIndex = 1
+    , componentIndexMapping = []
+    , app14Marker = Nothing
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -268,6 +270,8 @@ emptyDecoderState = JpgDecoderState
 -- | This pseudo interpreter interpret the Jpg frame for the huffman,
 -- quant table and restart interval parameters.
 jpgMachineStep :: JpgFrame -> JpgScripter s ()
+jpgMachineStep (JpgAdobeAPP14 app14) = modify $ \s ->
+    s { app14Marker = Just app14 }
 jpgMachineStep (JpgAppFrame _ _) = pure ()
 jpgMachineStep (JpgExtension _ _) = pure ()
 jpgMachineStep (JpgScanBlob hdr raw_data) = do
@@ -282,13 +286,15 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
         
         scanSpecifier scanCount scanSpec = do
-            minimumIndex <- gets minimumComponentIndex
+            compMapping <- gets componentIndexMapping
+            comp <- case lookup (componentSelector scanSpec) compMapping of
+                Nothing -> fail "Jpg decoding error - bad component selector in blob."
+                Just v -> return v
             let maximumHuffmanTable = 4
                 dcIndex = min (maximumHuffmanTable - 1) 
                             . fromIntegral $ dcEntropyCodingTable scanSpec
                 acIndex = min (maximumHuffmanTable - 1)
                             . fromIntegral $ acEntropyCodingTable scanSpec
-                comp = fromIntegral (componentSelector scanSpec) - minimumIndex
 
             dcTree <- gets $ (V.! dcIndex) . dcDecoderTables
             acTree <- gets $ (V.! acIndex) . acDecoderTables
@@ -335,8 +341,8 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
 
 jpgMachineStep (JpgScans kind hdr) = modify $ \s ->
    s { currentFrame = Just hdr
-     , minimumComponentIndex =
-          fromIntegral $ minimum [componentIdentifier comp | comp <- jpgComponents hdr]
+     , componentIndexMapping =
+          [(componentIdentifier comp, ix) | (ix, comp) <- zip [0..] $ jpgComponents hdr]
      , isProgressive = case kind of
             JpgProgressiveDCTHuffman -> True
             _ -> False
@@ -374,7 +380,7 @@ jpgMachineStep (JpgQuantTable tables) = mapM_ placeQuantizationTables tables
 
 unpackerDecision :: Int -> (Int, Int) -> Unpacker s
 unpackerDecision 1 (1, 1) = unpack444Y
-unpackerDecision _ (1, 1) = unpack444Ycbcr
+unpackerDecision 3 (1, 1) = unpack444Ycbcr
 unpackerDecision _ (2, 1) = unpack421Ycbcr
 unpackerDecision compCount (xScalingFactor, yScalingFactor) =
     unpackMacroBlock compCount xScalingFactor yScalingFactor
@@ -383,7 +389,7 @@ decodeImage :: JpgFrameHeader
             -> V.Vector (MacroBlock Int16)
             -> [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)]
             -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
-            -> ST s ()
+            -> ST s (MutableImage s PixelYCbCr8)
 decodeImage frame quants lst outImage = do
   let compCount = length $ jpgComponents frame
   zigZagArray <- createEmptyMutableMacroBlock
@@ -434,6 +440,8 @@ decodeImage frame quants lst outImage = do
         else
           lift $ unpack compIdx (x * maxiW + xd) (y * maxiH + yd) outImage block
 
+  return outImage
+
   where imgComponentCount = length $ jpgComponents frame
 
         imgWidth = fromIntegral $ jpgWidth frame
@@ -454,6 +462,58 @@ gatherImageKind lst = case [k | JpgScans k _ <- lst, isDctSpecifier k] of
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
 gatherScanInfo img = head [(a, b) | JpgScans a b <- jpgFrame img]
 
+dynamicOfColorSpace :: (Monad m)
+                    => Maybe JpgColorSpace -> Int -> Int -> VS.Vector Word8
+                    -> m DynamicImage
+dynamicOfColorSpace Nothing _ _ _ = fail "Unknown color space"
+dynamicOfColorSpace (Just color) w h imgData = case color of
+  JpgColorSpaceCMYK -> return . ImageCMYK8 $ Image w h imgData
+  JpgColorSpaceYCCK ->
+     let ymg = Image w h $ VS.map (255-) imgData :: Image PixelYCbCrK8 in
+     return . ImageCMYK8 $ convertImage ymg
+  JpgColorSpaceYCbCr -> return . ImageYCbCr8 $ Image w h imgData
+  JpgColorSpaceRGB -> return . ImageRGB8 $ Image w h imgData
+  JpgColorSpaceYA -> return . ImageYA8 $ Image w h imgData
+  JpgColorSpaceY -> return . ImageY8 $ Image w h imgData
+  colorSpace -> fail $ "Wrong color space : " ++ show colorSpace
+
+colorSpaceOfAdobe :: Int -> JpgAdobeApp14 -> Maybe JpgColorSpace
+colorSpaceOfAdobe compCount app = case (compCount, _adobeTransform app) of
+  (3, AdobeYCbCr) -> pure JpgColorSpaceYCbCr
+  (1, AdobeUnknown) -> pure JpgColorSpaceY
+  (3, AdobeUnknown) -> pure JpgColorSpaceRGB
+  (4, AdobeYCck) -> pure JpgColorSpaceYCCK
+  {-(4, AdobeUnknown) -> pure JpgColorSpaceCMYKInverted-}
+  _ -> Nothing
+
+colorSpaceOfState :: JpgDecoderState -> Maybe JpgColorSpace
+colorSpaceOfState st = do
+  hdr <- currentFrame st
+  let compStr = [toEnum . fromEnum $ componentIdentifier comp
+                        | comp <- jpgComponents hdr]
+      app14 = do
+        marker <- app14Marker st
+        colorSpaceOfAdobe (length compStr) marker
+  app14 <|> colorSpaceOfComponentStr compStr
+
+
+colorSpaceOfComponentStr :: String -> Maybe JpgColorSpace
+colorSpaceOfComponentStr s = case s of
+  [_] -> pure  JpgColorSpaceY
+  [_,_] -> pure  JpgColorSpaceYA
+  "\0\1\2" -> pure  JpgColorSpaceYCbCr
+  "\1\2\3" -> pure  JpgColorSpaceYCbCr
+  "RGB" -> pure  JpgColorSpaceRGB
+  "YCc" -> pure  JpgColorSpaceYCC
+  [_,_,_] -> pure  JpgColorSpaceYCbCr
+
+  "RGBA" -> pure  JpgColorSpaceRGBA
+  "YCcA" -> pure  JpgColorSpaceYCCA
+  "CMYK" -> pure  JpgColorSpaceCMYK
+  "YCcK" -> pure  JpgColorSpaceYCCK
+  [_,_,_,_] -> pure  JpgColorSpaceCMYK
+  _ -> Nothing
+
 -- | Try to decompress a jpeg file and decompress. The colorspace is still
 -- YCbCr if you want to perform computation on the luma part. You can
 -- convert it to RGB using 'convertImage' from the 'ColorSpaceConvertible'
@@ -463,49 +523,61 @@ gatherScanInfo img = head [(a, b) | JpgScans a b <- jpgFrame img]
 --
 --    * PixelY8
 --
+--    * PixelYA8
+--
+--    * PixelRGB8
+--
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg file = case runGetStrict get file of
   Left err -> Left err
-  Right img -> case (compCount, imgKind) of
-                 (_, Nothing) -> Left "Unknown Jpg kind"
-                 (3, Just ProgressiveDCT) -> Right . ImageYCbCr8 $ decodeProgressive
-                 (1, Just BaseLineDCT) -> Right . ImageY8 $ Image imgWidth imgHeight pixelData
-                 (3, Just BaseLineDCT) -> Right . ImageYCbCr8 $ Image imgWidth imgHeight pixelData
-                 _ -> Left "Wrong component count"
+  Right img -> case imgKind of
+     Just BaseLineDCT ->
+       let (st, arr) = decodeBaseline in
+       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+     Just ProgressiveDCT ->
+       let (st, arr) = decodeProgressive in
+       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+     _ -> Left "Unkown JPG kind"
+    where
+      compCount = length $ jpgComponents scanInfo
+      (_,scanInfo) = gatherScanInfo img
 
-      where compCount = length $ jpgComponents scanInfo
-            (_,scanInfo) = gatherScanInfo img
+      imgKind = gatherImageKind $ jpgFrame img
+      imgWidth = fromIntegral $ jpgWidth scanInfo
+      imgHeight = fromIntegral $ jpgHeight scanInfo
 
-            imgKind = gatherImageKind $ jpgFrame img
-            imgWidth = fromIntegral $ jpgWidth scanInfo
-            imgHeight = fromIntegral $ jpgHeight scanInfo
+      imageSize = imgWidth * imgHeight * compCount
 
-            imageSize = imgWidth * imgHeight * compCount
 
-            decodeProgressive = runST $ do
-                let (st, wrotten) =
-                        execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
-                    Just fHdr = currentFrame st
-                progressiveUnpack
-                    (maximumHorizontalResolution st, maximumVerticalResolution st)
-                    fHdr
-                    (quantizationMatrices st)
-                    wrotten >>= unsafeFreezeImage
+      decodeProgressive = runST $ do
+        let (st, wrotten) =
+               execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+            Just fHdr = currentFrame st
+        fimg <-
+            progressiveUnpack
+                (maximumHorizontalResolution st, maximumVerticalResolution st)
+                fHdr
+                (quantizationMatrices st)
+                wrotten
+        frozen <- unsafeFreezeImage fimg
+        return (st, imageData frozen)
 
-            pixelData = runST $ do
-                let (st, wrotten) =
-                        execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
-                    Just fHdr = currentFrame st
-                resultImage <- M.new imageSize
-                let wrapped = MutableImage imgWidth imgHeight resultImage
-                decodeImage 
-                    fHdr
-                    (quantizationMatrices st)
-                    wrotten
-                    wrapped
-                VS.unsafeFreeze resultImage
+
+      decodeBaseline = runST $ do
+        let (st, wrotten) =
+              execRWS (mapM_ jpgMachineStep (jpgFrame img)) () emptyDecoderState
+            Just fHdr = currentFrame st
+        resultImage <- M.new imageSize
+        let wrapped = MutableImage imgWidth imgHeight resultImage
+        fImg <- decodeImage 
+            fHdr
+            (quantizationMatrices st)
+            wrotten
+            wrapped
+        frozen <- unsafeFreezeImage fImg
+        return (st, imageData frozen)
 
 extractBlock :: Image PixelYCbCr8       -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block

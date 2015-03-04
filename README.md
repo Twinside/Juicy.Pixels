@@ -2,6 +2,7 @@
 
 
 [![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
+[![Hackage](https://img.shields.io/hackage/v/JuicyPixels.svg)](http://hackage.haskell.org/package/JuicyPixels)
 
 Juicy.Pixels
 ============
@@ -58,6 +59,7 @@ Status
 
  - Jpeg   (.jpg, .jpeg) 
     * Reading normal and interlaced baseline DCT image
+        - YCbCr (default) CMYK/YCbCrK/RGB colorspaces
     * Writing non-interlaced JPG
 
  - Gif (.gif)

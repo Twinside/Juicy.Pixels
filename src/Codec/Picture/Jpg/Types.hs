@@ -16,13 +16,16 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , JpgHuffmanTableSpec( .. )
                               , JpgImageKind( .. )
                               , JpgScanSpecification( .. )
+                              , JpgColorSpace( .. )
+                              , AdobeTransform( .. )
+                              , JpgAdobeApp14( .. )
                               , calculateSize
                               , dctBlockSize
                               ) where
 
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( (<*>))
+import Control.Applicative( pure, (<*>))
 #endif
 
 import Control.Applicative( (<$>) )
@@ -36,6 +39,7 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 
 import Data.Int( Int16 )
@@ -54,6 +58,7 @@ import Data.Binary.Put( Put
                       , putWord8
                       , putWord16be
                       , putLazyByteString
+                      , putByteString
                       )
 
 import Codec.Picture.InternalHelper
@@ -96,6 +101,7 @@ data JpgFrameKind =
 
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
+    | JpgAdobeAPP14      !JpgAdobeApp14
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
     | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanPackedTree)]
@@ -103,6 +109,67 @@ data JpgFrame =
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
     deriving Show
+
+data JpgColorSpace
+  = JpgColorSpaceYCbCr
+  | JpgColorSpaceYCC
+  | JpgColorSpaceY
+  | JpgColorSpaceYA
+  | JpgColorSpaceYCCA
+  | JpgColorSpaceYCCK
+  | JpgColorSpaceCMYK
+  | JpgColorSpaceRGB
+  | JpgColorSpaceRGBA
+  deriving Show
+
+data AdobeTransform
+  = AdobeUnknown    -- ^ Value 0
+  | AdobeYCbCr      -- ^ value 1
+  | AdobeYCck       -- ^ value 2
+  deriving Show
+
+data JpgAdobeApp14 = JpgAdobeApp14
+  { _adobeDctVersion :: !Word16
+  , _adobeFlag0      :: !Word16
+  , _adobeFlag1      :: !Word16
+  , _adobeTransform  :: !AdobeTransform
+  }
+  deriving Show
+
+instance Binary AdobeTransform where
+  put v = case v of
+    AdobeUnknown -> putWord8 0
+    AdobeYCbCr -> putWord8 1
+    AdobeYCck -> putWord8 2
+
+  get = do
+    v <- getWord8
+    pure $ case v of
+      0 -> AdobeUnknown
+      1 -> AdobeYCbCr
+      2 -> AdobeYCck
+      _ -> AdobeUnknown
+
+instance Binary JpgAdobeApp14 where
+  get = do
+    let sig = BC.pack "Adobe"
+    fileSig <- getByteString 5
+    when (fileSig /= sig) $
+       fail "Invalid Adobe APP14 marker"
+    version <- getWord16be
+    when (version /= 100) $
+       fail $ "Invalid Adobe APP14 version " ++ show version
+    JpgAdobeApp14 version
+                  <$> getWord16be
+                  <*> getWord16be <*> get
+
+  put (JpgAdobeApp14 v f0 f1 t) = do
+    putByteString $ BC.pack "Adobe"
+    putWord16be v
+    putWord16be f0
+    putWord16be f1
+    put t
+
 
 data JpgFrameHeader = JpgFrameHeader
     { jpgFrameHeaderLength   :: !Word16
@@ -288,6 +355,7 @@ takeCurrentFrame = do
     getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
+putFrame (JpgAdobeAPP14 _adobe) = return ()
 putFrame (JpgAppFrame appCode str) =
     put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
 putFrame (JpgExtension appCode str) =
@@ -327,6 +395,12 @@ extractScanContent str = aux 0
                   vNext = str `L.index` (n + 1)
                   isReset = 0xD0 <= vNext && vNext <= 0xD7
 
+parseAdobe14 :: B.ByteString -> [JpgFrame] -> [JpgFrame]
+parseAdobe14 str lst = go where
+  go = case runGetStrict get str of
+    Left _err -> lst
+    Right app14 -> JpgAdobeAPP14 app14 : lst
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -340,6 +414,8 @@ parseFrames = do
 
     case kind of
         JpgEndOfImage -> return []
+        JpgAppSegment 14 ->
+            parseAdobe14 <$> takeCurrentFrame <*> parseNextFrame
         JpgAppSegment c ->
             (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
         JpgExtensionSegment c ->
@@ -388,7 +464,7 @@ secondStartOfFrameByteOfKind = aux
     aux JpgStartOfScan = 0xDA
     aux JpgRestartInterval = 0xDD
     aux (JpgRestartIntervalEnd v) = v
-    aux (JpgAppSegment a) = a
+    aux (JpgAppSegment a) = (a + 0xE0)
     aux (JpgExtensionSegment a) = a
 
 data JpgImageKind = BaseLineDCT | ProgressiveDCT
@@ -419,7 +495,7 @@ instance Binary JpgFrameKind where
             0xDB -> JpgQuantizationTable
             0xDD -> JpgRestartInterval
             a | a >= 0xF0 -> JpgExtensionSegment a
-              | a >= 0xE0 -> JpgAppSegment a
+              | a >= 0xE0 -> JpgAppSegment (a - 0xE0)
               | a >= 0xD0 && a <= 0xD7 -> JpgRestartIntervalEnd a
               | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
 

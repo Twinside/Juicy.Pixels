@@ -19,6 +19,7 @@ module Codec.Picture.Types( -- * Types
 
                             -- ** Image functions
                           , createMutableImage
+                          , newMutableImage
                           , freezeImage
                           , unsafeFreezeImage
                           , thawImage
@@ -39,6 +40,7 @@ module Codec.Picture.Types( -- * Types
                           , PixelCMYK8( .. )
                           , PixelCMYK16( .. )
                           , PixelYCbCr8( .. )
+                          , PixelYCbCrK8( .. )
 
                           -- * Type classes
                           , ColorConvertible( .. )
@@ -53,6 +55,7 @@ module Codec.Picture.Types( -- * Types
                           , pixelMapXY
                           , pixelFold
                           , pixelFoldM
+                          , pixelFoldMap
 
                           , dynamicMap
                           , dynamicPixelMap
@@ -90,6 +93,11 @@ module Codec.Picture.Types( -- * Types
                           , unsafeWritePixelBetweenAt
                           ) where
 
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( Monoid, mempty )
+#endif
+
+import Data.Monoid( (<>) )
 import Control.Monad( foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( runST )
@@ -98,7 +106,6 @@ import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.), (.&.) )
 import Data.Word( Word8, Word16, Word32, Word64 )
-import Data.List( foldl' )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
@@ -319,8 +326,18 @@ createMutableImage :: (Pixel px, PrimMonad m)
                    -> Int -- ^ Height
                    -> px  -- ^ Background color
                    -> m (MutableImage (PrimState m) px)
+{-# INLINE createMutableImage #-}
 createMutableImage width height background =
    unsafeThawImage $ generateImage (\_ _ -> background) width height
+
+-- | Create a mutable image with garbage as content. All data
+-- is uninitialized.
+newMutableImage :: forall px m. (Pixel px, PrimMonad m)
+                => Int -- ^ Width
+                -> Int -- ^ Height
+                -> m (MutableImage (PrimState m) px)
+newMutableImage w h = MutableImage w h `liftM` M.new (w * h * compCount)
+  where compCount = componentCount (undefined :: px)
 
 instance NFData (MutableImage s a) where
     rnf (MutableImage width height dat) = width  `seq`
@@ -390,7 +407,7 @@ dynamicMap f (ImageCMYK16 i) = f i
 -- without caring about colorspace, you can use the following snippet.
 --
 -- > dynSquare :: DynamicImage -> DynamicImage
--- > dynSquare = dynMap squareImage
+-- > dynSquare = dynamicPixelMap squareImage
 -- >
 -- > squareImage :: Pixel a => Image a -> Image a
 -- > squareImage img = generateImage (\x y -> pixelAt img x y) edge edge
@@ -479,6 +496,22 @@ data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
 data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
                            {-# UNPACK #-} !Pixel8 -- Green
                            {-# UNPACK #-} !Pixel8 -- Blue
+               deriving (Eq, Ord, Show)
+
+-- | Pixel type storing value for the YCCK color space:
+--
+-- * Y (Luminance)
+--
+-- * Cb
+--
+-- * Cr
+--
+-- * Black
+--
+data PixelYCbCrK8 = PixelYCbCrK8 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
+                                 {-# UNPACK #-} !Pixel8
                deriving (Eq, Ord, Show)
 
 -- | Pixel type storing 16bit red, green and blue (RGB) information.
@@ -724,9 +757,9 @@ generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = gener
   where compCount = componentCount (undefined :: a)
         generated = runST $ do
             arr <- M.new (w * h * compCount)
-            let lineGenerator _ y | y >= h = return ()
-                lineGenerator lineIdx y = column lineIdx 0
-                  where column idx x | x >= w = lineGenerator idx $ y + 1
+            let lineGenerator _ !y | y >= h = return ()
+                lineGenerator !lineIdx y = column lineIdx 0
+                  where column !idx !x | x >= w = lineGenerator idx $ y + 1
                         column idx x = do
                             unsafeWritePixel arr idx $ f x y
                             column (idx + compCount) $ x + 1
@@ -795,13 +828,22 @@ generateFoldImage f intialAcc w h =
 -- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right
 {-# INLINE pixelFold #-}
-pixelFold :: (Pixel pixel)
+pixelFold :: forall acc pixel. (Pixel pixel)
           => (acc -> Int -> Int -> pixel -> acc) -> acc -> Image pixel -> acc
 pixelFold f initialAccumulator img@(Image { imageWidth = w, imageHeight = h }) =
-  foldl' columnFold initialAccumulator [0 .. h - 1]
+  columnFold 0 initialAccumulator 0
     where
-      pixelFolder y acc x = f acc x y $ pixelAt img x y
-      columnFold lineAcc y = foldl' (pixelFolder y) lineAcc [0 .. w - 1]
+      !compCount = componentCount (undefined :: pixel)
+      !vec = imageData img
+
+      lfold !y acc !x !idx
+        | x >= w = columnFold (y + 1) acc idx
+        | otherwise = 
+            lfold y (f acc x y $ unsafePixelAt vec idx) (x + 1) (idx + compCount)
+
+      columnFold !y lineAcc !readIdx
+        | y >= h = lineAcc
+        | otherwise = lfold y lineAcc 0 readIdx
 
 -- | Fold over the pixel of an image with a raster scan order:
 -- from top to bottom, left to right, carrying out a state
@@ -816,6 +858,20 @@ pixelFoldM action initialAccumulator img@(Image { imageWidth = w, imageHeight = 
     where
       pixelFolder y acc x = action acc x y $ pixelAt img x y
       columnFold lineAcc y = lineFold lineAcc w (pixelFolder y)
+
+
+-- | Fold over the pixel of an image with a raster scan order:
+-- from top to bottom, left to right. This functions is analog
+-- to the foldMap from the 'Foldable' typeclass, but due to the
+-- Pixel constraint, Image cannot be made an instance of it.
+pixelFoldMap :: forall m px. (Pixel px, Monoid m) => (px -> m) -> Image px -> m
+pixelFoldMap f Image { imageWidth = w, imageHeight = h, imageData = vec } = folder 0
+  where
+    compCount = componentCount (undefined :: px)
+    maxi = w * h * compCount
+
+    folder idx | idx >= maxi = mempty
+    folder idx = f (unsafePixelAt vec idx) <> folder (idx + compCount)
 
 -- | `map` equivalent for an image, working at the pixel level.
 -- Little example : a brightness function for an rgb image
@@ -1921,14 +1977,109 @@ instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
   convertPixel (PixelCMYK8 c m y k) =
       PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
     where
-          clampWord8 = fromIntegral . (`unsafeShiftR` 8)
-          ik :: Int
-          ik = 255 - fromIntegral k
+      clampWord8 = fromIntegral . max 0 . min 255 . (`div` 255)
+      ik :: Int
+      ik = 255 - fromIntegral k
 
-          r = (255 - fromIntegral c) * ik
-          g = (255 - fromIntegral m) * ik
-          b = (255 - fromIntegral y) * ik
+      r = (255 - fromIntegral c) * ik
+      g = (255 - fromIntegral m) * ik
+      b = (255 - fromIntegral y) * ik
 
+--------------------------------------------------
+----            PixelYCbCrK8 instances
+--------------------------------------------------
+instance Pixel PixelYCbCrK8 where
+    type PixelBaseComponent PixelYCbCrK8 = Word8
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const maxBound
+
+    {-# INLINE mixWith #-}
+    mixWith f (PixelYCbCrK8 ya cba cra ka) (PixelYCbCrK8 yb cbb crb kb) =
+        PixelYCbCrK8 (f 0 ya yb) (f 1 cba cbb) (f 2 cra crb) (f 3 ka kb)
+
+    {-# INLINE colorMap #-}
+    colorMap f (PixelYCbCrK8 y cb cr k) = PixelYCbCrK8 (f y) (f cb) (f cr) (f k)
+
+    {-# INLINE componentCount #-}
+    componentCount _ = 4
+
+    {-# INLINE pixelAt #-}
+    pixelAt image@(Image { imageData = arr }) x y =
+        PixelYCbCrK8 (arr ! (baseIdx + 0)) (arr ! (baseIdx + 1))
+                     (arr ! (baseIdx + 2)) (arr ! (baseIdx + 3))
+        where baseIdx = pixelBaseIndex image x y
+
+    {-# INLINE readPixel #-}
+    readPixel image@(MutableImage { mutableImageData = arr }) x y = do
+        yv <- arr `M.read` baseIdx
+        cbv <- arr `M.read` (baseIdx + 1)
+        crv <- arr `M.read` (baseIdx + 2)
+        kv <- arr `M.read` (baseIdx + 3)
+        return $ PixelYCbCrK8 yv cbv crv kv
+        where baseIdx = mutablePixelBaseIndex image x y
+
+    {-# INLINE writePixel #-}
+    writePixel image@(MutableImage { mutableImageData = arr }) x y (PixelYCbCrK8 yv cbv crv kv) = do
+        let baseIdx = mutablePixelBaseIndex image x y
+        (arr `M.write` (baseIdx + 0)) yv
+        (arr `M.write` (baseIdx + 1)) cbv
+        (arr `M.write` (baseIdx + 2)) crv
+        (arr `M.write` (baseIdx + 3)) kv
+
+    {-# INLINE unsafePixelAt #-}
+    unsafePixelAt v idx =
+        PixelYCbCrK8 (V.unsafeIndex v idx)
+                     (V.unsafeIndex v $ idx + 1)
+                     (V.unsafeIndex v $ idx + 2)
+                     (V.unsafeIndex v $ idx + 3)
+
+    {-# INLINE unsafeReadPixel #-}
+    unsafeReadPixel vec idx =
+      PixelYCbCrK8 `liftM` M.unsafeRead vec idx
+                   `ap` M.unsafeRead vec (idx + 1)
+                   `ap` M.unsafeRead vec (idx + 2)
+                   `ap` M.unsafeRead vec (idx + 3)
+
+    {-# INLINE unsafeWritePixel #-}
+    unsafeWritePixel v idx (PixelYCbCrK8 y cb cr k) =
+        M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) cb
+                              >> M.unsafeWrite v (idx + 2) cr
+                              >> M.unsafeWrite v (idx + 3) k
+
+instance ColorSpaceConvertible PixelYCbCrK8 PixelRGB8 where
+  convertPixel (PixelYCbCrK8 y cb cr _k) = PixelRGB8 (clamp r) (clamp g) (clamp b)
+    where
+      tof :: Word8 -> Float
+      tof v = fromIntegral v
+
+      clamp :: Float -> Word8
+      clamp = floor . max 0 . min 255
+
+      yf = tof y
+
+      r = yf + 1.402 * tof cr - 179.456
+      g = yf - 0.3441363 * tof cb - 0.71413636 * tof cr + 135.4589
+      b = yf + 1.772 * tof cb - 226.816
+
+instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
+  convertPixel (PixelYCbCrK8 y cb cr k) = PixelCMYK8 c m ye k
+    where
+      tof :: Word8 -> Float
+      tof v = fromIntegral v
+
+      clamp :: Float -> Word8
+      clamp = floor . max 0 . min 255
+
+      yf = tof y
+
+      r = yf + 1.402 * tof cr - 179.456
+      g = yf - 0.3441363 * tof cb - 0.71413636 * tof cr + 135.4589
+      b = yf + 1.772 * tof cb - 226.816
+
+      c = clamp $ 255 - r
+      m = clamp $ 255 - g
+      ye = clamp $ 255 - b
 
 {-# SPECIALIZE integralRGBToCMYK :: (Word8 -> Word8 -> Word8 -> Word8 -> b)
                                  -> (Word8, Word8, Word8) -> b #-}
