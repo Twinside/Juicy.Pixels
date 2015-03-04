@@ -59,6 +59,7 @@ Status
 
  - Jpeg   (.jpg, .jpeg) 
     * Reading normal and interlaced baseline DCT image
+        - YCbCr (default) CMYK/YCbCrK/RGB colorspaces
     * Writing non-interlaced JPG
 
  - Gif (.gif)
