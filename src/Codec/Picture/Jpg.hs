@@ -470,7 +470,7 @@ dynamicOfColorSpace (Just color) w h imgData = case color of
   JpgColorSpaceCMYK -> return . ImageCMYK8 $ Image w h imgData
   JpgColorSpaceYCCK ->
      let ymg = Image w h $ VS.map (255-) imgData :: Image PixelYCbCrK8 in
-      return . ImageCMYK8 $ convertImage ymg
+     return . ImageCMYK8 $ convertImage ymg
   JpgColorSpaceYCbCr -> return . ImageYCbCr8 $ Image w h imgData
   JpgColorSpaceRGB -> return . ImageRGB8 $ Image w h imgData
   JpgColorSpaceYA -> return . ImageYA8 $ Image w h imgData

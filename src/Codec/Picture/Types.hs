@@ -1977,13 +1977,13 @@ instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
   convertPixel (PixelCMYK8 c m y k) =
       PixelRGB8 (clampWord8 r) (clampWord8 g) (clampWord8 b)
     where
-          clampWord8 = fromIntegral . (`unsafeShiftR` 8)
-          ik :: Int
-          ik = 255 - fromIntegral k
+      clampWord8 = fromIntegral . max 0 . min 255 . (`div` 255)
+      ik :: Int
+      ik = 255 - fromIntegral k
 
-          r = (255 - fromIntegral c) * ik
-          g = (255 - fromIntegral m) * ik
-          b = (255 - fromIntegral y) * ik
+      r = (255 - fromIntegral c) * ik
+      g = (255 - fromIntegral m) * ik
+      b = (255 - fromIntegral y) * ik
 
 --------------------------------------------------
 ----            PixelYCbCrK8 instances
@@ -2047,6 +2047,21 @@ instance Pixel PixelYCbCrK8 where
                               >> M.unsafeWrite v (idx + 2) cr
                               >> M.unsafeWrite v (idx + 3) k
 
+instance ColorSpaceConvertible PixelYCbCrK8 PixelRGB8 where
+  convertPixel (PixelYCbCrK8 y cb cr _k) = PixelRGB8 (clamp r) (clamp g) (clamp b)
+    where
+      tof :: Word8 -> Float
+      tof v = fromIntegral v
+
+      clamp :: Float -> Word8
+      clamp = floor . max 0 . min 255
+
+      yf = tof y
+
+      r = yf + 1.402 * tof cr - 179.456
+      g = yf - 0.3441363 * tof cb - 0.71413636 * tof cr + 135.4589
+      b = yf + 1.772 * tof cb - 226.816
+
 instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
   convertPixel (PixelYCbCrK8 y cb cr k) = PixelCMYK8 c m ye k
     where
@@ -2054,17 +2069,17 @@ instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
       tof v = fromIntegral v
 
       clamp :: Float -> Word8
-      clamp = max 0 . min 255 . floor
+      clamp = floor . max 0 . min 255
 
       yf = tof y
 
       r = yf + 1.402 * tof cr - 179.456
-      g = yf - 0.34414 * tof cb - 0.71414 * tof cr + 135.45984
+      g = yf - 0.3441363 * tof cb - 0.71413636 * tof cr + 135.4589
       b = yf + 1.772 * tof cb - 226.816
 
-      c = 255 - clamp r
-      m = 255 - clamp g
-      ye = 255 - clamp b
+      c = clamp $ 255 - r
+      m = clamp $ 255 - g
+      ye = clamp $ 255 - b
 
 {-# SPECIALIZE integralRGBToCMYK :: (Word8 -> Word8 -> Word8 -> Word8 -> b)
                                  -> (Word8, Word8, Word8) -> b #-}
