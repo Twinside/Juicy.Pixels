@@ -4,7 +4,10 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngInterlaceMethod( .. )
                              , PngPalette
                              , PngImageType( .. )
-                             , PngAnimationControl( .. )
+                             , APngAnimationControl( .. )
+                             , APngFrameDisposal( .. )
+                             , APngBlendOp( .. )
+                             , APngFrameControl( .. )
                              , parsePalette 
                              , pngComputeCrc
                              , pLTESignature
@@ -37,7 +40,7 @@ import Data.Binary.Put( runPut
 import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
-import Data.Word( Word32, Word8 )
+import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as LS
 
