@@ -450,7 +450,7 @@ decodePng byte = do
     let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
         compressedImageData =
               Lb.concat [chunkData chunk | chunk <- chunks rawImg
-                                        , chunkType chunk == iDATSignature]
+                                         , chunkType chunk == iDATSignature]
         zlibHeaderSize = 1 {- compression method/flags code -}
                        + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
