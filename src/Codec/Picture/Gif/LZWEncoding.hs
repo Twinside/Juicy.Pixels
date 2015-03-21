@@ -2,10 +2,10 @@
 module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
 
 #if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( (<$>) )
 import Data.Monoid( mempty )
 #endif
 
-import Control.Applicative( (<$>) )
 import Control.Monad.ST( runST )
 import qualified Data.ByteString.Lazy as L
 import Data.Maybe( fromMaybe )

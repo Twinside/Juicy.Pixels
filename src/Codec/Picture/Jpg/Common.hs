@@ -20,10 +20,9 @@ module Codec.Picture.Jpg.Common
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure )
+import Control.Applicative( pure, (<$>) )
 #endif
 
-import Control.Applicative( (<$>) )
 import Control.Monad( replicateM, when )
 import Control.Monad.ST( ST, runST )
 import Data.Bits( unsafeShiftL, unsafeShiftR, (.&.) )

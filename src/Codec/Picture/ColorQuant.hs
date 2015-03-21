@@ -16,10 +16,9 @@ module Codec.Picture.ColorQuant
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative (Applicative (..))
+import           Control.Applicative (Applicative (..), (<$>))
 #endif
 
-import           Control.Applicative ((<$>))
 import           Data.Bits           (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
 import           Data.List           (elemIndex)
 import           Data.Maybe          (fromMaybe)

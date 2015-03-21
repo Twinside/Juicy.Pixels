@@ -16,10 +16,8 @@ module Codec.Picture.Tga( decodeTga
 
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
-import Control.Applicative( (<*>), pure )
+import Control.Applicative( (<*>), pure, (<$>) )
 #endif
-
-import Control.Applicative( (<$>) )
 
 import Control.Monad.ST( ST, runST )
 import Data.Bits( (.&.)

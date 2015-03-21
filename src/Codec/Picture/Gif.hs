@@ -22,10 +22,8 @@ module Codec.Picture.Gif ( -- * Reading
                          ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure, (<*>) )
+import Control.Applicative( pure, (<*>), (<$>) )
 #endif
-
-import Control.Applicative( (<$>) )
 
 import Control.Monad( replicateM, replicateM_, unless )
 import Control.Monad.ST( runST )

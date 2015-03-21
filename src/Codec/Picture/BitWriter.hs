@@ -26,11 +26,10 @@ module Codec.Picture.BitWriter( BoolReader
                               ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( (<*>) )
+import Control.Applicative( (<*>), (<$>) )
 #endif
 
 import Data.STRef
-import Control.Applicative( (<$>) )
 import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S

@@ -9,10 +9,9 @@ module Codec.Picture.Jpg.Progressive
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure )
+import Control.Applicative( pure, (<$>) )
 #endif
 
-import Control.Applicative( (<$>) )
 import Control.Monad( when, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )

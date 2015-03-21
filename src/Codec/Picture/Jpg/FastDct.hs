@@ -1,7 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 module Codec.Picture.Jpg.FastDct( referenceDct, fastDctLibJpeg ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
 import Data.Int( Int16, Int32 )
 import Data.Bits( unsafeShiftR, unsafeShiftL )
 import Control.Monad.ST( ST )

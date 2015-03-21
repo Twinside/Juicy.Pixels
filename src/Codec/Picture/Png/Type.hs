@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | Low level png module, you should import 'Codec.Picture.Png' instead.
 module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngFilter( .. )
@@ -24,7 +25,10 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngLowLevel( .. )
                              ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
 import Control.Monad( when, replicateM )
 import Data.Bits( xor, (.&.), unsafeShiftR )
 import Data.Binary( Binary(..), Get, get )

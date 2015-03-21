@@ -29,10 +29,8 @@ module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) whe
 
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( (<*>), pure )
+import Control.Applicative( (<$>), (<*>), pure )
 #endif
-
-import Control.Applicative( (<$>) )
 
 import Control.Monad( when, replicateM, foldM_, unless )
 import Control.Monad.ST( ST, runST )
