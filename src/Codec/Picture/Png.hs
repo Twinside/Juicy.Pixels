@@ -3,6 +3,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files.
 --
@@ -25,7 +26,10 @@ module Codec.Picture.Png( -- * High level functions
 
                         ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
 import Control.Monad( forM_, foldM_, when, void )
 import Control.Monad.ST( ST, runST )
 import Data.Binary( Binary( get) )
@@ -420,6 +424,52 @@ applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) 
                         opacity | fromIntegral ipx < maxi = Lb.index transpBuffer $ fromIntegral ipx
                                 | otherwise = 255]
 
+unparse :: PngIHdr -> Maybe PngPalette -> [Lb.ByteString] -> PngImageType
+        -> B.ByteString -> Either [Char] DynamicImage
+unparse ihdr _ t PngGreyscale bytes
+    | bitDepth ihdr == 1 = unparse ihdr (Just paletteRGB1) t PngIndexedColor bytes
+    | bitDepth ihdr == 2 = unparse ihdr (Just paletteRGB2) t PngIndexedColor bytes
+    | bitDepth ihdr == 4 = unparse ihdr (Just paletteRGB4) t PngIndexedColor bytes
+    | otherwise = toImage ihdr ImageY8 ImageY16 $ runST $ deinterlacer ihdr bytes
+
+unparse _ Nothing _ PngIndexedColor  _ = Left "no valid palette found"
+unparse ihdr _ _ PngTrueColour          bytes =
+  toImage ihdr ImageRGB8 ImageRGB16 $ runST $ deinterlacer ihdr bytes
+unparse ihdr _ _ PngGreyscaleWithAlpha  bytes =
+  toImage ihdr ImageYA8 ImageYA16 $ runST $ deinterlacer ihdr bytes
+unparse ihdr _ _ PngTrueColourWithAlpha bytes =
+  toImage ihdr ImageRGBA8 ImageRGBA16 $ runST $ deinterlacer ihdr bytes
+unparse ihdr (Just plte) transparency PngIndexedColor bytes =
+  palette8 ihdr plte transparency $ runST $ deinterlacer ihdr bytes
+
+toImage :: forall a pxWord8 pxWord16
+         . PngIHdr
+        -> (Image pxWord8 -> DynamicImage) -> (Image pxWord16 -> DynamicImage)
+        -> Either (V.Vector (PixelBaseComponent pxWord8))
+                  (V.Vector (PixelBaseComponent pxWord16))
+        -> Either a DynamicImage
+toImage hdr const1 const2 lr = Right $ case lr of
+    Left a -> const1 $ Image w h a
+    Right a -> const2 $ Image w h a
+  where
+    w = fromIntegral $ width hdr
+    h = fromIntegral $ height hdr
+
+palette8 :: PngIHdr -> PngPalette -> [Lb.ByteString] -> Either (V.Vector Word8) t
+         -> Either [Char] DynamicImage
+palette8 hdr palette transparency eimg = case (transparency, eimg) of
+  ([c], Left img) ->
+    Right . ImageRGBA8 . Image w h
+          $ applyPaletteWithTransparency palette c img
+  (_, Left img) ->
+    Right . ImageRGB8 . Image w h $ applyPalette palette img
+  (_, Right _) ->
+    Left "Invalid bit depth for paleted image"
+  where
+    w = fromIntegral $ width hdr
+    h = fromIntegral $ height hdr
+
+
 -- | Transform a raw png image to an image, without modifying the
 -- underlying pixel type. If the image is greyscale and < 8 bits,
 -- a transformation to RGBA8 is performed. This should change
@@ -447,55 +497,18 @@ applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) 
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng byte = do
     rawImg <- runGetStrict get byte
-    let ihdr@(PngIHdr { width = w, height = h }) = header rawImg
+    let ihdr = header rawImg
         compressedImageData =
               Lb.concat [chunkData chunk | chunk <- chunks rawImg
-                                        , chunkType chunk == iDATSignature]
+                                         , chunkType chunk == iDATSignature]
         zlibHeaderSize = 1 {- compression method/flags code -}
                        + 1 {- Additional flags/check bits -}
                        + 4 {-CRC-}
-
-        palette8 palette [c] (Left img) =
-            Right . ImageRGBA8
-                  . Image (fromIntegral w) (fromIntegral h)
-                  $ applyPaletteWithTransparency palette c img
-
-        palette8 palette _ (Left img) =
-            Right . ImageRGB8
-                  . Image (fromIntegral w) (fromIntegral h)
-                  $ applyPalette palette img
-
-        palette8 _ _ (Right _) = Left "Invalid bit depth for paleted image"
-
-        toImage :: forall a pxWord8 pxWord16
-                 . (Image pxWord8 -> DynamicImage) -> (Image pxWord16 -> DynamicImage)
-                -> Either (V.Vector (PixelBaseComponent pxWord8))
-                          (V.Vector (PixelBaseComponent pxWord16))
-                -> Either a DynamicImage
-        toImage const1 _const2 (Left a) =
-            Right . const1 $ Image (fromIntegral w) (fromIntegral h) a
-        toImage _const1 const2 (Right a) =
-            Right . const2 $ Image (fromIntegral w) (fromIntegral h) a
 
         transparencyColor =
             [ chunkData chunk | chunk <- chunks rawImg
                               , chunkType chunk == tRNSSignature ]
 
-        unparse _ t PngGreyscale bytes
-            | bitDepth ihdr == 1 = unparse (Just paletteRGB1) t PngIndexedColor bytes
-            | bitDepth ihdr == 2 = unparse (Just paletteRGB2) t PngIndexedColor bytes
-            | bitDepth ihdr == 4 = unparse (Just paletteRGB4) t PngIndexedColor bytes
-            | otherwise = toImage ImageY8 ImageY16 $ runST $ deinterlacer ihdr bytes
-
-        unparse Nothing _ PngIndexedColor  _ = Left "no valid palette found"
-        unparse _ _ PngTrueColour          bytes =
-            toImage ImageRGB8 ImageRGB16 $ runST $ deinterlacer ihdr bytes
-        unparse _ _ PngGreyscaleWithAlpha  bytes =
-            toImage ImageYA8 ImageYA16 $ runST $ deinterlacer ihdr bytes
-        unparse _ _ PngTrueColourWithAlpha bytes =
-            toImage ImageRGBA8 ImageRGBA16 $ runST $ deinterlacer ihdr bytes
-        unparse (Just plte) transparency PngIndexedColor bytes =
-            palette8 plte transparency $ runST $ deinterlacer ihdr bytes
 
     if Lb.length compressedImageData <= zlibHeaderSize
        then Left "Invalid data size"
@@ -506,5 +519,6 @@ decodePng byte = do
                     Just p -> case parsePalette p of
                             Left _ -> Nothing
                             Right plte -> Just plte
-            in unparse palette transparencyColor (colourType ihdr) parseableData
+            in
+            unparse ihdr palette transparencyColor (colourType ihdr) parseableData
 

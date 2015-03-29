@@ -25,10 +25,9 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
 
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure, (<*>))
+import Control.Applicative( pure, (<*>), (<$>) )
 #endif
 
-import Control.Applicative( (<$>) )
 import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )

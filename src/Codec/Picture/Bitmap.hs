@@ -384,8 +384,8 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
 
           paletteSize = fromIntegral $ length palette
           bpp = bitsPerPixel (undefined :: pixel)
-          padding = linePadding bpp (imgWidth + 1)
-          imagePixelSize = fromIntegral $ (imgWidth + padding) * imgHeight * 4
+          padding = linePadding bpp imgWidth
+          imagePixelSize = fromIntegral $ (imgWidth * div bpp 8 + padding) * imgHeight
           hdr = BmpHeader {
               magicIdentifier = bitmapMagicIdentifier,
               fileSize = sizeofBmpHeader + sizeofBmpInfo + 4 * paletteSize + imagePixelSize,

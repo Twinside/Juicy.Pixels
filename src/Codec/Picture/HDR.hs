@@ -11,10 +11,8 @@ module Codec.Picture.HDR( decodeHDR
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure, (<*>) )
+import Control.Applicative( pure, (<*>), (<$>) )
 #endif
-
-import Control.Applicative( (<$>) )
 
 import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )

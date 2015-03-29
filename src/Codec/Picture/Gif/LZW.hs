@@ -1,7 +1,11 @@
+{-# LANGUAGE CPP #-}
 module Codec.Picture.Gif.LZW( decodeLzw, decodeLzwTiff ) where
 
-import Data.Word( Word8 )
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
+import Data.Word( Word8 )
 import Control.Monad( when, unless )
 
 import Data.Bits( (.&.) )

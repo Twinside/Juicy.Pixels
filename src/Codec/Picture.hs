@@ -126,7 +126,10 @@ module Codec.Picture (
                      , imageFromUnsafePtr
                      ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
 import Control.DeepSeq( NFData, deepseq )
 import qualified Control.Exception as Exc ( catch, IOException )
 import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap

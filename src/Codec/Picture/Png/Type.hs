@@ -1,9 +1,14 @@
+{-# LANGUAGE CPP #-}
 -- | Low level png module, you should import 'Codec.Picture.Png' instead.
 module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngFilter( .. )
                              , PngInterlaceMethod( .. )
                              , PngPalette
                              , PngImageType( .. )
+                             , APngAnimationControl( .. )
+                             , APngFrameDisposal( .. )
+                             , APngBlendOp( .. )
+                             , APngFrameControl( .. )
                              , parsePalette 
                              , pngComputeCrc
                              , pLTESignature
@@ -11,6 +16,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , iENDSignature
                              , tRNSSignature
                              , gammaSignature
+                             , animationControlSignature
                              -- * Low level types
                              , ChunkSignature
                              , PngRawImage( .. )
@@ -19,7 +25,10 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngLowLevel( .. )
                              ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+#endif
+
 import Control.Monad( when, replicateM )
 import Data.Bits( xor, (.&.), unsafeShiftR )
 import Data.Binary( Binary(..), Get, get )
@@ -35,7 +44,7 @@ import Data.Binary.Put( runPut
 import Data.Vector.Unboxed( Vector, fromListN, (!) )
 import qualified Data.Vector.Storable as V
 import Data.List( foldl' )
-import Data.Word( Word32, Word8 )
+import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as LS
 
@@ -51,13 +60,56 @@ type ChunkSignature = L.ByteString
 
 -- | Generic header used in PNG images.
 data PngIHdr = PngIHdr
-    { width             :: Word32       -- ^ Image width in number of pixel
-    , height            :: Word32       -- ^ Image height in number of pixel
-    , bitDepth          :: Word8        -- ^ Number of bit per sample
-    , colourType        :: PngImageType -- ^ Kind of png image (greyscale, true color, indexed...)
-    , compressionMethod :: Word8        -- ^ Compression method used
-    , filterMethod      :: Word8        -- ^ Must be 0
-    , interlaceMethod   :: PngInterlaceMethod   -- ^ If the image is interlaced (for progressive rendering)
+    { width             :: !Word32       -- ^ Image width in number of pixel
+    , height            :: !Word32       -- ^ Image height in number of pixel
+    , bitDepth          :: !Word8        -- ^ Number of bit per sample
+    , colourType        :: !PngImageType -- ^ Kind of png image (greyscale, true color, indexed...)
+    , compressionMethod :: !Word8        -- ^ Compression method used
+    , filterMethod      :: !Word8        -- ^ Must be 0
+    , interlaceMethod   :: !PngInterlaceMethod   -- ^ If the image is interlaced (for progressive rendering)
+    }
+    deriving Show
+
+data APngAnimationControl = APngAnimationControl
+    { animationFrameCount :: !Word32
+    , animationPlayCount  :: !Word32
+    }
+    deriving Show
+
+-- | Encoded in a Word8
+data APngFrameDisposal
+      -- | No disposal is done on this frame before rendering the
+      -- next; the contents of the output buffer are left as is. 
+      -- Has Value 0
+    = APngDisposeNone
+      -- | The frame's region of the output buffer is to be cleared
+      -- to fully transparent black before rendering the next frame. 
+      -- Has Value 1
+    | APngDisposeBackground
+      -- | the frame's region of the output buffer is to be reverted
+      -- to the previous contents before rendering the next frame.
+      -- Has Value 2
+    | APngDisposePrevious 
+    deriving Show
+
+-- | Encoded in a Word8
+data APngBlendOp
+      -- | Overwrite output buffer. has value '0'
+    = APngBlendSource
+      -- | Alpha blend to the output buffer. Has value '1'
+    | APngBlendOver
+    deriving Show
+
+data APngFrameControl = APngFrameControl
+    { frameSequenceNum      :: !Word32 -- ^ Starting from 0
+    , frameWidth            :: !Word32 -- ^ Width of the following frame
+    , frameHeight           :: !Word32 -- ^ Height of the following frame
+    , frameLeft             :: !Word32 -- X position where to render the frame.
+    , frameTop              :: !Word32 -- Y position where to render the frame.
+    , frameDelayNumerator   :: !Word16
+    , frameDelayDenuminator :: !Word16
+    , frameDisposal         :: !APngFrameDisposal
+    , frameBlending         :: !APngBlendOp
     }
     deriving Show
 
@@ -296,6 +348,9 @@ tRNSSignature = signature "tRNS"
 
 gammaSignature :: ChunkSignature
 gammaSignature = signature "gAMA"
+
+animationControlSignature :: ChunkSignature
+animationControlSignature = signature "acTL"
 
 instance Binary PngImageType where
     put PngGreyscale = putWord8 0
