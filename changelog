@@ -1,5 +1,10 @@
 -*-change-log-*-
 
+v3.2.3.1 March 2015
+ * Bumping: primitive to allow 0.6
+ * Fix: BMP output generated wrong size (thanks to mtolly).
+ * Fix: 7.10.1 warning free
+
 v3.2.3 March 2015
  * Adding: Support for RGB in jpeg (yeah, that exist...)
  * Adding: Support of CMYK & YCrCbK color space in jpeg files.

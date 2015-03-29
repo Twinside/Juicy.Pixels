@@ -13,10 +13,10 @@ module Codec.Picture.Jpg( decodeJpeg
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( pure )
+import Control.Applicative( pure, (<$>) )
 #endif
 
-import Control.Applicative( (<|>), (<$>) )
+import Control.Applicative( (<|>) )
 
 import Control.Arrow( (>>>) )
 import Control.Monad( when, forM_ )
