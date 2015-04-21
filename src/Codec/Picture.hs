@@ -20,6 +20,11 @@ module Codec.Picture (
                      , generateFoldImage
                      , withImage
 
+                     -- * Lens compatibility
+                     , Traversal
+                     , imagePixels
+                     , imageIPixels
+
                      -- * Generic image writing
                      , saveBmpImage
                      , saveJpgImage
