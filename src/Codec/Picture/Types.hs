@@ -25,6 +25,11 @@ module Codec.Picture.Types( -- * Types
                           , thawImage
                           , unsafeThawImage
 
+                            -- ** Image Lenses
+                          , Traversal
+                          , imagePixels
+                          , imageIPixels
+
                             -- ** Pixel types
                           , Pixel8
                           , Pixel16
@@ -95,12 +100,13 @@ module Codec.Picture.Types( -- * Types
 
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( Monoid, mempty )
+import Control.Applicative( Applicative, pure, (<*>), (<$>) )
 #endif
 
 import Data.Monoid( (<>) )
 import Control.Monad( foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
-import Control.Monad.ST( runST )
+import Control.Monad.ST( ST, runST )
 import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
@@ -912,6 +918,81 @@ pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
             -- safe because newArray can't be referenced as a mutable array
             -- outside of this where block
             V.unsafeFreeze newArr
+
+
+-- | Helpers to embed a rankNTypes inside an Applicative
+newtype GenST a = GenST { genAction :: forall s. ST s (M.STVector s a) }
+
+-- | Traversal type matching the definition in the Lens package.
+type Traversal s t a b =
+    forall f. Applicative f => (a -> f b) -> s -> f t 
+
+writePx :: Pixel px
+        => Int -> GenST (PixelBaseComponent px) -> px -> GenST (PixelBaseComponent px)
+{-# INLINE writePx #-}
+writePx idx act px = GenST $ do
+   vec <- genAction act
+   unsafeWritePixel vec idx px
+   return vec
+
+freezeGenST :: Pixel px
+            => Int -> Int -> GenST (PixelBaseComponent px) -> Image px
+freezeGenST w h act =
+  Image w h (runST (genAction act >>= V.unsafeFreeze))
+
+-- | Traversal in "raster" order, from left to right the top to bottom.
+-- This traversal is matching pixelMap in spirit.
+--
+-- Since 3.2.4
+imagePixels :: forall pxa pxb. (Pixel pxa, Pixel pxb)
+            => Traversal (Image pxa) (Image pxb) pxa pxb
+{-# INLINE imagePixels #-}
+imagePixels f Image { imageWidth = w, imageHeight = h, imageData = vec } =
+  freezeGenST w h <$> pixels
+  where
+    sourceComponentCount = componentCount (undefined :: pxa)
+    destComponentCount = componentCount (undefined :: pxb)
+
+    maxi = w * h * sourceComponentCount
+    pixels =
+      go (pure $ GenST $ M.new (w * h * destComponentCount)) 0 0
+
+    go act readIdx _ | readIdx >= maxi = act
+    go act readIdx writeIdx =
+      go newAct (readIdx + sourceComponentCount) (writeIdx + destComponentCount)
+      where
+        px = f (unsafePixelAt vec readIdx)
+        newAct = writePx writeIdx <$> act <*> px
+
+-- | Traversal providing the pixel position with it's value.
+-- The traversal in raster order, from lef to right, then top
+-- to bottom. The traversal match pixelMapXY in spirit.
+--
+-- Since 3.2.4
+imageIPixels :: forall pxa pxb. (Pixel pxa, Pixel pxb)
+             => Traversal (Image pxa) (Image pxb) (Int, Int, pxa) pxb
+{-# INLINE imageIPixels #-}
+imageIPixels f Image { imageWidth = w, imageHeight = h, imageData = vec } =
+  freezeGenST w h <$> pixels
+  where
+    sourceComponentCount = componentCount (undefined :: pxa)
+    destComponentCount = componentCount (undefined :: pxb)
+
+    pixels =
+      lineMapper (pure $ GenST $ M.new (w * h * destComponentCount)) 0 0 0
+
+    lineMapper act _ _ y | y >= h = act
+    lineMapper act readIdxLine writeIdxLine y =
+        go act readIdxLine writeIdxLine 0
+      where
+        go cact readIdx writeIdx x
+          | x >= w = lineMapper cact readIdx writeIdx $ y + 1
+          | otherwise = do
+             let px = f (x, y, unsafePixelAt vec readIdx)
+             go (writePx writeIdx <$> cact <*> px)
+                (readIdx + sourceComponentCount)
+                (writeIdx + destComponentCount)
+                (x + 1)
 
 -- | Just like `pixelMap` only the function takes the pixel coordinates as
 --   additional parameters.

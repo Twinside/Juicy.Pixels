@@ -1,5 +1,8 @@
 -*-change-log-*-
 
+v3.2.4 April 2015
+ * Adding: Traversals compatible with the lens library.
+
 v3.2.3.2 April 2015
  * Bumping: zlib max bound
 
