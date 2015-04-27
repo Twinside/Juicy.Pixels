@@ -32,7 +32,7 @@ module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) whe
 import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
-import Control.Monad( when, replicateM, foldM_, unless )
+import Control.Monad( when, replicateM, foldM_, unless, forM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Writer.Strict( execWriter, tell, Writer )
 import Data.Int( Int8 )
@@ -228,6 +228,7 @@ data TiffTag = TagPhotometricInterpretation
              | TagYPosition
              | TagExtraSample
              | TagImageDescription
+             | TagPredictor
 
              | TagJpegProc
              | TagJPEGInterchangeFormat
@@ -266,6 +267,7 @@ tagOfWord16 = aux
         aux 296 = TagResolutionUnit
         aux 305 = TagSoftware
         aux 315 = TagArtist
+        aux 317 = TagPredictor
         aux 320 = TagColorMap
         aux 322 = TagTileWidth
         aux 323 = TagTileLength
@@ -313,6 +315,7 @@ word16OfTag = aux
         aux TagResolutionUnit = 296
         aux TagSoftware = 305
         aux TagArtist = 315
+        aux TagPredictor = 317
         aux TagColorMap = 320
         aux TagTileWidth = 322
         aux TagTileLength = 323
@@ -515,6 +518,16 @@ codeOfExtraSample ExtraSampleUnspecified = 0
 codeOfExtraSample ExtraSampleAssociatedAlpha = 1
 codeOfExtraSample ExtraSampleUnassociatedAlpha = 2
 
+data Predictor
+    = PredictorNone                   -- 1
+    | PredictorHorizontalDifferencing -- 2
+    deriving Eq
+
+predictorOfConstant :: Word32 -> Get Predictor
+predictorOfConstant 1 = pure PredictorNone
+predictorOfConstant 2 = pure PredictorHorizontalDifferencing
+predictorOfConstant v = fail $ "Unknown predictor (" ++ show v ++ ")"
+
 data TiffInfo = TiffInfo
     { tiffHeader             :: TiffHeader
     , tiffWidth              :: Word32
@@ -531,6 +544,7 @@ data TiffInfo = TiffInfo
     , tiffPalette            :: Maybe (Image PixelRGB16)
     , tiffYCbCrSubsampling   :: V.Vector Word32
     , tiffExtraSample        :: Maybe ExtraSample
+    , tiffPredictor          :: Predictor
     }
 
 data TiffColorspace =
@@ -952,6 +966,14 @@ gatherStrips comp str nfo = runST $ do
               idxVector = V.enumFromN 0 stride
               sizes = V.zip3 idxVector (tiffOffsets nfo) (tiffStripSize nfo)
 
+  when (tiffPredictor nfo == PredictorHorizontalDifferencing) $ do
+    let f _ c1 c2 = c1 + c2
+    forM_ [0 .. height - 1] $ \y -> do
+      forM_ [1 .. width - 1] $ \x -> do
+        p <- readPixel mutableImage (x - 1) y
+        q <- readPixel mutableImage x y
+        writePixel mutableImage x y $ mixWith f p q
+
   unsafeFreezeImage mutableImage
 
 ifdSingleLong :: TiffTag -> Word32 -> Writer [ImageFileDirectory] ()
@@ -1102,6 +1124,8 @@ instance BinaryParam B.ByteString TiffInfo where
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
         <*> pure Nothing
+        <*> (dataDefault 1 TagPredictor
+                     >>= predictorOfConstant)
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 -- | while mandatory some images don't put correct
@@ -1342,6 +1366,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
             , tiffExtraSample        = extraSampleCodeOfPixel (undefined :: px)
+            , tiffPredictor          = PredictorNone -- not used when writing
             }
 
 -- | Helper function to directly write an image as a tiff on disk.
