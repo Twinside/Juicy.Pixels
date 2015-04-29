@@ -181,6 +181,7 @@ tiffValidTests =
     ,"compression/flower-rgb-contig-16-packbits.tif"
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
+    ,"horizontal-difference-lzw.tiff" -- produced by "Grab" on Mac OS X
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
