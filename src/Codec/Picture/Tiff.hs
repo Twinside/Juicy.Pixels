@@ -83,7 +83,7 @@ instance Binary Endianness where
             0x4D4D -> return EndianBig
             _ -> fail "Invalid endian tag value"
 
--- | Because having a polymorphic get with endianness is to nice
+-- | Because having a polymorphic get with endianness is too nice
 -- to pass on, introducing this helper type class, which is just
 -- a superset of Binary, but formalising a parameter passing
 -- into it.
