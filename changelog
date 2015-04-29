@@ -1,5 +1,8 @@
 -*-change-log-*-
 
+vnext
+ * Fix: handling of Tiff with predictors (thanks to Patrick Pelletier)
+ 
 v3.2.4 April 2015
  * Adding: Traversals compatible with the lens library.
 
