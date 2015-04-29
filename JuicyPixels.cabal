@@ -70,6 +70,30 @@ Test-suite imageTest
     Build-depends: mmap
     CC-Options: "-DWITH_MMAP_BYTESTRING"
 
+Benchmark imageBenchmark
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test-src
+  Default-Language: Haskell2010
+  Main-Is: main.hs
+  Ghc-options: -O3 -Wall
+  Ghc-prof-options: -rtsopts -Wall -prof -auto-all
+  -- -O3 -Wall
+  --
+  -- -ddump-simpl
+  --
+  Include-Dirs: src/Codec/Picture
+  -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
+  Build-depends: base,
+                 bytestring, mtl, binary, zlib, transformers,
+                 vector, primitive, deepseq,
+                 filepath            >= 1.3,
+                 criterion           >= 1.0,
+                 JuicyPixels
+
+  if flag(Mmap)
+    Build-depends: mmap
+    CC-Options: "-DWITH_MMAP_BYTESTRING"
+
 Library
   hs-source-dirs: src
   Default-Language: Haskell2010
