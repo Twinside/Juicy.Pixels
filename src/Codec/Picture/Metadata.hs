@@ -14,14 +14,19 @@
 module Codec.Picture.Metadata( Metadatas
                              , Keys( .. )
                              , Value( .. )
+                             , Elem( .. )
 
                              , Codec.Picture.Metadata.lookup
                              , dotsPerMeterToDotPerInch
+                             , dotPerInchToDotsPerMeter 
                              , dotsPerCentiMeterToDotPerInch
                              , empty
                              , insert
                              , delete
                              , singleton
+                             , foldl'
+                             , Codec.Picture.Metadata.foldMap
+                             , mkDpiMetadata
                              ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -110,6 +115,12 @@ union :: Metadatas -> Metadatas -> Metadatas
 union m1 = F.foldl' go m1 . getMetadatas where
   go acc el@(k :=> _) = Metadatas $ el : getMetadatas (delete k acc)
 
+foldl' :: (acc -> Elem Keys -> acc) -> acc -> Metadatas -> acc
+foldl' f initAcc = F.foldl' f initAcc . getMetadatas
+
+foldMap :: Monoid m => (Elem Keys -> m) -> Metadatas -> m
+foldMap f = foldl' (\acc v -> acc `mappend` f v) mempty
+
 delete :: Keys a -> Metadatas -> Metadatas
 delete k = Metadatas . go . getMetadatas where
   go [] = []
@@ -137,6 +148,13 @@ empty = Metadatas mempty
 dotsPerMeterToDotPerInch :: Word -> Word
 dotsPerMeterToDotPerInch z = z * 254 `div` 10000
 
+dotPerInchToDotsPerMeter :: Word -> Word
+dotPerInchToDotsPerMeter z = (z * 10000) `div` 254
+
 dotsPerCentiMeterToDotPerInch :: Word -> Word
 dotsPerCentiMeterToDotPerInch z = z * 254 `div` 100
+
+-- | Create metadatas indicating the resolution, with DpiX == DpiY
+mkDpiMetadata :: Word -> Metadatas
+mkDpiMetadata w = insert DpiY w $ singleton DpiX w
 

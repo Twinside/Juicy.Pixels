@@ -1,13 +1,18 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Codec.Picture.Png.Metadata( extractMetadatas ) where
+module Codec.Picture.Png.Metadata( extractMetadatas
+                                 , encodeMetadatas
+                                 ) where
 
 #if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( (<$>) )
 import Data.Monoid( mempty )
 import Data.Foldable( foldMap )
 #endif
 
-import Data.Binary( Binary( get, put ) )
+import Data.Maybe( fromMaybe )
+import Data.Binary( Binary( get, put ), encode )
 import Data.Binary.Get( getLazyByteStringNul )
 import Data.Binary.Put( putLazyByteString, putWord8 )
 import qualified Data.ByteString.Lazy.Char8 as L
@@ -15,7 +20,9 @@ import Data.Monoid( (<>) )
 
 import Codec.Picture.InternalHelper
 import qualified Codec.Picture.Metadata as Met
-import Codec.Picture.Metadata ( Metadatas, dotsPerMeterToDotPerInch )
+import Codec.Picture.Metadata ( Metadatas
+                              , dotsPerMeterToDotPerInch
+                              , Elem( (:=>) ) )
 import Codec.Picture.Png.Type
 
 getGamma :: [L.ByteString] -> Metadatas
@@ -77,4 +84,37 @@ extractMetadatas img = getDpis (chunksOf pHYsSignature)
                     <> getTexts (chunksOf tEXtSignature)
   where
     chunksOf = chunksWithSig img
+
+encodePhysicalMetadata :: Metadatas -> [PngRawChunk]
+encodePhysicalMetadata metas = fromMaybe [] $ do
+  dx <- Met.lookup Met.DpiX metas
+  dy <- Met.lookup Met.DpiY metas
+  let to = fromIntegral . Met.dotPerInchToDotsPerMeter
+      dim = PngPhysicalDimension (to dx) (to dy) PngUnitMeter
+  pure [mkRawChunk pHYsSignature $ encode dim]
+
+encodeSingleMetadata :: Metadatas -> [PngRawChunk]
+encodeSingleMetadata = Met.foldMap go where
+  go :: Elem Met.Keys -> [PngRawChunk]
+  go v = case v of
+    Met.DpiX :=> _ -> mempty
+    Met.DpiY :=> _ -> mempty
+    Met.Gamma       :=> g ->
+      pure $ mkRawChunk gammaSignature . encode $ PngGamma g
+    Met.Title       :=> tx -> txt "Title" (L.pack tx)
+    Met.Description :=> tx -> txt "Description" (L.pack tx)
+    Met.Author      :=> tx -> txt "Author" (L.pack tx)
+    Met.Copyright   :=> tx -> txt "Copyright" (L.pack tx)
+    Met.Software    :=> tx -> txt "Software" (L.pack tx)
+    Met.Comment     :=> tx -> txt "Comment" (L.pack tx)
+    Met.Disclaimer  :=> tx -> txt "Disclaimer" (L.pack tx)
+    Met.Source      :=> tx -> txt "Source" (L.pack tx)
+    Met.Warning     :=> tx -> txt "Warning" (L.pack tx)
+    Met.Unknown k   :=> Met.String tx -> txt (L.pack k) (L.pack tx)
+    Met.Unknown _   :=> _ -> mempty
+
+  txt k c = pure . mkRawChunk tEXtSignature . encode $ PngText k c
+
+encodeMetadatas :: Metadatas -> [PngRawChunk]
+encodeMetadatas m = encodePhysicalMetadata m <> encodeSingleMetadata m
 

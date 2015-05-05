@@ -7,14 +7,17 @@
 module Codec.Picture.Png.Export( PngSavable( .. )
                                , writePng
                                , encodeDynamicPng
+                               , encodePngWithMetadata
                                , writeDynamicPng
                                , encodePalettedPng
+                               , encodePalettedPngWithMetadata
                                ) where
 
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST, runST )
 import Data.Bits( unsafeShiftR, (.&.) )
 import Data.Binary( encode )
+import Data.Monoid( (<>) )
 import Data.Word(Word8, Word16)
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B
@@ -25,6 +28,8 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.Png.Type
+import Codec.Picture.Png.Metadata
+import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.VectorByteConversion( blitVector, toByteString )
 
 -- | Encode an image into a png if possible.
@@ -32,43 +37,41 @@ class PngSavable a where
     -- | Transform an image into a png encoded bytestring, ready
     -- to be written as a file.
     encodePng :: Image a -> Lb.ByteString
+    encodePng = encodePngWithMetadata mempty
+
+    encodePngWithMetadata :: Metadatas -> Image a -> Lb.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr
 preparePngHeader (Image { imageWidth = w, imageHeight = h }) imgType depth = PngIHdr
-    { width             = fromIntegral w
-    , height            = fromIntegral h
-    , bitDepth          = depth
-    , colourType        = imgType
-    , compressionMethod = 0
-    , filterMethod      = 0
-    , interlaceMethod   = PngNoInterlace
-    }
+  { width             = fromIntegral w
+  , height            = fromIntegral h
+  , bitDepth          = depth
+  , colourType        = imgType
+  , compressionMethod = 0
+  , filterMethod      = 0
+  , interlaceMethod   = PngNoInterlace
+  }
 
 -- | Helper function to directly write an image as a png on disk.
 writePng :: (PngSavable pixel) => FilePath -> Image pixel -> IO ()
 writePng path img = Lb.writeFile path $ encodePng img
 
 endChunk :: PngRawChunk
-endChunk = PngRawChunk { chunkLength = 0
-                       , chunkType = iENDSignature
-                       , chunkCRC = pngComputeCrc [iENDSignature]
-                       , chunkData = Lb.empty
-                       }
-
+endChunk = mkRawChunk iENDSignature mempty
 
 prepareIDatChunk :: Lb.ByteString -> PngRawChunk
-prepareIDatChunk imgData = PngRawChunk
-    { chunkLength = fromIntegral $ Lb.length imgData
-    , chunkType   = iDATSignature
-    , chunkCRC    = pngComputeCrc [iDATSignature, imgData]
-    , chunkData   = imgData
-    }
+prepareIDatChunk = mkRawChunk iDATSignature
 
 genericEncode16BitsPng :: forall px. (Pixel px, PixelBaseComponent px ~ Word16)
-                       => PngImageType -> Image px -> Lb.ByteString
-genericEncode16BitsPng imgKind
+                       => PngImageType -> Metadatas -> Image px -> Lb.ByteString
+genericEncode16BitsPng imgKind metas
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
-  encode PngRawImage { header = hdr, chunks = [prepareIDatChunk imgEncodedData, endChunk]}
+  encode PngRawImage { header = hdr
+                     , chunks = encodeMetadatas metas 
+                              <> [ prepareIDatChunk imgEncodedData
+                                 , endChunk
+                                 ]
+                     }
     where hdr = preparePngHeader image imgKind 16
           zero = B.singleton 0
           compCount = componentCount (undefined :: px)
@@ -101,12 +104,15 @@ preparePalette pal = PngRawChunk
    where binaryData = Lb.fromChunks [toByteString $ imageData pal]
 
 genericEncodePng :: forall px. (Pixel px, PixelBaseComponent px ~ Word8)
-                 => Maybe Palette -> PngImageType -> Image px
+                 => Maybe Palette -> PngImageType -> Metadatas -> Image px
                  -> Lb.ByteString
-genericEncodePng palette imgKind
+genericEncodePng palette imgKind metas
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr
-                     , chunks = prependPalette palette [prepareIDatChunk imgEncodedData, endChunk]}
+                     , chunks = encodeMetadatas metas
+                              <> prependPalette palette
+                                    [ prepareIDatChunk imgEncodedData
+                                    , endChunk]}
     where hdr = preparePngHeader image imgKind 8
           zero = B.singleton 0
           compCount = componentCount (undefined :: px)
@@ -120,28 +126,28 @@ genericEncodePng palette imgKind
                         $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
 instance PngSavable PixelRGBA8 where
-    encodePng = genericEncodePng Nothing PngTrueColourWithAlpha
+  encodePngWithMetadata = genericEncodePng Nothing PngTrueColourWithAlpha
 
 instance PngSavable PixelRGB8 where
-    encodePng = genericEncodePng Nothing PngTrueColour
+  encodePngWithMetadata = genericEncodePng Nothing PngTrueColour
 
 instance PngSavable Pixel8 where
-    encodePng = genericEncodePng Nothing PngGreyscale
+  encodePngWithMetadata = genericEncodePng Nothing PngGreyscale
 
 instance PngSavable PixelYA8 where
-    encodePng = genericEncodePng Nothing PngGreyscaleWithAlpha
+  encodePngWithMetadata = genericEncodePng Nothing PngGreyscaleWithAlpha
 
 instance PngSavable PixelYA16 where
-    encodePng = genericEncode16BitsPng PngGreyscaleWithAlpha
+  encodePngWithMetadata = genericEncode16BitsPng PngGreyscaleWithAlpha
 
 instance PngSavable Pixel16 where
-    encodePng = genericEncode16BitsPng PngGreyscale
+  encodePngWithMetadata = genericEncode16BitsPng PngGreyscale
 
 instance PngSavable PixelRGB16 where
-    encodePng = genericEncode16BitsPng PngTrueColour
+  encodePngWithMetadata = genericEncode16BitsPng PngTrueColour
 
 instance PngSavable PixelRGBA16 where
-    encodePng = genericEncode16BitsPng PngTrueColourWithAlpha
+  encodePngWithMetadata = genericEncode16BitsPng PngTrueColourWithAlpha
 
 -- | Write a dynamic image in a .png image file if possible.
 -- The same restriction as encodeDynamicPng apply.
@@ -153,11 +159,15 @@ writeDynamicPng path img = case encodeDynamicPng img of
 -- | Encode a paletted image as a color indexed 8-bit PNG.
 -- the palette must have between 1 and 256 values in it.
 encodePalettedPng :: Palette -> Image Pixel8 -> Either String Lb.ByteString
-encodePalettedPng pal img
+encodePalettedPng = encodePalettedPngWithMetadata mempty
+
+-- | Equivalent to 'encodePalettedPng' but allow writing of metadatas.
+encodePalettedPngWithMetadata :: Metadatas -> Palette -> Image Pixel8 -> Either String Lb.ByteString
+encodePalettedPngWithMetadata metas pal img
     | w <= 0 || w > 256 || h /= 1 = Left "Invalid palette"
     | VS.any isTooBig $ imageData img =
         Left "Image contains indexes absent from the palette"
-    | otherwise = Right $ genericEncodePng (Just pal) PngIndexedColor img
+    | otherwise = Right $ genericEncodePng (Just pal) PngIndexedColor metas img
       where w = imageWidth pal
             h = imageHeight pal
             isTooBig v = fromIntegral v >= w

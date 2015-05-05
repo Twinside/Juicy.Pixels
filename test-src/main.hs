@@ -20,6 +20,8 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
 import Codec.Picture.HDR
+import Codec.Picture.Png( encodePalettedPngWithMetadata )
+import qualified Codec.Picture.Metadata as Met
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
@@ -496,8 +498,24 @@ gifTest = ["Gif_pixel_cube.gif"
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
+metadataTest :: IO ()
+metadataTest = do
+  let dumbImage = generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
+      mi = Met.insert
+      metas = mi Met.Author "It's a me"
+            $ mi Met.Software "JuicyPixels test suite"
+            $ mi Met.Title "A metadata test"
+            $ mi Met.Copyright "meh"
+            $ mi Met.Description "let's see the results"
+            $ mi Met.Comment "Test of comment"
+            $ Met.mkDpiMetadata 96
+  L.writeFile ("tests/metadata.png") $
+      encodePngWithMetadata metas dumbImage
+
 testSuite :: IO ()
 testSuite = do
+    putStrLn ">>>> Metadata test"
+    metadataTest
     putStrLn ">>>> Gif animation test"
     gifAnimationTest 
     putStrLn ">>>> Valid instances"

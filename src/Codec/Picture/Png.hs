@@ -22,10 +22,10 @@ module Codec.Picture.Png( -- * High level functions
                         , decodePng
                         , decodePngWithMetadata
                         , writePng
-                        , encodePalettedPng
                         , encodeDynamicPng
+                        , encodePalettedPng
+                        , encodePalettedPngWithMetadata
                         , writeDynamicPng
-
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)

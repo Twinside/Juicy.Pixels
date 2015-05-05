@@ -30,6 +30,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngRawChunk( .. )
                              , PngLowLevel( .. )
                              , chunksWithSig
+                             , mkRawChunk
                              ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -188,6 +189,14 @@ data PngRawChunk = PngRawChunk
     , chunkCRC    :: Word32
     , chunkData   :: L.ByteString
     }
+
+mkRawChunk :: ChunkSignature -> L.ByteString -> PngRawChunk
+mkRawChunk sig binaryData = PngRawChunk
+  { chunkLength = fromIntegral $ L.length binaryData
+  , chunkType   = sig
+  , chunkCRC    = pngComputeCrc [sig, binaryData]
+  , chunkData   = binaryData
+  }
 
 -- | PNG chunk representing some extra information found in the parsed file.
 data PngChunk = PngChunk
