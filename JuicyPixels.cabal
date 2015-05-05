@@ -1,5 +1,5 @@
 Name:                JuicyPixels
-Version:             3.2.4
+Version:             3.2.5
 Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, gif, tga, tiff and radiance)
 Description:
     <<data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADABAMAAACg8nE0AAAAElBMVEUAAABJqDSTWEL/qyb///8AAABH/1GTAAAAAXRSTlMAQObYZgAAAN5JREFUeF7s1sEJgFAQxFBbsAV72v5bEVYWPwT/XDxmCsi7zvHXavYREBDI3XP2GgICqBBYuwIC+/rVayPUAyAg0HvIXBcQoDFDGnUBgWQQ2Bx3AYFaRoBpAQHWb3bt2ARgGAiCYFFuwf3X5HA/McgGJWI2FdykCv4aBYzmKwDwvl6NVmUAAK2vlwEALK7fo88GANB6HQsAAAAAAAAA7P94AQCzswEAAAAAAAAAAAAAAAAAAICzh4UAO4zWAYBfRutHA4Bn5C69JhowAMGoBaMWDG0wCkbBKBgFo2AUAACPmegUST/IJAAAAABJRU5ErkJggg==>>
@@ -28,7 +28,7 @@ Source-Repository head
 Source-Repository this
     Type:      git
     Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v3.2.4
+    Tag:       v3.2.5
 
 Flag Mmap
     Description: Enable the file loading via mmap (memory map)
@@ -81,6 +81,7 @@ Library
                     Codec.Picture.HDR,
                     Codec.Picture.Tga,
                     Codec.Picture.Tiff,
+                    Codec.Picture.Metadata,
                     Codec.Picture.Saving,
                     Codec.Picture.Types,
                     Codec.Picture.ColorQuant
@@ -104,6 +105,7 @@ Library
 
   -- Modules not exported by this package.
   Other-modules: Codec.Picture.Jpg.DefaultTable,
+                 Codec.Picture.Jpg.Metadata,
                  Codec.Picture.Jpg.FastIdct,
                  Codec.Picture.Jpg.FastDct,
                  Codec.Picture.Jpg.Types,
@@ -113,6 +115,7 @@ Library
                  Codec.Picture.Gif.LZWEncoding,
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
+                 Codec.Picture.Png.Metadata,
                  Codec.Picture.BitWriter,
                  Codec.Picture.InternalHelper,
                  Codec.Picture.VectorByteConversion

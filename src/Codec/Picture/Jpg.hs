@@ -8,11 +8,13 @@
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( decodeJpeg
+                        , decodeJpegWithMetadata
                         , encodeJpegAtQuality
                         , encodeJpeg
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)
+import Data.Foldable( foldMap )
 import Control.Applicative( pure, (<$>) )
 #endif
 
@@ -42,11 +44,13 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
+import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
+import Codec.Picture.Jpg.Metadata
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
@@ -235,6 +239,7 @@ data JpgDecoderState = JpgDecoderState
     , currentRestartInterv  :: !Int
     , currentFrame          :: Maybe JpgFrameHeader
     , app14Marker           :: !(Maybe JpgAdobeApp14)
+    , app0JFifMarker        :: !(Maybe JpgJFIFApp0)
     , componentIndexMapping :: ![(Word8, Int)]
     , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
@@ -261,6 +266,7 @@ emptyDecoderState = JpgDecoderState
     , currentFrame         = Nothing
     , componentIndexMapping = []
     , app14Marker = Nothing
+    , app0JFifMarker = Nothing
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -272,6 +278,8 @@ emptyDecoderState = JpgDecoderState
 jpgMachineStep :: JpgFrame -> JpgScripter s ()
 jpgMachineStep (JpgAdobeAPP14 app14) = modify $ \s ->
     s { app14Marker = Just app14 }
+jpgMachineStep (JpgJFIF app0) = modify $ \s ->
+    s { app0JFifMarker = Just app0 }
 jpgMachineStep (JpgAppFrame _ _) = pure ()
 jpgMachineStep (JpgExtension _ _) = pure ()
 jpgMachineStep (JpgScanBlob hdr raw_data) = do
@@ -530,15 +538,24 @@ colorSpaceOfComponentStr s = case s of
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
-decodeJpeg file = case runGetStrict get file of
+decodeJpeg = fmap fst . decodeJpegWithMetadata
+
+decodeJpegWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeJpegWithMetadata file = case runGetStrict get file of
   Left err -> Left err
   Right img -> case imgKind of
      Just BaseLineDCT ->
-       let (st, arr) = decodeBaseline in
-       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+       let (st, arr) = decodeBaseline
+           meta = foldMap extractMetadatas $ app0JFifMarker st
+       in
+       (, meta) <$>
+           dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
      Just ProgressiveDCT ->
-       let (st, arr) = decodeProgressive in
-       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+       let (st, arr) = decodeProgressive
+           meta = foldMap extractMetadatas $ app0JFifMarker st
+       in
+       (, meta) <$>
+           dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
      _ -> Left "Unkown JPG kind"
     where
       compCount = length $ jpgComponents scanInfo

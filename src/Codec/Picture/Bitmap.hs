@@ -8,6 +8,7 @@ module Codec.Picture.Bitmap( -- * Functions
                              writeBitmap
                            , encodeBitmap
                            , decodeBitmap
+                           , decodeBitmapWithMetadata
                            , encodeDynamicBitmap 
                            , writeDynamicBitmap 
                              -- * Accepted format in output
@@ -41,6 +42,8 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
+import qualified Codec.Picture.Metadata as Met
+import Codec.Picture.Metadata ( Metadatas )
 
 data BmpHeader = BmpHeader
     { magicIdentifier :: !Word16
@@ -298,6 +301,12 @@ pixelGet = do
     _ <- getWord8
     return $ PixelRGB8 r g b
 
+metadataOfHeader :: BmpInfoHeader -> Metadatas
+metadataOfHeader hdr = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX
+  where
+    dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
+    dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
+
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
 --
@@ -306,7 +315,10 @@ pixelGet = do
 --    * Pixel8
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
-decodeBitmap str = flip runGetStrict str $ do
+decodeBitmap = fmap fst . decodeBitmapWithMetadata
+
+decodeBitmapWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeBitmapWithMetadata str = flip runGetStrict str $ do
   hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
 
@@ -327,13 +339,14 @@ decodeBitmap str = flip runGetStrict str $ do
 
   skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
   rest <- getRemainingBytes
+  let addMetadata i = (i, metadataOfHeader bmpHeader)
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-    (24, 1, 0) -> return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    (24, 1, 0) -> return . addMetadata . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
     ( 8, 1, 0) ->
         let indexer v = table V.! fromIntegral v in
-        return . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
+        return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
 
     a          -> fail $ "Can't handle BMP file " ++ show a
 

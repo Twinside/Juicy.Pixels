@@ -19,6 +19,8 @@ module Codec.Picture.Jpg.Types( MutableMacroBlock
                               , JpgColorSpace( .. )
                               , AdobeTransform( .. )
                               , JpgAdobeApp14( .. )
+                              , JpgJFIFApp0( .. )
+                              , JFifUnit( .. )
                               , calculateSize
                               , dctBlockSize
                               ) where
@@ -101,6 +103,7 @@ data JpgFrameKind =
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
     | JpgAdobeAPP14      !JpgAdobeApp14
+    | JpgJFIF            !JpgJFIFApp0
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
     | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanPackedTree)]
@@ -134,6 +137,74 @@ data JpgAdobeApp14 = JpgAdobeApp14
   , _adobeTransform  :: !AdobeTransform
   }
   deriving Show
+
+-- | Size: 1
+data JFifUnit
+  = JFifUnitUnknown   -- ^ 0
+  | JFifPixelsPerInch -- ^ 1
+  | JFifPixelsPerCentimeter -- ^ 2
+  deriving Show
+
+instance Binary JFifUnit where
+  put v = putWord8 $ case v of
+    JFifUnitUnknown -> 0
+    JFifPixelsPerInch -> 1
+    JFifPixelsPerCentimeter -> 2
+  get = do
+    v <- getWord8
+    pure $ case v of
+      0 -> JFifUnitUnknown
+      1 -> JFifPixelsPerInch
+      2 -> JFifPixelsPerCentimeter
+      _ -> JFifUnitUnknown
+
+data JpgJFIFApp0 = JpgJFIFApp0 
+  { _jfifUnit      :: !JFifUnit
+  , _jfifDpiX      :: !Word16
+  , _jfifDpiY      :: !Word16
+  , _jfifThumbnail :: !(Maybe {- (Image PixelRGB8) -} Int)
+  }
+  deriving Show
+
+instance Binary JpgJFIFApp0 where
+  get = do
+    sig <- getByteString 5
+    when (sig /= BC.pack "JFIF\0") $
+        fail "Invalid JFIF signature"
+    major <- getWord8
+    minor <- getWord8
+    when (major /= 1 || minor /= 2) $
+        fail "Unrecognize JFIF version"
+    unit <- get
+    dpiX <- getWord16be
+    dpiY <- getWord16be
+    w <- getWord8
+    h <- getWord8
+    let pxCount = 3 * w * h
+    img <- case pxCount of
+      0 -> return Nothing
+      _ -> return Nothing
+    return $ JpgJFIFApp0
+        { _jfifUnit      = unit
+        , _jfifDpiX      = dpiX
+        , _jfifDpiY      = dpiY
+        , _jfifThumbnail = img
+        }
+
+
+  put jfif = do
+    putByteString $ BC.pack "JFIF\0" -- 5
+    putWord8 1                       -- 1 6
+    putWord8 2                       -- 1 7
+    put $ _jfifUnit jfif             -- 1 8
+    putWord16be $ _jfifDpiX jfif     -- 2 10
+    putWord16be $ _jfifDpiY jfif     -- 2 12
+    putWord8 0                       -- 1 13
+    putWord8 0                       -- 1 14
+
+{-Thumbnail width (tw) 	1 	Horizontal size of embedded JFIF thumbnail in pixels-}
+{-Thumbnail height (th) 	1 	Vertical size of embedded JFIF thumbnail in pixels-}
+{-Thumbnail data 	3 × tw × th 	Uncompressed 24 bit RGB raster thumbnail-}
 
 instance Binary AdobeTransform where
   put v = case v of
@@ -355,6 +426,8 @@ takeCurrentFrame = do
 
 putFrame :: JpgFrame -> Put
 putFrame (JpgAdobeAPP14 _adobe) = return ()
+putFrame (JpgJFIF jfif) =
+    put (JpgAppSegment 0) >> putWord16be 14 >> put jfif
 putFrame (JpgAppFrame appCode str) =
     put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
 putFrame (JpgExtension appCode str) =
@@ -400,6 +473,13 @@ parseAdobe14 str lst = go where
     Left _err -> lst
     Right app14 -> JpgAdobeAPP14 app14 : lst
 
+-- | Parse JFIF or JFXX information. Right now only JFIF.
+parseJF__  :: B.ByteString -> [JpgFrame] -> [JpgFrame]
+parseJF__  str lst = go where
+  go = case runGetStrict get str of
+    Left _err -> lst
+    Right jfif -> JpgJFIF jfif : lst
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
@@ -413,6 +493,8 @@ parseFrames = do
 
     case kind of
         JpgEndOfImage -> return []
+        JpgAppSegment 0 ->
+            parseJF__ <$> takeCurrentFrame <*> parseNextFrame
         JpgAppSegment 14 ->
             parseAdobe14 <$> takeCurrentFrame <*> parseNextFrame
         JpgAppSegment c ->

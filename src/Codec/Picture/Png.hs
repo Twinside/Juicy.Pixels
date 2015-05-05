@@ -3,6 +3,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
 -- | Module used for loading & writing \'Portable Network Graphics\' (PNG)
 -- files.
@@ -19,6 +20,7 @@ module Codec.Picture.Png( -- * High level functions
                           PngSavable( .. )
 
                         , decodePng
+                        , decodePngWithMetadata
                         , writePng
                         , encodePalettedPng
                         , encodeDynamicPng
@@ -46,8 +48,10 @@ import qualified Data.ByteString.Lazy as Lb
 import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
+import Codec.Picture.Metadata
 import Codec.Picture.Png.Type
 import Codec.Picture.Png.Export
+import Codec.Picture.Png.Metadata
 import Codec.Picture.InternalHelper
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.
@@ -495,30 +499,38 @@ palette8 hdr palette transparency eimg = case (transparency, eimg) of
 --    * PixelRGBA16
 --
 decodePng :: B.ByteString -> Either String DynamicImage
-decodePng byte = do
-    rawImg <- runGetStrict get byte
-    let ihdr = header rawImg
-        compressedImageData =
-              Lb.concat [chunkData chunk | chunk <- chunks rawImg
-                                         , chunkType chunk == iDATSignature]
-        zlibHeaderSize = 1 {- compression method/flags code -}
-                       + 1 {- Additional flags/check bits -}
-                       + 4 {-CRC-}
+decodePng = fmap fst . decodePngWithMetadata
 
-        transparencyColor =
-            [ chunkData chunk | chunk <- chunks rawImg
-                              , chunkType chunk == tRNSSignature ]
+-- | Same as 'decodePng' but also extract meta datas present
+-- in the files.
+decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodePngWithMetadata byte =  do
+  rawImg <- runGetStrict get byte
+  let ihdr = header rawImg
+      metadatas = extractMetadatas rawImg
+      compressedImageData =
+            Lb.concat [chunkData chunk | chunk <- chunks rawImg
+                                       , chunkType chunk == iDATSignature]
+      zlibHeaderSize = 1 {- compression method/flags code -}
+                     + 1 {- Additional flags/check bits -}
+                     + 4 {-CRC-}
+
+      transparencyColor =
+          [ chunkData chunk | chunk <- chunks rawImg
+                            , chunkType chunk == tRNSSignature ]
 
 
-    if Lb.length compressedImageData <= zlibHeaderSize
-       then Left "Invalid data size"
-       else let imgData = Z.decompress compressedImageData
-                parseableData = B.concat $ Lb.toChunks imgData
-                palette = case find (\c -> pLTESignature == chunkType c) $ chunks rawImg of
-                    Nothing -> Nothing
-                    Just p -> case parsePalette p of
-                            Left _ -> Nothing
-                            Right plte -> Just plte
-            in
-            unparse ihdr palette transparencyColor (colourType ihdr) parseableData
+  if Lb.length compressedImageData <= zlibHeaderSize then
+    Left "Invalid data size"
+  else
+    let imgData = Z.decompress compressedImageData
+        parseableData = B.concat $ Lb.toChunks imgData
+        palette = do 
+          p <- find (\c -> pLTESignature == chunkType c) $ chunks rawImg
+          case parsePalette p of
+            Left _ -> Nothing
+            Right plte -> return plte
+    in
+    (, metadatas) <$>
+        unparse ihdr palette transparencyColor (colourType ihdr) parseableData
 
