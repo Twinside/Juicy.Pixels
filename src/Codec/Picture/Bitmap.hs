@@ -317,6 +317,7 @@ metadataOfHeader hdr = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap = fmap fst . decodeBitmapWithMetadata
 
+-- | Same as 'decodeBitmap' but also extracts metadata.
 decodeBitmapWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeBitmapWithMetadata str = flip runGetStrict str $ do
   hdr      <- get :: Get BmpHeader

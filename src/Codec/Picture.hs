@@ -258,6 +258,7 @@ withImageDecoder decoder path = Exc.catch doit
 readImage :: FilePath -> IO (Either String DynamicImage)
 readImage = withImageDecoder decodeImage
 
+-- | Equivalent to 'readImage'  but also providing metadatas.
 readImageWithMetadata :: FilePath -> IO (Either String (DynamicImage, Metadatas))
 readImageWithMetadata = withImageDecoder decodeImageWithMetadata
 
@@ -268,6 +269,8 @@ readImageWithMetadata = withImageDecoder decodeImageWithMetadata
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage = fmap fst . decodeImageWithMetadata 
 
+-- | Equivalent to 'decodeImage', but also provide potential metadatas
+-- present in the given file.
 decodeImageWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeImageWithMetadata str = eitherLoad str
     [ ("Jpeg", decodeJpegWithMetadata)

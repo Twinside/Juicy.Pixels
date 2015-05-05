@@ -7,7 +7,6 @@
 module Codec.Picture.Png.Export( PngSavable( .. )
                                , writePng
                                , encodeDynamicPng
-                               , encodePngWithMetadata
                                , writeDynamicPng
                                , encodePalettedPng
                                , encodePalettedPngWithMetadata
@@ -39,6 +38,28 @@ class PngSavable a where
     encodePng :: Image a -> Lb.ByteString
     encodePng = encodePngWithMetadata mempty
 
+    -- | Encode a png using some metadatas. The following metadata keys will
+    -- be stored in a `tEXt` field :
+    --
+    --  * 'Codec.Picture.Metadata.Title'
+    --  * 'Codec.Picture.Metadata.Description'
+    --  * 'Codec.Picture.Metadata.Author'
+    --  * 'Codec.Picture.Metadata.Copyright'
+    --  * 'Codec.Picture.Metadata.Software'
+    --  * 'Codec.Picture.Metadata.Comment'
+    --  * 'Codec.Picture.Metadata.Disclaimer'
+    --  * 'Codec.Picture.Metadata.Source'
+    --  * 'Codec.Picture.Metadata.Warning'
+    --  * 'Codec.Picture.Metadata.Unknown' using the key present in the constructor.
+    -- 
+    -- the followings metadata will bes tored in the `gAMA` chunk.
+    --
+    --  * 'Codec.Picture.Metadata.Gamma'
+    --
+    -- The followings metadata will be stored in a `pHYs` chunk
+    --
+    --  * 'Codec.Picture.Metadata.DpiX'
+    --  * 'Codec.Picture.Metadata.DpiY' 
     encodePngWithMetadata :: Metadatas -> Image a -> Lb.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr

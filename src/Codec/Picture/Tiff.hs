@@ -839,6 +839,8 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff = fmap fst . decodeTiffWithMetadata 
 
+-- | Like 'decodeTiff' but also provides some metdata present
+-- in the Tiff file.
 decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeTiffWithMetadata file = runGetStrict (getP file) file >>= go
   where

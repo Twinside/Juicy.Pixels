@@ -11,22 +11,30 @@
 --
 -- Since version 3.2.5
 --
-module Codec.Picture.Metadata( Metadatas
+module Codec.Picture.Metadata( -- * Types
+                               Metadatas
                              , Keys( .. )
                              , Value( .. )
                              , Elem( .. )
 
+                               -- * Functions
                              , Codec.Picture.Metadata.lookup
-                             , dotsPerMeterToDotPerInch
-                             , dotPerInchToDotsPerMeter 
-                             , dotsPerCentiMeterToDotPerInch
                              , empty
                              , insert
                              , delete
                              , singleton
+
+                               -- * Folding
                              , foldl'
                              , Codec.Picture.Metadata.foldMap
+
+                              -- * Helper functions
                              , mkDpiMetadata
+
+                               -- * Conversion functions
+                             , dotsPerMeterToDotPerInch
+                             , dotPerInchToDotsPerMeter 
+                             , dotsPerCentiMeterToDotPerInch
                              ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -39,11 +47,13 @@ import Data.Typeable( (:~:)( Refl ) )
 import qualified Data.Foldable as F
 
 -- | Store various additional information about an image. If
--- something is not recognize, it can be stored in an unknown tag.
+-- something is not recognized, it can be stored in an unknown tag.
 --
 --   * 'DpiX' Dot per inch on this x axis.
 --
 --   * 'DpiY' Dot per inch on this y axis.
+--
+--   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
 --
 data Keys a where
   Gamma       :: Keys Double
@@ -64,6 +74,7 @@ deriving instance Show (Keys a)
 deriving instance Eq (Keys a)
 deriving instance Ord (Keys a)
 
+-- | Encode values for unknown information
 data Value
   = Int    !Int
   | Double !Double
@@ -73,7 +84,10 @@ data Value
 instance NFData Value where
   rnf v = v `seq` () -- everything is strict, so it's OK
 
-data Elem k = forall a. (Show a, NFData a) => !(k a) :=> a
+-- | Element describing a metadata and it's (typed) associated
+-- value.
+data Elem k =
+  forall a. (Show a, NFData a) => !(k a) :=> a
 
 deriving instance Show (Elem Keys)
 
@@ -98,7 +112,9 @@ keyEq a b = case (a, b) of
   _ -> Nothing
 
 -- | Dependent storage used for metadatas.
---
+-- All metadatas of a given kind are unique within
+-- this container.
+    --
 -- The current data structure is based on list,
 -- so bad performances can be expected.
 newtype Metadatas = Metadatas
@@ -115,12 +131,16 @@ union :: Metadatas -> Metadatas -> Metadatas
 union m1 = F.foldl' go m1 . getMetadatas where
   go acc el@(k :=> _) = Metadatas $ el : getMetadatas (delete k acc)
 
+-- | Strict left fold of the metadatas
 foldl' :: (acc -> Elem Keys -> acc) -> acc -> Metadatas -> acc
 foldl' f initAcc = F.foldl' f initAcc . getMetadatas
 
+-- | foldMap equivalent for metadatas.
 foldMap :: Monoid m => (Elem Keys -> m) -> Metadatas -> m
 foldMap f = foldl' (\acc v -> acc `mappend` f v) mempty
 
+-- | Remove an element of the given keys from the metadatas.
+-- If not present does nothing.
 delete :: Keys a -> Metadatas -> Metadatas
 delete k = Metadatas . go . getMetadatas where
   go [] = []
@@ -128,6 +148,7 @@ delete k = Metadatas . go . getMetadatas where
     Nothing -> el : go rest
     Just Refl -> rest
 
+-- | Search a metadata with the given key.
 lookup :: Keys a -> Metadatas -> Maybe a
 lookup k = go . getMetadatas where
   go [] = Nothing
@@ -135,22 +156,29 @@ lookup k = go . getMetadatas where
     Nothing -> go rest
     Just Refl -> Just v
 
+-- | Insert an element in the metadatas, if an element with
+-- the same key is present, it is overwritten.
 insert :: (Show a, NFData a) => Keys a -> a -> Metadatas -> Metadatas
 insert k val metas =
   Metadatas $ (k :=> val) : getMetadatas (delete k metas)
 
+-- | Create metadatas with a single element.
 singleton :: (Show a, NFData a) => Keys a -> a -> Metadatas
 singleton k val = Metadatas [k :=> val]
 
+-- | Empty metadatas. Favor 'mempty'
 empty :: Metadatas
 empty = Metadatas mempty
 
+-- | Conversion from dpm to dpi
 dotsPerMeterToDotPerInch :: Word -> Word
 dotsPerMeterToDotPerInch z = z * 254 `div` 10000
 
+-- | Conversion from dpi to dpm
 dotPerInchToDotsPerMeter :: Word -> Word
 dotPerInchToDotsPerMeter z = (z * 10000) `div` 254
 
+-- | Conversion dpcm -> dpi
 dotsPerCentiMeterToDotPerInch :: Word -> Word
 dotsPerCentiMeterToDotPerInch z = z * 254 `div` 100
 
