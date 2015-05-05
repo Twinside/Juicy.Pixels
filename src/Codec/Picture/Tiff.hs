@@ -25,7 +25,12 @@
 --
 --   * 16 bits
 --
-module Codec.Picture.Tiff( decodeTiff, TiffSaveable, encodeTiff, writeTiff ) where
+module Codec.Picture.Tiff( decodeTiff
+                         , decodeTiffWithMetadata
+                         , TiffSaveable
+                         , encodeTiff
+                         , writeTiff
+                         ) where
 
 
 #if !MIN_VERSION_base(4,8,0)
@@ -52,11 +57,13 @@ import qualified Data.ByteString.Unsafe as BU
 
 import Foreign.Storable( sizeOf )
 
+import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Gif.LZW
 import Codec.Picture.Tiff.Types
+import Codec.Picture.Tiff.Metadata
 import Codec.Picture.VectorByteConversion( toByteString )
 
 data TiffInfo = TiffInfo
@@ -75,6 +82,7 @@ data TiffInfo = TiffInfo
   , tiffPalette            :: Maybe (Image PixelRGB16)
   , tiffYCbCrSubsampling   :: V.Vector Word32
   , tiffExtraSample        :: Maybe ExtraSample
+  , tiffMetadatas          :: Metadatas
   }
 
 unLong :: String -> ExtendedDirectoryData -> Get (V.Vector Word32)
@@ -84,21 +92,23 @@ unLong errMessage _ = fail errMessage
 
 cleanImageFileDirectory :: Endianness -> ImageFileDirectory -> ImageFileDirectory
 cleanImageFileDirectory EndianBig ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
-    where aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
-          aux _ = ifd
+  where
+    aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
+    aux _ = ifd
+
 cleanImageFileDirectory _ ifd = ifd
 
 fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
 fetchExtended endian = mapM $ \ifd -> do
-        v <- getP (endian, ifd)
-        pure $ ifd { ifdExtended = v }
+  v <- getP (endian, ifd)
+  pure $ ifd { ifdExtended = v }
 
 findIFD :: String -> TiffTag -> [ImageFileDirectory]
         -> Get ImageFileDirectory
 findIFD errorMessage tag lst =
-    case [v | v <- lst, ifdIdentifier v == tag] of
-        [] -> fail errorMessage
-        (x:_) -> pure x
+  case [v | v <- lst, ifdIdentifier v == tag] of
+    [] -> fail errorMessage
+    (x:_) -> pure x
 
 findPalette :: [ImageFileDirectory] -> Get (Maybe (Image PixelRGB16))
 findPalette ifds =
@@ -664,6 +674,7 @@ instance BinaryParam B.ByteString TiffInfo where
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
         <*> pure Nothing
+        <*> pure (extractTiffMetadata cleaned)
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
 -- | while mandatory some images don't put correct
@@ -815,7 +826,13 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- * PixelCMYK16
 --
 decodeTiff :: B.ByteString -> Either String DynamicImage
-decodeTiff file = runGetStrict (getP file) file >>= unpack file
+decodeTiff = fmap fst . decodeTiffWithMetadata 
+
+decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeTiffWithMetadata file = runGetStrict (getP file) file >>= go
+  where
+    go tinfo = (, tiffMetadatas tinfo) <$> unpack file tinfo
+    
 
 -- | Class defining which pixel types can be serialized in a
 -- Tiff file.
@@ -904,6 +921,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
             , tiffExtraSample        = extraSampleCodeOfPixel (undefined :: px)
+            , tiffMetadatas          = mempty
             }
 
 -- | Helper function to directly write an image as a tiff on disk.

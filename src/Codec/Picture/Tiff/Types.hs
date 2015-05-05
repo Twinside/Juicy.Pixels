@@ -144,6 +144,7 @@ data IfdType
   | TypeSignedRational
   | TypeFloat
   | TypeDouble
+  deriving Show
 
 instance BinaryParam Endianness IfdType where
     getP endianness = getP endianness >>= conv where
@@ -214,6 +215,7 @@ data TiffTag
   | TagYPosition
   | TagExtraSample
   | TagImageDescription
+  | TagCopyright
 
   | TagJpegProc
   | TagJPEGInterchangeFormat
@@ -273,6 +275,7 @@ tagOfWord16 v = case v of
   530 -> TagYCbCrSubsampling
   531 -> TagYCbCrPositioning
   532 -> TagReferenceBlackWhite
+  33432 -> TagCopyright
   vv -> TagUnknown vv
 
 word16OfTag :: TiffTag -> Word16
@@ -320,6 +323,7 @@ word16OfTag t = case t of
   TagYCbCrSubsampling -> 530
   TagYCbCrPositioning -> 531
   TagReferenceBlackWhite -> 532
+  TagCopyright -> 33432
   (TagUnknown v) -> v
 
 instance BinaryParam Endianness TiffTag where
@@ -328,9 +332,10 @@ instance BinaryParam Endianness TiffTag where
 
 data ExtendedDirectoryData
   = ExtendedDataNone
-  | ExtendedDataAscii !B.ByteString
-  | ExtendedDataShort !(V.Vector Word16)
-  | ExtendedDataLong  !(V.Vector Word32)
+  | ExtendedDataAscii    !B.ByteString
+  | ExtendedDataShort    !(V.Vector Word16)
+  | ExtendedDataLong     !(V.Vector Word32)
+  | ExtendedDataRational !Word32 !Word32
   deriving (Eq, Show)
 
 instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData where
@@ -340,6 +345,7 @@ instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData wher
       dump (ExtendedDataAscii bstr) = putByteString bstr
       dump (ExtendedDataShort shorts) = V.mapM_ (putP endianness) shorts
       dump (ExtendedDataLong longs) = V.mapM_ (putP endianness) longs
+      dump (ExtendedDataRational a b) = putP endianness a >> putP endianness b
 
   getP (endianness, ifd) = fetcher ifd
     where
@@ -361,6 +367,9 @@ instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData wher
                   valList = case endianness of
                     EndianLittle -> [low, high]
                     EndianBig -> [high, low]
+      fetcher ImageFileDirectory { ifdType = TypeRational, ifdCount = 1 } = do
+          align ifd
+          ExtendedDataRational <$> getP EndianLittle <*> getP EndianLittle
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
           align ifd >> (ExtendedDataShort <$> getVec count getE)
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
@@ -389,6 +398,7 @@ data ImageFileDirectory = ImageFileDirectory
   , ifdOffset     :: !Word32
   , ifdExtended   :: !ExtendedDirectoryData
   }
+  deriving Show
 
 instance BinaryParam Endianness ImageFileDirectory where
   getP endianness =

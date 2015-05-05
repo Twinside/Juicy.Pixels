@@ -177,6 +177,7 @@ import Codec.Picture.HDR( decodeHDR
                         , writeHDR
                         )
 import Codec.Picture.Tiff( decodeTiff
+                         , decodeTiffWithMetadata
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
@@ -274,7 +275,7 @@ decodeImageWithMetadata str = eitherLoad str
     , ("Bitmap", decodeBitmapWithMetadata)
     , ("GIF", noMeta decodeGif)
     , ("HDR", noMeta decodeHDR)
-    , ("Tiff", noMeta decodeTiff)
+    , ("Tiff", decodeTiffWithMetadata)
     , ("TGA", noMeta decodeTga)
     ]
   where
