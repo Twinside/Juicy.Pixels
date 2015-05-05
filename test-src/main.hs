@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 import Codec.Picture
-import Codec.Picture.Jpg( encodeJpeg )
+import Codec.Picture.Jpg( encodeJpeg, encodeJpegAtQualityWithMetadata )
 import Codec.Picture.Gif
 import Codec.Picture.Tiff
 import System.Environment
@@ -20,6 +20,7 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
 import Codec.Picture.HDR
+import Codec.Picture.Bitmap( encodeBitmapWithMetadata )
 import Codec.Picture.Png( encodePalettedPngWithMetadata )
 import qualified Codec.Picture.Metadata as Met
 import qualified Data.Vector.Storable as V
@@ -508,9 +509,13 @@ metadataTest = do
             $ mi Met.Copyright "meh"
             $ mi Met.Description "let's see the results"
             $ mi Met.Comment "Test of comment"
-            $ Met.mkDpiMetadata 96
-  L.writeFile ("tests/metadata.png") $
+            $ Met.mkDpiMetadata 93
+  L.writeFile "tests/metadata.png" $
       encodePngWithMetadata metas dumbImage
+  L.writeFile "tests/metadata.jpg" $
+      encodeJpegAtQualityWithMetadata 50 metas $ convertImage dumbImage
+  L.writeFile "tests/metadata.bmp" $
+      encodeBitmapWithMetadata metas dumbImage
 
 testSuite :: IO ()
 testSuite = do
