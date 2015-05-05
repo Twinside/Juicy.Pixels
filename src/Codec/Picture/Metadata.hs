@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -22,6 +23,11 @@ module Codec.Picture.Metadata( Metadatas
                              , delete
                              , singleton
                              ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( Monoid, mempty, mappend )
+import Data.Word( Word )
+#endif
 
 import Control.DeepSeq( NFData( .. ) )
 import Data.Typeable( (:~:)( Refl ) )

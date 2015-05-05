@@ -33,7 +33,7 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( (<$>), pure )
+import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
 import Control.Monad( when, replicateM )
