@@ -158,7 +158,7 @@ instance Binary JFifUnit where
       2 -> JFifPixelsPerCentimeter
       _ -> JFifUnitUnknown
 
-data JpgJFIFApp0 = JpgJFIFApp0 
+data JpgJFIFApp0 = JpgJFIFApp0
   { _jfifUnit      :: !JFifUnit
   , _jfifDpiX      :: !Word16
   , _jfifDpiY      :: !Word16
@@ -173,7 +173,7 @@ instance Binary JpgJFIFApp0 where
         fail "Invalid JFIF signature"
     major <- getWord8
     minor <- getWord8
-    when (major /= 1 || minor /= 2) $
+    when (major /= 1 && minor > 2) $
         fail "Unrecognize JFIF version"
     unit <- get
     dpiX <- getWord16be
@@ -427,7 +427,7 @@ takeCurrentFrame = do
 putFrame :: JpgFrame -> Put
 putFrame (JpgAdobeAPP14 _adobe) = return ()
 putFrame (JpgJFIF jfif) =
-    put (JpgAppSegment 0) >> putWord16be 14 >> put jfif
+    put (JpgAppSegment 0) >> putWord16be (14+2) >> put jfif
 putFrame (JpgAppFrame appCode str) =
     put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
 putFrame (JpgExtension appCode str) =

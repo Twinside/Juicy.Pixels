@@ -10,6 +10,7 @@
 module Codec.Picture.Jpg( decodeJpeg
                         , decodeJpegWithMetadata
                         , encodeJpegAtQuality
+                        , encodeJpegAtQualityWithMetadata
                         , encodeJpeg
                         ) where
 
@@ -540,6 +541,7 @@ colorSpaceOfComponentStr s = case s of
 decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg = fmap fst . decodeJpegWithMetadata
 
+-- | Equivalent to 'decodeJpeg' but also extracts metadatas.
 decodeJpegWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeJpegWithMetadata file = case runGetStrict get file of
   Left err -> Left err
@@ -720,12 +722,26 @@ defaultHuffmanTables =
 encodeJpegAtQuality :: Word8                -- ^ Quality factor
                     -> Image PixelYCbCr8    -- ^ Image to encode
                     -> L.ByteString         -- ^ Encoded JPEG
-encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
-  where finalImage = JpgImage [ JpgQuantTable quantTables
-                              , JpgScans JpgBaselineDCTHuffman hdr
-                              , JpgHuffmanTable defaultHuffmanTables
-                              , JpgScanBlob scanHeader encodedImage
-                              ]
+encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
+
+-- | Equivalent to 'encodeJpegAtQuality', but will store the following
+-- metadatas in the file using a JFIF block:
+--
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
+--
+encodeJpegAtQualityWithMetadata :: Word8                -- ^ Quality factor
+                                -> Metadatas
+                                -> Image PixelYCbCr8    -- ^ Image to encode
+                                -> L.ByteString         -- ^ Encoded JPEG
+encodeJpegAtQualityWithMetadata quality metas img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
+  where finalImage = JpgImage $
+            encodeMetadatas metas ++
+            [ JpgQuantTable quantTables
+            , JpgScans JpgBaselineDCTHuffman hdr
+            , JpgHuffmanTable defaultHuffmanTables
+            , JpgScanBlob scanHeader encodedImage
+            ]
 
         outputComponentCount = 3
 

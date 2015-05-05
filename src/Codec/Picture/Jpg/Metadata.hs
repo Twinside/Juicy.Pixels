@@ -1,6 +1,7 @@
-module Codec.Picture.Jpg.Metadata ( extractMetadatas ) where
+module Codec.Picture.Jpg.Metadata ( extractMetadatas, encodeMetadatas ) where
 
 import Data.Word( Word16 )
+import Data.Maybe( fromMaybe )
 import qualified Codec.Picture.Metadata as Met
 import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.Jpg.Types
@@ -19,3 +20,16 @@ extractMetadatas jfif =
         $ mempty
   where
     inserter = scalerOfUnit $ _jfifUnit jfif
+
+
+encodeMetadatas :: Metadatas -> [JpgFrame]
+encodeMetadatas metas = fromMaybe [] $ do
+  dpiX <- Met.lookup Met.DpiX metas
+  dpiY <- Met.lookup Met.DpiY metas
+  pure . pure . JpgJFIF $ JpgJFIFApp0
+    { _jfifUnit      = JFifPixelsPerInch
+    , _jfifDpiX      = fromIntegral dpiX
+    , _jfifDpiY      = fromIntegral dpiY
+    , _jfifThumbnail = Nothing
+    }
+
