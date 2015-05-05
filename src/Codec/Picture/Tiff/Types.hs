@@ -15,6 +15,7 @@ module Codec.Picture.Tiff.Types
     , TiffSampleFormat( .. )
     , ImageFileDirectory( .. )
     , ExtraSample( .. )
+    , Predictor( .. )
 
     , planarConfgOfConstant
     , constantToPlaneConfiguration
@@ -25,6 +26,7 @@ module Codec.Picture.Tiff.Types
     , codeOfExtraSample
     , unPackCompression
     , packCompression 
+    , predictorOfConstant
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -215,6 +217,7 @@ data TiffTag
   | TagYPosition
   | TagExtraSample
   | TagImageDescription
+  | TagPredictor
   | TagCopyright
 
   | TagJpegProc
@@ -254,6 +257,7 @@ tagOfWord16 v = case v of
   296 -> TagResolutionUnit
   305 -> TagSoftware
   315 -> TagArtist
+  317 -> TagPredictor
   320 -> TagColorMap
   322 -> TagTileWidth
   323 -> TagTileLength
@@ -302,6 +306,7 @@ word16OfTag t = case t of
   TagResolutionUnit -> 296
   TagSoftware -> 305
   TagArtist -> 315
+  TagPredictor -> 317
   TagColorMap -> 320
   TagTileWidth -> 322
   TagTileLength -> 323
@@ -329,6 +334,16 @@ word16OfTag t = case t of
 instance BinaryParam Endianness TiffTag where
   getP endianness = tagOfWord16 <$> getP endianness
   putP endianness = putP endianness . word16OfTag
+
+data Predictor
+  = PredictorNone                   -- 1
+  | PredictorHorizontalDifferencing -- 2
+  deriving Eq
+
+predictorOfConstant :: Word32 -> Get Predictor
+predictorOfConstant 1 = pure PredictorNone
+predictorOfConstant 2 = pure PredictorHorizontalDifferencing
+predictorOfConstant v = fail $ "Unknown predictor (" ++ show v ++ ")"
 
 data ExtendedDirectoryData
   = ExtendedDataNone

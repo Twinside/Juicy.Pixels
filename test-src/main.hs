@@ -9,9 +9,11 @@ import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
+import Data.Char( toLower )
+import Data.List( isInfixOf )
 import Data.Monoid
 import Data.Word( Word8 )
-import Control.Monad( forM_ )
+import Control.Monad( forM_, liftM )
 import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -181,6 +183,7 @@ tiffValidTests =
     ,"compression/flower-rgb-contig-16-packbits.tif"
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
+    ,"horizontal-difference-lzw.tiff" -- produced by "Grab" on Mac OS X
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -602,6 +605,7 @@ debug = do
 
 myMain :: IO ()
 myMain = do
+    prog <- liftM (map toLower) getProgName
     args <- getArgs
     case args of
         ("test":_) -> testSuite
@@ -609,6 +613,8 @@ myMain = do
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
+        [] | "imagetest"      `isInfixOf` prog -> testSuite
+           | "imagebenchmark" `isInfixOf` prog -> benchMark
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark

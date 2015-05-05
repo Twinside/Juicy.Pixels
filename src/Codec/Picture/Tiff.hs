@@ -37,7 +37,7 @@ module Codec.Picture.Tiff( decodeTiff
 import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
-import Control.Monad( when, foldM_, unless )
+import Control.Monad( when, foldM_, unless, forM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Writer.Strict( execWriter, tell, Writer )
 import Data.Int( Int8 )
@@ -82,6 +82,7 @@ data TiffInfo = TiffInfo
   , tiffPalette            :: Maybe (Image PixelRGB16)
   , tiffYCbCrSubsampling   :: V.Vector Word32
   , tiffExtraSample        :: Maybe ExtraSample
+  , tiffPredictor          :: Predictor
   , tiffMetadatas          :: Metadatas
   }
 
@@ -524,6 +525,14 @@ gatherStrips comp str nfo = runST $ do
               idxVector = V.enumFromN 0 stride
               sizes = V.zip3 idxVector (tiffOffsets nfo) (tiffStripSize nfo)
 
+  when (tiffPredictor nfo == PredictorHorizontalDifferencing) $ do
+    let f _ c1 c2 = c1 + c2
+    forM_ [0 .. height - 1] $ \y -> do
+      forM_ [1 .. width - 1] $ \x -> do
+        p <- readPixel mutableImage (x - 1) y
+        q <- readPixel mutableImage x y
+        writePixel mutableImage x y $ mixWith f p q
+
   unsafeFreezeImage mutableImage
 
 ifdSingleLong :: TiffTag -> Word32 -> Writer [ImageFileDirectory] ()
@@ -674,6 +683,8 @@ instance BinaryParam B.ByteString TiffInfo where
         <*> findPalette cleaned
         <*> (V.fromList <$> extDefault [2, 2] TagYCbCrSubsampling)
         <*> pure Nothing
+        <*> (dataDefault 1 TagPredictor
+                     >>= predictorOfConstant)
         <*> pure (extractTiffMetadata cleaned)
 
 unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
@@ -921,6 +932,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffPalette            = Nothing
             , tiffYCbCrSubsampling   = subSamplingInfo (undefined :: px)
             , tiffExtraSample        = extraSampleCodeOfPixel (undefined :: px)
+            , tiffPredictor          = PredictorNone -- not used when writing
             , tiffMetadatas          = mempty
             }
 
