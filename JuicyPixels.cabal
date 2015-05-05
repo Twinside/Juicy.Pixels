@@ -116,6 +116,8 @@ Library
                  Codec.Picture.Png.Export,
                  Codec.Picture.Png.Type,
                  Codec.Picture.Png.Metadata,
+                 Codec.Picture.Tiff.Metadata,
+                 Codec.Picture.Tiff.Types,
                  Codec.Picture.BitWriter,
                  Codec.Picture.InternalHelper,
                  Codec.Picture.VectorByteConversion

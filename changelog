@@ -1,6 +1,7 @@
 -*-change-log-*-
 
 v3.2.5
+ * Adding: Metadata extraction for various file format.
 
 v3.2.4 April 2015
  * Adding: Traversals compatible with the lens library.
