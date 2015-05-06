@@ -20,6 +20,7 @@ module Codec.Picture.Bitmap( -- * Functions
 
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
+import Control.Applicative( (<$>) )
 #endif
 
 import Control.Monad( when, forM_ )
