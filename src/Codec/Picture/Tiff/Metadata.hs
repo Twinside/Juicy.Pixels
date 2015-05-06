@@ -8,25 +8,60 @@ import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
 import Data.Foldable( find )
+import qualified Data.Foldable as F
 import Data.Monoid( (<>) )
 import Codec.Picture.Metadata( Metadatas )
 import qualified Data.ByteString.Char8 as B
 import qualified Codec.Picture.Metadata as Met
 import Codec.Picture.Tiff.Types
+import Codec.Picture.Metadata.Exif
 
 extractTiffStringMetadata :: [ImageFileDirectory] -> Metadatas
 extractTiffStringMetadata = foldMap go where
   strMeta k = Met.singleton k . B.unpack
+  exif ifd =
+    Met.singleton (Met.Exif $ ifdIdentifier ifd) $ ifdExtended ifd
+  inserter acc (k, v) = Met.insert (Met.Exif k) v acc
 
   go ifd = case (ifdIdentifier ifd, ifdExtended ifd) of
-    (TagCopyright, ExtendedDataAscii v) -> strMeta Met.Copyright v
-    (TagArtist, ExtendedDataAscii v) -> strMeta Met.Author v
-    (TagDocumentName, ExtendedDataAscii v) -> strMeta Met.Title v
-    (TagSoftware, ExtendedDataAscii v) -> strMeta Met.Software v
-    (TagImageDescription, ExtendedDataAscii v) -> strMeta Met.Description v
+    (TagUnknown _, _) -> exif ifd
+    (TagCopyright, ExifString v) -> strMeta Met.Copyright v
+    (TagArtist, ExifString v) -> strMeta Met.Author v
+    (TagDocumentName, ExifString v) -> strMeta Met.Title v
+    (TagSoftware, ExifString v) -> strMeta Met.Software v
+    (TagImageDescription, ExifString v) -> strMeta Met.Description v
+    (TagCompression, _) -> mempty
+    (TagImageWidth, _) -> mempty 
+    (TagImageLength, _) -> mempty
+    (TagXResolution, _) -> mempty
+    (TagYResolution, _) -> mempty
+    (TagResolutionUnit, _) -> mempty
+    (TagRowPerStrip, _) -> mempty
+    (TagStripByteCounts, _) -> mempty
+    (TagStripOffsets, _) -> mempty
+    (TagBitsPerSample, _) -> mempty
+    (TagColorMap, _) -> mempty
+    (TagTileWidth, _) -> mempty
+    (TagTileLength, _) -> mempty
+    (TagTileOffset, _) -> mempty
+    (TagTileByteCount, _) -> mempty
+    (TagSamplesPerPixel, _) -> mempty
+    (TagYCbCrCoeff, _) -> mempty
+    (TagYCbCrSubsampling, _) -> mempty
+    (TagYCbCrPositioning, _) -> mempty
+    (TagJpegProc, _) -> mempty
+    (TagJPEGInterchangeFormat, _) -> mempty
+    (TagJPEGInterchangeFormatLength, _) -> mempty
+    (TagJPEGRestartInterval, _) -> mempty
+    (TagJPEGLosslessPredictors, _) -> mempty
+    (TagJPEGPointTransforms, _) -> mempty
+    (TagJPEGQTables, _) -> mempty
+    (TagJPEGDCTables, _) -> mempty
+    (TagJPEGACTables, _) -> mempty
+    (TagExifOffset, ExifIFD lst) -> F.foldl' inserter mempty lst
     _ -> mempty
 
-byTag :: TiffTag -> ImageFileDirectory -> Bool
+byTag :: ExifTag -> ImageFileDirectory -> Bool
 byTag t ifd = ifdIdentifier ifd == t
 
 data TiffResolutionUnit
@@ -54,7 +89,7 @@ extractTiffDpiMetadata lst = go where
 
   findDpi k tag toDpi metas = case find (byTag tag) lst of
     Nothing -> metas
-    Just ImageFileDirectory { ifdExtended = ExtendedDataRational num den } ->
+    Just ImageFileDirectory { ifdExtended = ExifRational num den } ->
       Met.insert k (toDpi . fromIntegral $ num `div` den) metas
     Just _ -> metas
 

@@ -97,6 +97,7 @@ encodeSingleMetadata :: Metadatas -> [PngRawChunk]
 encodeSingleMetadata = Met.foldMap go where
   go :: Elem Met.Keys -> [PngRawChunk]
   go v = case v of
+    Met.Exif _ :=> _ -> mempty
     Met.DpiX :=> _ -> mempty
     Met.DpiY :=> _ -> mempty
     Met.Gamma       :=> g ->

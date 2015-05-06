@@ -32,7 +32,6 @@ module Codec.Picture.Tiff( decodeTiff
                          , writeTiff
                          ) where
 
-
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>), (<*>), pure )
 import Data.Monoid( mempty )
@@ -56,6 +55,7 @@ import qualified Data.ByteString.Unsafe as BU
 
 import Foreign.Storable( sizeOf )
 
+import Codec.Picture.Metadata.Exif
 import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
@@ -85,12 +85,12 @@ data TiffInfo = TiffInfo
   , tiffMetadatas          :: Metadatas
   }
 
-unLong :: String -> ExtendedDirectoryData -> Get (V.Vector Word32)
-unLong _ (ExtendedDataShort v) = pure $ V.map fromIntegral v
-unLong _ (ExtendedDataLong v) = pure v
+unLong :: String -> ExifData -> Get (V.Vector Word32)
+unLong _ (ExifShorts v) = pure $ V.map fromIntegral v
+unLong _ (ExifLongs v) = pure v
 unLong errMessage _ = fail errMessage
 
-findIFD :: String -> TiffTag -> [ImageFileDirectory]
+findIFD :: String -> ExifTag -> [ImageFileDirectory]
         -> Get ImageFileDirectory
 findIFD errorMessage tag lst =
   case [v | v <- lst, ifdIdentifier v == tag] of
@@ -100,7 +100,7 @@ findIFD errorMessage tag lst =
 findPalette :: [ImageFileDirectory] -> Get (Maybe (Image PixelRGB16))
 findPalette ifds =
     case [v | v <- ifds, ifdIdentifier v == TagColorMap] of
-        (ImageFileDirectory { ifdExtended = ExtendedDataShort vec }:_) ->
+        (ImageFileDirectory { ifdExtended = ExifShorts vec }:_) ->
             pure . Just . Image pixelCount 1 $ VS.generate (V.length vec) axx
                 where pixelCount = V.length vec `div` 3
                       axx v = vec `V.unsafeIndex` (idx + color * pixelCount)
@@ -108,34 +108,34 @@ findPalette ifds =
 
         _ -> pure Nothing
 
-findIFDData :: String -> TiffTag -> [ImageFileDirectory] -> Get Word32
+findIFDData :: String -> ExifTag -> [ImageFileDirectory] -> Get Word32
 findIFDData msg tag lst = ifdOffset <$> findIFD msg tag lst
 
-findIFDDefaultData :: Word32 -> TiffTag -> [ImageFileDirectory] -> Get Word32
+findIFDDefaultData :: Word32 -> ExifTag -> [ImageFileDirectory] -> Get Word32
 findIFDDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
         (x:_) -> pure $ ifdOffset x
 
-findIFDExt :: String -> TiffTag -> [ImageFileDirectory] -> Get ExtendedDirectoryData
+findIFDExt :: String -> ExifTag -> [ImageFileDirectory] -> Get ExifData
 findIFDExt msg tag lst = do
     val <- findIFD msg tag lst
     case val of
       ImageFileDirectory
         { ifdCount = 1, ifdOffset = ofs, ifdType = TypeShort } ->
-               pure . ExtendedDataShort . V.singleton $ fromIntegral ofs
+               pure . ExifShorts . V.singleton $ fromIntegral ofs
       ImageFileDirectory
         { ifdCount = 1, ifdOffset = ofs, ifdType = TypeLong } ->
-               pure . ExtendedDataLong . V.singleton $ fromIntegral ofs
+               pure . ExifLongs  . V.singleton $ fromIntegral ofs
       ImageFileDirectory { ifdExtended = v } -> pure v
 
 
-findIFDExtDefaultData :: [Word32] -> TiffTag -> [ImageFileDirectory]
+findIFDExtDefaultData :: [Word32] -> ExifTag -> [ImageFileDirectory]
                       -> Get [Word32]
 findIFDExtDefaultData d tag lst =
     case [v | v <- lst, ifdIdentifier v == tag] of
         [] -> pure d
-        (ImageFileDirectory { ifdExtended = ExtendedDataNone }:_) -> return d
+        (ImageFileDirectory { ifdExtended = ExifNone }:_) -> return d
         (x:_) -> V.toList <$> unLong errorMessage (ifdExtended x)
             where errorMessage =
                     "Can't parse tag " ++ show tag ++ " " ++ show (ifdExtended x)
@@ -513,7 +513,7 @@ gatherStrips comp str nfo = runST $ do
 
   when (tiffPredictor nfo == PredictorHorizontalDifferencing) $ do
     let f _ c1 c2 = c1 + c2
-    forM_ [0 .. height - 1] $ \y -> do
+    forM_ [0 .. height - 1] $ \y ->
       forM_ [1 .. width - 1] $ \x -> do
         p <- readPixel mutableImage (x - 1) y
         q <- readPixel mutableImage x y
@@ -521,14 +521,14 @@ gatherStrips comp str nfo = runST $ do
 
   unsafeFreezeImage mutableImage
 
-ifdSingleLong :: TiffTag -> Word32 -> Writer [ImageFileDirectory] ()
+ifdSingleLong :: ExifTag -> Word32 -> Writer [ImageFileDirectory] ()
 ifdSingleLong tag = ifdMultiLong tag . V.singleton
 
-ifdSingleShort :: Endianness -> TiffTag -> Word16
+ifdSingleShort :: Endianness -> ExifTag -> Word16
                -> Writer [ImageFileDirectory] ()
 ifdSingleShort endian tag = ifdMultiShort endian tag . V.singleton . fromIntegral
 
-ifdMultiLong :: TiffTag -> V.Vector Word32 -> Writer [ImageFileDirectory] ()
+ifdMultiLong :: ExifTag -> V.Vector Word32 -> Writer [ImageFileDirectory] ()
 ifdMultiLong tag v = tell . pure $ ImageFileDirectory
         { ifdIdentifier = tag
         , ifdType       = TypeLong
@@ -537,10 +537,10 @@ ifdMultiLong tag v = tell . pure $ ImageFileDirectory
         , ifdExtended   = extended
         }
   where (offset, extended)
-                | V.length v > 1 = (0, ExtendedDataLong v)
-                | otherwise = (V.head v, ExtendedDataNone)
+                | V.length v > 1 = (0, ExifLongs v)
+                | otherwise = (V.head v, ExifNone)
 
-ifdMultiShort :: Endianness -> TiffTag -> V.Vector Word32
+ifdMultiShort :: Endianness -> ExifTag -> V.Vector Word32
               -> Writer [ImageFileDirectory] ()
 ifdMultiShort endian tag v = tell . pure $ ImageFileDirectory
         { ifdIdentifier = tag
@@ -551,18 +551,18 @@ ifdMultiShort endian tag v = tell . pure $ ImageFileDirectory
         }
     where size = fromIntegral $ V.length v
           (offset, extended)
-                | size > 2 = (0, ExtendedDataShort $ V.map fromIntegral v)
+                | size > 2 = (0, ExifShorts $ V.map fromIntegral v)
                 | size == 2 =
                     let v1 = fromIntegral $ V.head v
                         v2 = fromIntegral $ v `V.unsafeIndex` 1
                     in
                     case endian of
-                      EndianLittle -> (v2 `unsafeShiftL` 16 .|. v1, ExtendedDataNone)
-                      EndianBig -> (v1 `unsafeShiftL` 16 .|. v2, ExtendedDataNone)
+                      EndianLittle -> (v2 `unsafeShiftL` 16 .|. v1, ExifNone)
+                      EndianBig -> (v1 `unsafeShiftL` 16 .|. v2, ExifNone)
 
                 | otherwise = case endian of
-                    EndianLittle -> (V.head v, ExtendedDataNone)
-                    EndianBig -> (V.head v `unsafeShiftL` 16, ExtendedDataNone)
+                    EndianLittle -> (V.head v, ExifNone)
+                    EndianBig -> (V.head v `unsafeShiftL` 16, ExifNone)
 
 instance BinaryParam B.ByteString TiffInfo where
   putP rawData nfo = putP rawData (tiffHeader nfo, list) where
@@ -884,4 +884,6 @@ encodeTiff img = runPut $ putP rawPixelData hdr
 -- | Helper function to directly write an image as a tiff on disk.
 writeTiff :: (TiffSaveable pixel) => FilePath -> Image pixel -> IO ()
 writeTiff path img = Lb.writeFile path $ encodeTiff img
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 

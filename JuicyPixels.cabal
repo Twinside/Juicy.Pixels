@@ -106,6 +106,7 @@ Library
                     Codec.Picture.Tga,
                     Codec.Picture.Tiff,
                     Codec.Picture.Metadata,
+                    Codec.Picture.Metadata.Exif,
                     Codec.Picture.Saving,
                     Codec.Picture.Types,
                     Codec.Picture.ColorQuant

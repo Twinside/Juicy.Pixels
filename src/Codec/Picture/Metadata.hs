@@ -46,6 +46,8 @@ import Control.DeepSeq( NFData( .. ) )
 import Data.Typeable( (:~:)( Refl ) )
 import qualified Data.Foldable as F
 
+import Codec.Picture.Metadata.Exif
+
 -- | Store various additional information about an image. If
 -- something is not recognized, it can be stored in an unknown tag.
 --
@@ -68,11 +70,12 @@ data Keys a where
   Disclaimer  :: Keys String
   Source      :: Keys String
   Warning     :: Keys String
+  Exif        :: !ExifTag -> Keys ExifData
   Unknown     :: !String -> Keys Value
 
 deriving instance Show (Keys a)
 deriving instance Eq (Keys a)
-deriving instance Ord (Keys a)
+{-deriving instance Ord (Keys a)-}
 
 -- | Encode values for unknown information
 data Value
@@ -109,6 +112,7 @@ keyEq a b = case (a, b) of
   (Source, Source) -> Just Refl
   (Warning, Warning) -> Just Refl
   (Unknown v1, Unknown v2) | v1 == v2 -> Just Refl
+  (Exif t1, Exif t2) | t1 == t2 -> Just Refl
   _ -> Nothing
 
 -- | Dependent storage used for metadatas.

@@ -9,9 +9,7 @@ module Codec.Picture.Tiff.Types
     , TiffPlanarConfiguration( .. )
     , TiffCompression( .. )
     , IfdType( .. )
-    , TiffTag( .. )
     , TiffColorspace( .. )
-    , ExtendedDirectoryData( .. )
     , TiffSampleFormat( .. )
     , ImageFileDirectory( .. )
     , ExtraSample( .. )
@@ -48,10 +46,15 @@ import Data.Binary.Put( Put
                       , putWord32le, putWord32be
                       , putByteString
                       )
+import Data.Function( on )
 import Data.List( sortBy, mapAccumL )
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
+import Data.Int( Int32 )
 import Data.Word( Word16, Word32 )
+
+import Codec.Picture.Metadata.Exif
+{-import Debug.Trace-}
 
 data Endianness
   = EndianLittle
@@ -89,6 +92,10 @@ instance BinaryParam Endianness Word16 where
 
   getP EndianLittle = getWord16le
   getP EndianBig = getWord16be
+
+instance BinaryParam Endianness Int32 where
+  putP en v = putP en $ (fromIntegral v :: Word32)
+  getP en = fromIntegral <$> (getP en :: Get Word32) 
 
 instance BinaryParam Endianness Word32 where
   putP EndianLittle = putWord32le
@@ -182,156 +189,7 @@ instance BinaryParam Endianness IfdType where
         TypeFloat -> 11
         TypeDouble -> 12
 
-data TiffTag
-  = TagPhotometricInterpretation
-  | TagCompression -- ^ Short type
-  | TagImageWidth  -- ^ Short or long type
-  | TagImageLength -- ^ Short or long type
-  | TagXResolution -- ^ Rational type
-  | TagYResolution -- ^ Rational type
-  | TagResolutionUnit --  ^ Short type
-  | TagRowPerStrip -- ^ Short or long type
-  | TagStripByteCounts -- ^ Short or long
-  | TagStripOffsets -- ^ Short or long
-  | TagBitsPerSample --  ^ Short
-  | TagColorMap -- ^ Short
-  | TagTileWidth
-  | TagTileLength
-  | TagTileOffset
-  | TagTileByteCount
-  | TagSamplesPerPixel -- ^ Short
-  | TagArtist
-  | TagDocumentName
-  | TagSoftware
-  | TagPlanarConfiguration -- ^ Short
-  | TagOrientation
-  | TagSampleFormat -- ^ Short
-  | TagInkSet
-  | TagSubfileType
-  | TagFillOrder
-  | TagYCbCrCoeff
-  | TagYCbCrSubsampling
-  | TagYCbCrPositioning
-  | TagReferenceBlackWhite
-  | TagXPosition
-  | TagYPosition
-  | TagExtraSample
-  | TagImageDescription
-  | TagPredictor
-  | TagCopyright
-
-  | TagJpegProc
-  | TagJPEGInterchangeFormat
-  | TagJPEGInterchangeFormatLength
-  | TagJPEGRestartInterval
-  | TagJPEGLosslessPredictors
-  | TagJPEGPointTransforms
-  | TagJPEGQTables
-  | TagJPEGDCTables
-  | TagJPEGACTables
-
-  | TagUnknown Word16
-  deriving (Eq, Show)
-
-tagOfWord16 :: Word16 -> TiffTag
-tagOfWord16 v = case v of
-  255 -> TagSubfileType
-  256 -> TagImageWidth
-  257 -> TagImageLength
-  258 -> TagBitsPerSample
-  259 -> TagCompression
-  262 -> TagPhotometricInterpretation
-  266 -> TagFillOrder
-  269 -> TagDocumentName
-  270 -> TagImageDescription
-  273 -> TagStripOffsets
-  274 -> TagOrientation
-  277 -> TagSamplesPerPixel
-  278 -> TagRowPerStrip
-  279 -> TagStripByteCounts
-  282 -> TagXResolution
-  283 -> TagYResolution
-  284 -> TagPlanarConfiguration
-  286 -> TagXPosition
-  287 -> TagYPosition
-  296 -> TagResolutionUnit
-  305 -> TagSoftware
-  315 -> TagArtist
-  317 -> TagPredictor
-  320 -> TagColorMap
-  322 -> TagTileWidth
-  323 -> TagTileLength
-  324 -> TagTileOffset
-  325 -> TagTileByteCount
-  332 -> TagInkSet
-  338 -> TagExtraSample
-  339 -> TagSampleFormat
-  529 -> TagYCbCrCoeff
-  512 -> TagJpegProc
-  513 -> TagJPEGInterchangeFormat
-  514 -> TagJPEGInterchangeFormatLength
-  515 -> TagJPEGRestartInterval
-  517 -> TagJPEGLosslessPredictors
-  518 -> TagJPEGPointTransforms
-  519 -> TagJPEGQTables
-  520 -> TagJPEGDCTables
-  521 -> TagJPEGACTables
-  530 -> TagYCbCrSubsampling
-  531 -> TagYCbCrPositioning
-  532 -> TagReferenceBlackWhite
-  33432 -> TagCopyright
-  vv -> TagUnknown vv
-
-word16OfTag :: TiffTag -> Word16
-word16OfTag t = case t of
-  TagSubfileType -> 255
-  TagImageWidth -> 256
-  TagImageLength -> 257
-  TagBitsPerSample -> 258
-  TagCompression -> 259
-  TagPhotometricInterpretation -> 262
-  TagFillOrder -> 266
-  TagDocumentName -> 269
-  TagImageDescription -> 270
-  TagStripOffsets -> 273
-  TagOrientation -> 274
-  TagSamplesPerPixel -> 277
-  TagRowPerStrip -> 278
-  TagStripByteCounts -> 279
-  TagXResolution -> 282
-  TagYResolution -> 283
-  TagPlanarConfiguration -> 284
-  TagXPosition -> 286
-  TagYPosition -> 287
-  TagResolutionUnit -> 296
-  TagSoftware -> 305
-  TagArtist -> 315
-  TagPredictor -> 317
-  TagColorMap -> 320
-  TagTileWidth -> 322
-  TagTileLength -> 323
-  TagTileOffset -> 324
-  TagTileByteCount -> 325
-  TagInkSet -> 332
-  TagExtraSample -> 338
-  TagSampleFormat -> 339
-  TagYCbCrCoeff -> 529
-  TagJpegProc -> 512
-  TagJPEGInterchangeFormat -> 513
-  TagJPEGInterchangeFormatLength -> 514
-  TagJPEGRestartInterval -> 515
-  TagJPEGLosslessPredictors -> 517
-  TagJPEGPointTransforms -> 518
-  TagJPEGQTables -> 519
-  TagJPEGDCTables -> 520
-  TagJPEGACTables -> 521
-  TagYCbCrSubsampling -> 530
-  TagYCbCrPositioning -> 531
-  TagReferenceBlackWhite -> 532
-  TagCopyright -> 33432
-  (TagUnknown v) -> v
-
-instance BinaryParam Endianness TiffTag where
+instance BinaryParam Endianness ExifTag where
   getP endianness = tagOfWord16 <$> getP endianness
   putP endianness = putP endianness . word16OfTag
 
@@ -345,63 +203,95 @@ predictorOfConstant 1 = pure PredictorNone
 predictorOfConstant 2 = pure PredictorHorizontalDifferencing
 predictorOfConstant v = fail $ "Unknown predictor (" ++ show v ++ ")"
 
-data ExtendedDirectoryData
-  = ExtendedDataNone
-  | ExtendedDataAscii    !B.ByteString
-  | ExtendedDataShort    !(V.Vector Word16)
-  | ExtendedDataLong     !(V.Vector Word32)
-  | ExtendedDataRational !Word32 !Word32
-  deriving (Eq, Show)
-
-instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData where
-  putP (endianness, _) = dump
+instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
+  putP (endianness, _, _) = dump
     where
-      dump ExtendedDataNone = pure ()
-      dump (ExtendedDataAscii bstr) = putByteString bstr
-      dump (ExtendedDataShort shorts) = V.mapM_ (putP endianness) shorts
-      dump (ExtendedDataLong longs) = V.mapM_ (putP endianness) longs
-      dump (ExtendedDataRational a b) = putP endianness a >> putP endianness b
+      dump ExifNone = pure ()
+      dump (ExifLong _) = pure ()
+      dump (ExifShort _) = pure ()
+      dump (ExifIFD _) = pure ()
+      dump (ExifString bstr) = putByteString bstr
+      dump (ExifUndefined bstr) = putByteString bstr
+      -- wrong if length == 2
+      dump (ExifShorts shorts) = V.mapM_ (putP endianness) shorts
+      dump (ExifLongs longs) = V.mapM_ (putP endianness) longs
+      dump (ExifRational a b) = putP endianness a >> putP endianness b
+      dump (ExifSignedRational a b) = putP endianness a >> putP endianness b
 
-  getP (endianness, ifd) = fetcher ifd
+  getP (endianness, maxi, ifd) = fetcher ifd
     where
-      align ImageFileDirectory { ifdOffset = offset } = do
+      align ImageFileDirectory { ifdOffset = offset } act = do
         readed <- bytesRead
-        skip . fromIntegral $ fromIntegral offset - readed
+        let delta = fromIntegral offset - readed
+        if offset >= fromIntegral maxi || fromIntegral readed > offset then
+          pure ExifNone
+        else do
+          skip $ fromIntegral delta
+          act
 
       getE :: (BinaryParam Endianness a) => Get a
       getE = getP endianness
 
       getVec count = V.replicateM (fromIntegral count)
 
+      fetcher ImageFileDirectory { ifdIdentifier = TagExifOffset
+                                 , ifdType = TypeLong
+                                 , ifdCount = 1 } = do
+         align ifd $ do
+            subIfds <- fmap (cleanImageFileDirectory endianness) <$> getP endianness
+            cleaned <- fetchExtended endianness maxi $ sortBy (compare `on` ifdOffset) subIfds
+            pure $ ExifIFD [(ifdIdentifier fd, ifdExtended fd) | fd <- cleaned]
+         {-  
+      fetcher ImageFileDirectory { ifdIdentifier = TagGPSInfo
+                                 , ifdType = TypeLong
+                                 , ifdCount = 1 } = do
+         align ifd 
+         subIfds <- fmap (cleanImageFileDirectory endianness) <$> getP endianness
+         cleaned <- fetchExtended endianness subIfds
+         pure $ ExifIFD [(ifdIdentifier fd, ifdExtended fd) | fd <- cleaned]
+        -}
+      fetcher ImageFileDirectory { ifdType = TypeUndefined, ifdCount = count } | count > 4 =
+         align ifd $ ExifUndefined <$> getByteString (fromIntegral count)
+      fetcher ImageFileDirectory { ifdType = TypeUndefined, ifdOffset = ofs } =
+          pure . ExifUndefined . B.pack $ take (fromIntegral $ ifdCount ifd)
+              [fromIntegral $ ofs .&. 0xFF000000 `unsafeShiftR` (3 * 8)
+              ,fromIntegral $ ofs .&. 0x00FF0000 `unsafeShiftR` (2 * 8)
+              ,fromIntegral $ ofs .&. 0x0000FF00 `unsafeShiftR` (1 * 8)
+              ,fromIntegral $ ofs .&. 0x000000FF
+              ]
       fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
-          align ifd >> (ExtendedDataAscii <$> getByteString (fromIntegral count))
+          align ifd $ ExifString <$> getByteString (fromIntegral count)
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
-          pure . ExtendedDataShort $ V.fromListN 2 valList
+          pure . ExifShorts $ V.fromListN 2 valList
             where high = fromIntegral $ ofs `unsafeShiftR` 16
                   low = fromIntegral $ ofs .&. 0xFFFF
                   valList = case endianness of
                     EndianLittle -> [low, high]
                     EndianBig -> [high, low]
       fetcher ImageFileDirectory { ifdType = TypeRational, ifdCount = 1 } = do
-          align ifd
-          ExtendedDataRational <$> getP EndianLittle <*> getP EndianLittle
+          align ifd $ ExifRational <$> getP EndianLittle <*> getP EndianLittle
+      fetcher ImageFileDirectory { ifdType = TypeSignedRational, ifdCount = 1 } = do
+          align ifd $ ExifSignedRational <$> getP EndianLittle <*> getP EndianLittle
+      fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 1 } =
+          pure . ExifShort . fromIntegral $ ifdOffset ifd
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
-          align ifd >> (ExtendedDataShort <$> getVec count getE)
+          align ifd $ ExifShorts <$> getVec count getE
+      fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = 1 } =
+          pure . ExifLong . fromIntegral $ ifdOffset ifd
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
-          align ifd >> (ExtendedDataLong <$> getVec count getE)
-      fetcher _ = pure ExtendedDataNone
+          align ifd $ ExifLongs <$> getVec count getE
+      fetcher _ = pure ExifNone
 
 cleanImageFileDirectory :: Endianness -> ImageFileDirectory -> ImageFileDirectory
 cleanImageFileDirectory EndianBig ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
   where
     aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
     aux _ = ifd
-
 cleanImageFileDirectory _ ifd = ifd
 
-fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
-fetchExtended endian = mapM $ \ifd -> do
-  v <- getP (endian, ifd)
+fetchExtended :: Endianness -> Int -> [ImageFileDirectory] -> Get [ImageFileDirectory]
+fetchExtended endian maxi = mapM $ \ifd -> do
+  v <- getP (endian, maxi, ifd)
   pure $ ifd { ifdExtended = v }
 
 -- | All the IFD must be written in order according to the tag
@@ -425,12 +315,12 @@ setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
                      + ifdElementCount * ifdSize
                      + ifdCountSize + nextOffsetSize
 
-        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataAscii b }) =
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifString b }) =
             (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
-        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataLong v })
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifLongs v })
             | V.length v > 1 = ( ix + fromIntegral (V.length v * 4)
                                , ifd { ifdOffset = ix } )
-        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataShort v })
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifShorts v })
             | V.length v > 2 = ( ix + fromIntegral (V.length v * 2)
                              , ifd { ifdOffset = ix })
         updater ix ifd = (ix, ifd)
@@ -442,16 +332,16 @@ instance BinaryParam B.ByteString (TiffHeader, [ImageFileDirectory]) where
     let endianness = hdrEndianness hdr
         list = setupIfdOffsets (hdrOffset hdr) $ orderIfdByTag ifds
     putP endianness list
-    mapM_ (\ifd -> putP (endianness, ifd) $ ifdExtended ifd) list
+    mapM_ (\ifd -> putP (endianness, (0::Int), ifd) $ ifdExtended ifd) list
 
-  getP _ = do
+  getP raw = do
     hdr <- get
     readed <- bytesRead
     skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
     let endian = hdrEndianness hdr
 
     ifd <- fmap (cleanImageFileDirectory endian) <$> getP endian
-    cleaned <- fetchExtended endian ifd
+    cleaned <- fetchExtended endian (B.length raw) ifd
     return (hdr, cleaned)
 
 data TiffSampleFormat
@@ -470,18 +360,18 @@ unpackSampleFormat v = case v of
   vv -> fail $ "Undefined data format (" ++ show vv ++ ")"
 
 data ImageFileDirectory = ImageFileDirectory
-  { ifdIdentifier :: !TiffTag
+  { ifdIdentifier :: !ExifTag
   , ifdType       :: !IfdType
   , ifdCount      :: !Word32
   , ifdOffset     :: !Word32
-  , ifdExtended   :: !ExtendedDirectoryData
+  , ifdExtended   :: !ExifData
   }
   deriving Show
 
 instance BinaryParam Endianness ImageFileDirectory where
   getP endianness =
     ImageFileDirectory <$> getE <*> getE <*> getE <*> getE
-                       <*> pure ExtendedDataNone
+                       <*> pure ExifNone
         where getE :: (BinaryParam Endianness a) => Get a
               getE = getP endianness
 
