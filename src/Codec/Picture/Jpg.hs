@@ -28,6 +28,7 @@ import Control.Monad.Trans( lift )
 import Control.Monad.Trans.RWS.Strict( RWS, modify, tell, gets, execRWS )
 
 import Data.Bits( (.|.), unsafeShiftL )
+import Data.Monoid( (<>) )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word32)
 import Data.Binary( Binary(..), encode )
@@ -46,6 +47,8 @@ import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
 import Codec.Picture.Metadata( Metadatas )
+import Codec.Picture.Tiff.Types
+import Codec.Picture.Tiff.Metadata
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Progressive
@@ -241,6 +244,7 @@ data JpgDecoderState = JpgDecoderState
     , currentFrame          :: Maybe JpgFrameHeader
     , app14Marker           :: !(Maybe JpgAdobeApp14)
     , app0JFifMarker        :: !(Maybe JpgJFIFApp0)
+    , app1ExifMarker        :: !(Maybe [ImageFileDirectory])
     , componentIndexMapping :: ![(Word8, Int)]
     , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
@@ -268,6 +272,7 @@ emptyDecoderState = JpgDecoderState
     , componentIndexMapping = []
     , app14Marker = Nothing
     , app0JFifMarker = Nothing
+    , app1ExifMarker = Nothing
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -279,6 +284,8 @@ emptyDecoderState = JpgDecoderState
 jpgMachineStep :: JpgFrame -> JpgScripter s ()
 jpgMachineStep (JpgAdobeAPP14 app14) = modify $ \s ->
     s { app14Marker = Just app14 }
+jpgMachineStep (JpgExif exif) = modify $ \s ->
+    s { app1ExifMarker = Just exif }
 jpgMachineStep (JpgJFIF app0) = modify $ \s ->
     s { app0JFifMarker = Just app0 }
 jpgMachineStep (JpgAppFrame _ _) = pure ()
@@ -548,7 +555,9 @@ decodeJpegWithMetadata file = case runGetStrict get file of
   Right img -> case imgKind of
      Just BaseLineDCT ->
        let (st, arr) = decodeBaseline
-           meta = foldMap extractMetadatas $ app0JFifMarker st
+           jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
+           exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
+           meta = jfifMeta <> exifMeta
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr

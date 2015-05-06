@@ -48,7 +48,7 @@ import Data.Binary.Put( Put
                       , putWord32le, putWord32be
                       , putByteString
                       )
-
+import Data.List( sortBy, mapAccumL )
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import Data.Word( Word16, Word32 )
@@ -390,6 +390,69 @@ instance BinaryParam (Endianness, ImageFileDirectory) ExtendedDirectoryData wher
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
           align ifd >> (ExtendedDataLong <$> getVec count getE)
       fetcher _ = pure ExtendedDataNone
+
+cleanImageFileDirectory :: Endianness -> ImageFileDirectory -> ImageFileDirectory
+cleanImageFileDirectory EndianBig ifd@(ImageFileDirectory { ifdCount = 1 }) = aux $ ifdType ifd
+  where
+    aux TypeShort = ifd { ifdOffset = ifdOffset ifd `unsafeShiftR` 16 }
+    aux _ = ifd
+
+cleanImageFileDirectory _ ifd = ifd
+
+fetchExtended :: Endianness -> [ImageFileDirectory] -> Get [ImageFileDirectory]
+fetchExtended endian = mapM $ \ifd -> do
+  v <- getP (endian, ifd)
+  pure $ ifd { ifdExtended = v }
+
+-- | All the IFD must be written in order according to the tag
+-- value of the IFD. To avoid getting to much restriction in the
+-- serialization code, just sort it.
+orderIfdByTag :: [ImageFileDirectory] -> [ImageFileDirectory]
+orderIfdByTag = sortBy comparer where
+  comparer a b = compare t1 t2 where
+    t1 = word16OfTag $ ifdIdentifier a
+    t2 = word16OfTag $ ifdIdentifier b
+
+-- | Given an official offset and a list of IFD, update the offset information
+-- of the IFD with extended data.
+setupIfdOffsets :: Word32 -> [ImageFileDirectory] -> [ImageFileDirectory]
+setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
+  where ifdElementCount = fromIntegral $ length lst
+        ifdSize = 12
+        ifdCountSize = 2
+        nextOffsetSize = 4
+        startExtended = initialOffset
+                     + ifdElementCount * ifdSize
+                     + ifdCountSize + nextOffsetSize
+
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataAscii b }) =
+            (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataLong v })
+            | V.length v > 1 = ( ix + fromIntegral (V.length v * 4)
+                               , ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExtendedDataShort v })
+            | V.length v > 2 = ( ix + fromIntegral (V.length v * 2)
+                             , ifd { ifdOffset = ix })
+        updater ix ifd = (ix, ifd)
+
+instance BinaryParam B.ByteString (TiffHeader, [ImageFileDirectory]) where
+  putP rawData (hdr, ifds) = do
+    put hdr
+    putByteString rawData
+    let endianness = hdrEndianness hdr
+        list = setupIfdOffsets (hdrOffset hdr) $ orderIfdByTag ifds
+    putP endianness list
+    mapM_ (\ifd -> putP (endianness, ifd) $ ifdExtended ifd) list
+
+  getP _ = do
+    hdr <- get
+    readed <- bytesRead
+    skip . fromIntegral $ fromIntegral (hdrOffset hdr) - readed
+    let endian = hdrEndianness hdr
+
+    ifd <- fmap (cleanImageFileDirectory endian) <$> getP endian
+    cleaned <- fetchExtended endian ifd
+    return (hdr, cleaned)
 
 data TiffSampleFormat
   = TiffSampleUint
