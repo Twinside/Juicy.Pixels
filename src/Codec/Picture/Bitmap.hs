@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,6 +17,12 @@ module Codec.Picture.Bitmap( -- * Functions
                              -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( (<$>) )
+import Data.Monoid( mempty )
+#endif
+
 import Control.Monad( when, forM_ )
 import Control.Monad.ST ( ST, runST )
 import Data.Maybe( fromMaybe )

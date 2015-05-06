@@ -1,4 +1,11 @@
+{-# LANGUAGE CPP #-}
 module Codec.Picture.Jpg.Metadata ( extractMetadatas, encodeMetadatas ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative( pure )
+import Data.Monoid( mempty )
+import Data.Word( Word )
+#endif
 
 import Data.Word( Word16 )
 import Data.Maybe( fromMaybe )

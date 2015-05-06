@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -11,6 +12,10 @@ module Codec.Picture.Png.Export( PngSavable( .. )
                                , encodePalettedPng
                                , encodePalettedPngWithMetadata
                                ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+#endif
 
 import Control.Monad( forM_ )
 import Control.Monad.ST( ST, runST )
