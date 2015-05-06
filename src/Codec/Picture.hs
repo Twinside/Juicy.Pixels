@@ -135,6 +135,7 @@ module Codec.Picture (
                      ) where
 
 #if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
 import Control.Applicative( (<$>) )
 #endif
 

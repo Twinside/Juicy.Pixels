@@ -34,6 +34,7 @@ module Codec.Picture.Tiff( decodeTiff
 
 
 #if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
 import Control.Applicative( (<$>), (<*>), pure )
 #endif
 

@@ -16,6 +16,7 @@ module Codec.Picture.Jpg( decodeJpeg
 
 #if !MIN_VERSION_base(4,8,0)
 import Data.Foldable( foldMap )
+import Data.Monoid( mempty )
 import Control.Applicative( pure, (<$>) )
 #endif
 
