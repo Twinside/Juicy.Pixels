@@ -60,7 +60,7 @@ packHuffmanTree tree = runST $ do
     table <- M.replicate 512 0x8000
     let aux (Empty) idx = return $ idx + 1
         aux (Leaf v) idx = do
-            (table `M.unsafeWrite` idx) $ (fromIntegral v .|. 0x4000)
+            (table `M.unsafeWrite` idx) $ fromIntegral v .|. 0x4000
             return $ idx + 1
 
         aux (Branch i1@(Leaf _) i2@(Leaf _)) idx =

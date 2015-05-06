@@ -159,7 +159,7 @@ unpack444Ycbcr compIdx x y
             val7 <- pixelClamp <$> (block `M.unsafeRead` (readIdx + 7))
 
             (img `M.unsafeWrite` idx) val0
-            (img `M.unsafeWrite` (idx + (3    ))) val1
+            (img `M.unsafeWrite` (idx +  3     )) val1
             (img `M.unsafeWrite` (idx + (3 * 2))) val2
             (img `M.unsafeWrite` (idx + (3 * 3))) val3
             (img `M.unsafeWrite` (idx + (3 * 4))) val4

@@ -429,7 +429,7 @@ applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) 
                                 | otherwise = 255]
 
 unparse :: PngIHdr -> Maybe PngPalette -> [Lb.ByteString] -> PngImageType
-        -> B.ByteString -> Either [Char] DynamicImage
+        -> B.ByteString -> Either String DynamicImage
 unparse ihdr _ t PngGreyscale bytes
     | bitDepth ihdr == 1 = unparse ihdr (Just paletteRGB1) t PngIndexedColor bytes
     | bitDepth ihdr == 2 = unparse ihdr (Just paletteRGB2) t PngIndexedColor bytes
@@ -460,7 +460,7 @@ toImage hdr const1 const2 lr = Right $ case lr of
     h = fromIntegral $ height hdr
 
 palette8 :: PngIHdr -> PngPalette -> [Lb.ByteString] -> Either (V.Vector Word8) t
-         -> Either [Char] DynamicImage
+         -> Either String DynamicImage
 palette8 hdr palette transparency eimg = case (transparency, eimg) of
   ([c], Left img) ->
     Right . ImageRGBA8 . Image w h
@@ -533,4 +533,6 @@ decodePngWithMetadata byte =  do
     in
     (, metadatas) <$>
         unparse ihdr palette transparencyColor (colourType ihdr) parseableData
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 

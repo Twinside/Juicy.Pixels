@@ -199,8 +199,6 @@ import System.IO.MMap ( mmapFileByteString )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 
-#include "ConvGraph.hs"
-
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b
 eitherLoad v = inner ""

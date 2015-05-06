@@ -23,8 +23,7 @@ scalerOfUnit unit k v = case unit of
 extractMetadatas :: JpgJFIFApp0 -> Metadatas
 extractMetadatas jfif = 
     inserter Met.DpiX (_jfifDpiX jfif)
-        $ inserter Met.DpiY (_jfifDpiY jfif)
-        $ mempty
+        $ inserter Met.DpiY (_jfifDpiY jfif) mempty
   where
     inserter = scalerOfUnit $ _jfifUnit jfif
 

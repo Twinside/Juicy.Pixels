@@ -17,6 +17,7 @@ module Codec.Picture.Bitmap( -- * Functions
                              -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
+
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
 #endif
@@ -457,4 +458,6 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
               importantColours = paletteSize
           }
 
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 

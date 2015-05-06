@@ -13,7 +13,6 @@ module Codec.Picture.Tga( decodeTga
                         , writeTga
                         )  where
 
-
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
 import Control.Applicative( (<*>), pure, (<$>) )
@@ -505,4 +504,6 @@ encodeTga img = encode file
       , _tgaPalette    = mempty
       , _tgaFileRest   = tgaDataOfImage img
       }
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 
