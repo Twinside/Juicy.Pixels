@@ -42,11 +42,19 @@ import Data.Monoid( Monoid, mempty, mappend )
 import Data.Word( Word )
 #endif
 
+
 import Control.DeepSeq( NFData( .. ) )
-import Data.Typeable( (:~:)( Refl ) )
 import qualified Data.Foldable as F
 
 import Codec.Picture.Metadata.Exif
+
+#if MIN_VERSION_base(4,7,0)
+import Data.Typeable( (:~:)( Refl ) )
+type Equiv = (:~:)
+#else
+data Equiv a b where
+    Refl :: Equiv a a
+#endif
 
 -- | Store various additional information about an image. If
 -- something is not recognized, it can be stored in an unknown tag.
@@ -97,7 +105,7 @@ deriving instance Show (Elem Keys)
 instance NFData (Elem Keys) where
   rnf (_ :=> v) = rnf v `seq` ()
 
-keyEq :: Keys a -> Keys b -> Maybe (a :~: b)
+keyEq :: Keys a -> Keys b -> Maybe (Equiv a b)
 keyEq a b = case (a, b) of
   (Gamma, Gamma) -> Just Refl
   (DpiX, DpiX) -> Just Refl
