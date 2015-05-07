@@ -7,7 +7,7 @@ module Codec.Picture.Png.Metadata( extractMetadatas
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>), (<*>), pure )
-import Data.Monoid( mempty )
+import Data.Monoid( Monoid, mempty )
 import Data.Foldable( foldMap )
 #endif
 
@@ -25,15 +25,25 @@ import Codec.Picture.Metadata ( Metadatas
                               , Elem( (:=>) ) )
 import Codec.Picture.Png.Type
 
+#if !MIN_VERSION_base(4,7,0)
+eitherFoldMap :: Monoid m => (a -> m) -> Either e a -> m
+eitherFoldMap f v = case v of
+  Left _ -> mempty
+  Right a -> f a
+#else
+eitherFoldMap :: Monoid m => (a -> m) -> Either e a -> m
+eitherFoldMap = foldMap
+#endif
+
 getGamma :: [L.ByteString] -> Metadatas
 getGamma [] = mempty
-getGamma (g:_) = foldMap unpackGamma $ runGet get g
+getGamma (g:_) = eitherFoldMap unpackGamma $ runGet get g
   where
     unpackGamma gamma = Met.singleton Met.Gamma (getPngGamma gamma)
 
 getDpis :: [L.ByteString] -> Metadatas
 getDpis [] = mempty
-getDpis (b:_) = foldMap unpackPhys $ runGet get b
+getDpis (b:_) = eitherFoldMap unpackPhys $ runGet get b
   where
     unpackPhys PngPhysicalDimension { pngUnit = PngUnitUnknown } =
       Met.insert Met.DpiX 72 $ Met.singleton Met.DpiY 72
@@ -76,7 +86,8 @@ textToMetadata ptext = case pngKeyword ptext of
     strValue k = Met.singleton k . L.unpack $ pngData ptext
 
 getTexts :: [L.ByteString] -> Metadatas
-getTexts = foldMap (foldMap textToMetadata . runGet get)
+getTexts = foldMap (eitherFoldMap textToMetadata . runGet get) where
+ 
 
 extractMetadatas :: PngRawImage -> Metadatas
 extractMetadatas img = getDpis (chunksOf pHYsSignature)
