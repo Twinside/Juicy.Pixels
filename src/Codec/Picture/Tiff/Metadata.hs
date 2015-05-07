@@ -4,7 +4,7 @@ module Codec.Picture.Tiff.Metadata( extractTiffMetadata ) where
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
 import Data.Foldable( foldMap )
-import Control.Applicative( (<$>), (<*>), pure )
+import Control.Applicative( (<$>) )
 #endif
 
 import Data.Foldable( find )
