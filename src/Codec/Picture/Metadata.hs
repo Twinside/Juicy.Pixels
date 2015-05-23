@@ -65,6 +65,8 @@ data Equiv a b where
 --
 --   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
 --
+--   * 'Exif' Exif tag and associated data.
+--
 data Keys a where
   Gamma       :: Keys Double
   DpiX        :: Keys Word

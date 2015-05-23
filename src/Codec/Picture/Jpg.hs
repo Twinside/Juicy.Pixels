@@ -550,6 +550,15 @@ decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg = fmap fst . decodeJpegWithMetadata
 
 -- | Equivalent to 'decodeJpeg' but also extracts metadatas.
+--
+-- Extract the following metadatas from the JFIF bloc:
+--
+--  * DpiX
+--
+--  * DpiY
+--
+-- Exif metadata are also extracted if present.
+--
 decodeJpegWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeJpegWithMetadata file = case runGetStrict get file of
   Left err -> Left err

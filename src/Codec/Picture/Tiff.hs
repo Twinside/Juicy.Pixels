@@ -784,6 +784,9 @@ decodeTiff = fmap fst . decodeTiffWithMetadata
 
 -- | Like 'decodeTiff' but also provides some metdata present
 -- in the Tiff file.
+--
+-- The metadata extracted are the DpiX & DpiY information alongside
+-- the EXIF informations.
 decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeTiffWithMetadata file = runGetStrict (getP file) file >>= go
   where

@@ -47,6 +47,13 @@ Status
         - 16bits RGB (non interleaved)
         - 16bits RGBA (non interleaved)
 
+    * Metadata (reading/writing)
+        * in a tEXT chunk: 'Title', 'Description', 'Author', 'Copyright',
+          'Software', 'Comment', 'Disclaimer', 'Source', 'Warning'
+        * any other tEXT chunk.
+        * in a gAMA field : 'Gamma'
+        * DPI information in a pHYs chunk.
+
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
         - 24bits (RGB) images
@@ -57,18 +64,26 @@ Status
         - 24bits (RGB) per pixel images
         - 8 bits greyscale (with palette)
 
+    * Metadata (reading/writing): DPI information
+
  - Jpeg   (.jpg, .jpeg) 
     * Reading normal and interlaced baseline DCT image
         - YCbCr (default) CMYK/YCbCrK/RGB colorspaces
     * Writing non-interlaced JPG
 
+    * Metadata:
+        - Reading and writing DpiX & DpiY from JFIF header.
+        - Reading EXIF metadata.
+
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.
     * Writing single & animated Gif images.
+    * No metadata.
 
  - Radiance (.pic, .hdr)
     * Reading
     * Writing
+    * No metadata.
 
  - Tga
     * Reading
@@ -79,6 +94,7 @@ Status
         - uncompressed 8bits (Pixel8)
         - uncompressed 24bits (PixelRGB8)
         - uncompressed 32bits (PixelRGBA8)
+    * No metadata
 
  - Tiff
     * Reading
@@ -90,6 +106,7 @@ Status
         - 8 and 16 bits
         - CMYK, YCbCr, RGB, RGBA, Greyscale
         - Uncompressed
+    * Metadata: reading DpiX, DpiY and EXIF informations.
 
 _I love juicy pixels_
 
