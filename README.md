@@ -14,21 +14,17 @@ pixels. Or squared pixels, or whatever, as long as they're unboxed.
 
 Documentation
 -------------
+
 The library documentation can be accessed on [Hackage](http://hackage.haskell.org/package/JuicyPixels)
 
 Wrappers
 --------
-For the user of
-[REPA](http://www.haskell.org/haskellwiki/Numeric_Haskell:_A_Repa_Tutorial),
-check-out JuicyPixels-repa on
-[GitHub](https://github.com/TomMD/JuicyPixels-repa) or
-[Hackage](http://hackage.haskell.org/package/JuicyPixels-repa)
 
-For the user of
-[Gloss](http://hackage.haskell.org/package/gloss),
-check-out gloss-juicy on
-[GitHub](https://github.com/alpmestan/gloss-juicy) or
-[Hackage](http://hackage.haskell.org/package/gloss-juicy)
+For the user of:
+
+ * [REPA](http://www.haskell.org/haskellwiki/Numeric_Haskell:_A_Repa_Tutorial), check-out JuicyPixels-repa on [GitHub](https://github.com/TomMD/JuicyPixels-repa) or [Hackage](http://hackage.haskell.org/package/JuicyPixels-repa)
+
+ * [Gloss](http://hackage.haskell.org/package/gloss), check-out gloss-juicy on [GitHub](https://github.com/alpmestan/gloss-juicy) or [Hackage](http://hackage.haskell.org/package/gloss-juicy)
 
 Status
 ------

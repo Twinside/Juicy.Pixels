@@ -2,23 +2,37 @@ Change log
 ==========
 
 v3.2.5 May 2015
+---------------
+ * Fixing: utf-8 encoding of Jpg/Types causing problems with Haddock.
+
+v3.2.5 May 2015
+---------------
+
  * Adding: Metadata extraction for various file format.
  * Adding: Metadata writing for various file format.
  * Adding: light EXIF mapping.
  * Fix: handling of Tiff with predictors (thanks to Patrick Pelletier)
  
 v3.2.4 April 2015
+-----------------
+
  * Adding: Traversals compatible with the lens library.
 
 v3.2.3.2 April 2015
+-------------------
+
  * Bumping: zlib max bound
 
 v3.2.3.1 March 2015
+-------------------
+
  * Bumping: primitive to allow 0.6
  * Fix: BMP output generated wrong size (thanks to mtolly).
  * Fix: 7.10.1 warning free
 
 v3.2.3 March 2015
+-----------------
+
  * Adding: Support for RGB in jpeg (yeah, that exist...)
  * Adding: Support of CMYK & YCrCbK color space in jpeg files.
  * Addinng: a pixelFoldMap functions analog to the `foldMap` function
@@ -26,15 +40,19 @@ v3.2.3 March 2015
  * Fix: better performances for the pixelFold* functions
 
 v3.2.2 January 2015
+-------------------
+
  * Fix: Squashing GHC 7.10 warnings
 
 v3.2.1 December 2014
+--------------------
  * Fix: Bumping deepseq dependencies preparing for GHC 7.10
    release.
 
 v3.2 December 2014
- BREAKING CHANGES:
-   the Codec.Picture.Gif functions has changed interfaces.
+------------------
+
+*BREAKING CHANGES*: the Codec.Picture.Gif functions has changed interfaces.
 
  * Adding: TGA reading.
  * Adding: TGA writing.
@@ -42,11 +60,15 @@ v3.2 December 2014
  * Fix: Returning gif with transparency (breaking Codec.Picture.Gif interface)
 
 v3.1.7.1 August 2014
+--------------------
+
  * Previous gif fix was not working withing the readImage
    function, only in specialized gif images. Correcting
    miscorection
 
 v3.1.7 August 2014
+------------------
+
  * Making Juicy.Pixels compatible with GHC 7.9 HEAD (ggreif)
  * Adding writing to uncompressed radiance file, due to
    problems with Mac OS X "preview" application
@@ -54,10 +76,14 @@ v3.1.7 August 2014
  * Some inlining annotations on some functions
 
 v3.1.6.1 August 2014
+--------------------
+
  * Fix of Gif palette creation (jeffreyrosenbluth)
  * Restoring transformers 0.3.* compat
 
 v3.1.6 August 2014
+------------------
+
  * Fix bad disposal handling in GIF animations.
  * Added ColorConvertible instance for PixelRGB8 -> PixelRGBA16 (KaiHa)
  * Fixing a bad handling of tRNS causing bad transprency decoding in
@@ -66,12 +92,18 @@ v3.1.6 August 2014
    using mutable array.
 
 v3.1.5.2 May 2014
+-----------------
+
  * Bumping the transformers dependency
 
 v3.1.5.1 May 2014
+-----------------
+
  * Adding some INLINE annotations for some pixel functions
 
 v3.1.5 March 2014
+-----------------
+
  * Typos and documentation proof reading fixes
    (pull request from iger).
  * Fix of progressive jpeg loading with more than two
@@ -89,10 +121,14 @@ v3.1.5 March 2014
 
 
 v3.1.4.1 February 2014
+----------------------
+
  * Putting back data URI logo for cabal description, it's
    apparently not supported by Hackage :-(
 
 v3.1.4 February 2014
+--------------------
+
  * Adding a pixelOpacity method to the pixel type class.
  * Adding handling greyscale BMP files (phischu)
  * Fixing promotePixel for Pixel8 -> Pixel16
@@ -101,23 +137,33 @@ v3.1.4 February 2014
  * Removed URI-encoded images, now using clean cabal embedding
 
 v3.1.3.3 February 2014
+----------------------
+
  * Lowering cabal version limit to be compiled with older GHCs
 
 v3.1.3.2 January 2014
+---------------------
+
  * Hacking around Binary to accept old version of it, down to version 0.5
    allowing Juicy.Pixels to be compiled with GHC 6.3
 
 v3.1.3.1 January 2014
+---------------------
+
  * Fixing color counting function in color quantisation.
  * Adding missing documentation for foreign pointer import.
 
 v3.1.3 January 2014
+-------------------
+
  * Adding palette creation (color Quantization) by Jeffrey Rosenbluth.
  * Adding support for Gif writing
  * Adding support for Gif animation writing
  * Fixing some progressive Jpeg decoding problems (#39)
 
 v3.1.2 December 2013
+--------------------
+
  * Adding support for progressive jpeg.
  * Adding support for plane separated MCU jpeg.
  * Adding support for grayscale 32bit decoding (with reduced precision to
@@ -125,9 +171,13 @@ v3.1.2 December 2013
  * Fixing erroneous bitmap decoding in case of excessive padding (#31).
 
 v3.1.1.1 October 2013
+---------------------
+
  * Fixing some spurious crash while decoding some JPEG image (#30).
 
 v3.1.1  October 2013
+--------------------
+
  * Adding uncompresed TIFF saving.
  * Adding error message to avoid loading progressive loading.
  * Made MMAP optional, controled by a cabal flag.
@@ -135,6 +185,8 @@ v3.1.1  October 2013
  * Handling png transparency using color key (#26).
 
 v3.1 June 2013
+--------------
+
  * Adding basic handling of 16bits pixel types.
  * Addition of Tiff reading:
     - 2, 4, 8, 16 bit depth reading (planar and contiguous for each).
@@ -144,6 +196,8 @@ v3.1 June 2013
  * Huge performances improvement.
 
 v3.0 January 2013
+-----------------
+
  * Simplification of the 'Pixel' typeclass, removed many unused part.
  * Removal of some Storable instances for pixel types.
  * Amelioration of the documentation.
@@ -154,35 +208,51 @@ v3.0 January 2013
    in the Haskell platform. Every dependencies are now present in the platform.
 
 v2.0.2 October 2012
+-------------------
+
  * Decoding of interleaved gif image.
  * Decoding delta coded gif animation.
  * Bumping dependencies.
 
 v2.0.1 September 2012
+---------------------
+
  * Documentation enhancements.
  * Fixing some huge gif file loading.
  * Fixing performance problem of Bitmap and Jpeg savings.
 
 v2.0 September 2012
+-------------------
+
  * New extractComponent version with type safe plane extraction.
  * Gif file reading.
 
 v1.3 June 2012
+--------------
+
  * Fix extractComponent function.
  * Adding saving for YA8 functions.
 
 v1.2.1 April 2012
+-----------------
+
  * Dependencies version bump.
  * Dropping array dependency.
 
 v1.2 March 2012
+---------------
+
  * Adding a generateImage helper function.
  * Adding NFData instances for image.
  * Adding JPEG writing.
 
 v1.1 February 2012
+------------------
+
  * Switching to vector for arrays, big performance improvement.
 
 v1.0 January 2012
+-----------------
+
  * Initial release
 
