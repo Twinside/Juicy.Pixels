@@ -1,6 +1,7 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 -- | Main module for image import/export into various image formats.
 --
 -- To use the library without thinking about it, look after 'decodeImage' and
@@ -14,7 +15,9 @@
 module Codec.Picture (
                      -- * Generic functions
                        readImage
+                     , readImageWithMetadata
                      , decodeImage
+                     , decodeImageWithMetadata
                      , pixelMap
                      , generateImage
                      , generateFoldImage
@@ -133,15 +136,25 @@ module Codec.Picture (
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
+import Data.Monoid( mempty )
 #endif
 
 import Control.DeepSeq( NFData, deepseq )
 import qualified Control.Exception as Exc ( catch, IOException )
-import Codec.Picture.Bitmap( BmpEncodable, decodeBitmap
+import Codec.Picture.Metadata( Metadatas )
+import Codec.Picture.Bitmap( BmpEncodable
+                           , decodeBitmap
+                           , decodeBitmapWithMetadata
                            , writeBitmap, encodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
-import Codec.Picture.Jpg( decodeJpeg, encodeJpeg, encodeJpegAtQuality )
-import Codec.Picture.Png( PngSavable( .. ), decodePng, writePng
+import Codec.Picture.Jpg( decodeJpeg
+                        , decodeJpegWithMetadata
+                        , encodeJpeg
+                        , encodeJpegAtQuality )
+import Codec.Picture.Png( PngSavable( .. )
+                        , decodePng
+                        , decodePngWithMetadata
+                        , writePng
                         , encodeDynamicPng
                         , encodePalettedPng
                         , writeDynamicPng
@@ -165,6 +178,7 @@ import Codec.Picture.HDR( decodeHDR
                         , writeHDR
                         )
 import Codec.Picture.Tiff( decodeTiff
+                         , decodeTiffWithMetadata
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
@@ -184,8 +198,6 @@ import System.IO.MMap ( mmapFileByteString )
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
-
-#include "ConvGraph.hs"
 
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b
@@ -245,19 +257,32 @@ withImageDecoder decoder path = Exc.catch doit
 readImage :: FilePath -> IO (Either String DynamicImage)
 readImage = withImageDecoder decodeImage
 
+-- | Equivalent to 'readImage'  but also providing metadatas.
+readImageWithMetadata :: FilePath -> IO (Either String (DynamicImage, Metadatas))
+readImageWithMetadata = withImageDecoder decodeImageWithMetadata
+
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
 -- to decode in each known format and if one decoding succeeds, it will return
 -- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
-decodeImage str = eitherLoad str [("Jpeg", decodeJpeg)
-                                 ,("PNG", decodePng)
-                                 ,("Bitmap", decodeBitmap)
-                                 ,("GIF", decodeGif)
-                                 ,("HDR", decodeHDR)
-                                 ,("Tiff", decodeTiff)
-                                 ,("TGA", decodeTga)
-                                 ]
+decodeImage = fmap fst . decodeImageWithMetadata 
+
+-- | Equivalent to 'decodeImage', but also provide potential metadatas
+-- present in the given file.
+decodeImageWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeImageWithMetadata str = eitherLoad str
+    [ ("Jpeg", decodeJpegWithMetadata)
+    , ("PNG", decodePngWithMetadata)
+    , ("Bitmap", decodeBitmapWithMetadata)
+    , ("GIF", noMeta decodeGif)
+    , ("HDR", noMeta decodeHDR)
+    , ("Tiff", decodeTiffWithMetadata)
+    , ("TGA", noMeta decodeTga)
+    ]
+  where
+    noMeta f = fmap (, mempty) . f
+
 
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)

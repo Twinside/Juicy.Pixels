@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -7,14 +8,24 @@
 module Codec.Picture.Bitmap( -- * Functions
                              writeBitmap
                            , encodeBitmap
+                           , encodeBitmapWithMetadata
                            , decodeBitmap
+                           , decodeBitmapWithMetadata
                            , encodeDynamicBitmap 
+                           , encodeBitmapWithPaletteAndMetadata
                            , writeDynamicBitmap 
                              -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+import Control.Applicative( (<$>) )
+#endif
+
 import Control.Monad( when, forM_ )
 import Control.Monad.ST ( ST, runST )
+import Data.Maybe( fromMaybe )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
@@ -41,6 +52,8 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
+import qualified Codec.Picture.Metadata as Met
+import Codec.Picture.Metadata ( Metadatas )
 
 data BmpHeader = BmpHeader
     { magicIdentifier :: !Word16
@@ -298,6 +311,12 @@ pixelGet = do
     _ <- getWord8
     return $ PixelRGB8 r g b
 
+metadataOfHeader :: BmpInfoHeader -> Metadatas
+metadataOfHeader hdr = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX
+  where
+    dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
+    dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
+
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
 --
@@ -306,7 +325,11 @@ pixelGet = do
 --    * Pixel8
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
-decodeBitmap str = flip runGetStrict str $ do
+decodeBitmap = fmap fst . decodeBitmapWithMetadata
+
+-- | Same as 'decodeBitmap' but also extracts metadata.
+decodeBitmapWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeBitmapWithMetadata str = flip runGetStrict str $ do
   hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
 
@@ -327,13 +350,14 @@ decodeBitmap str = flip runGetStrict str $ do
 
   skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
   rest <- getRemainingBytes
+  let addMetadata i = (i, metadataOfHeader bmpHeader)
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
     -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-    (24, 1, 0) -> return . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    (24, 1, 0) -> return . addMetadata . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
     ( 8, 1, 0) ->
         let indexer v = table V.! fromIntegral v in
-        return . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
+        return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
 
     a          -> fail $ "Can't handle BMP file " ++ show a
 
@@ -352,6 +376,16 @@ linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
 encodeBitmap :: forall pixel. (BmpEncodable pixel) => Image pixel -> L.ByteString
 encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
 
+-- | Equivalent to 'encodeBitmap' but also store
+-- the following metadatas:
+--
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
+--
+encodeBitmapWithMetadata :: forall pixel. BmpEncodable pixel
+                         => Metadatas -> Image pixel -> L.ByteString
+encodeBitmapWithMetadata metas =
+  encodeBitmapWithPaletteAndMetadata metas (defaultPalette (undefined :: pixel))
 
 -- | Write a dynamic image in a .bmp image file if possible.
 -- The same restriction as encodeDynamicBitmap apply.
@@ -374,13 +408,30 @@ encodeDynamicBitmap (ImageRGBA8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap (ImageY8 img) = Right $ encodeBitmap img
 encodeDynamicBitmap _ = Left "Unsupported image format for bitmap export"
 
+extractDpiOfMetadata :: Metadatas -> (Word32, Word32)
+extractDpiOfMetadata metas = (fetch Met.DpiX, fetch Met.DpiY) where
+  fetch k = fromMaybe 0
+          $ fromIntegral . Met.dotPerInchToDotsPerMeter <$> Met.lookup k metas
+
 -- | Convert an image to a bytestring ready to be serialized.
 encodeBitmapWithPalette :: forall pixel. (BmpEncodable pixel)
                         => BmpPalette -> Image pixel -> L.ByteString
-encodeBitmapWithPalette pal@(BmpPalette palette) img =
+encodeBitmapWithPalette = encodeBitmapWithPaletteAndMetadata mempty
+
+-- | Equivalent to 'encodeBitmapWithPalette' but also store
+-- the following metadatas:
+--
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
+--
+encodeBitmapWithPaletteAndMetadata :: forall pixel. (BmpEncodable pixel)
+                                   => Metadatas -> BmpPalette -> Image pixel
+                                   -> L.ByteString
+encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
   runPut $ put hdr >> put info >> putPalette pal >> bmpEncode img
     where imgWidth = fromIntegral $ imageWidth img
           imgHeight = fromIntegral $ imageHeight img
+          (dpiX, dpiY) = extractDpiOfMetadata metas
 
           paletteSize = fromIntegral $ length palette
           bpp = bitsPerPixel (undefined :: pixel)
@@ -402,10 +453,12 @@ encodeBitmapWithPalette pal@(BmpPalette palette) img =
               bitPerPixel = fromIntegral bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
-              xResolution = 0,
-              yResolution = 0,
+              xResolution = dpiX,
+              yResolution = dpiY,
               colorCount = 0,
               importantColours = paletteSize
           }
 
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 

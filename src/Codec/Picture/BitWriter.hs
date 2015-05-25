@@ -301,3 +301,5 @@ writeBitsGif st d c = do
               where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
                     cleanData = bitData .&. cleanMask     :: Word32
 
+{-# ANN module "HLint: ignore Reduce duplication" #-}
+

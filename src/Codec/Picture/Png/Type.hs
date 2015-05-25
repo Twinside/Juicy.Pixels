@@ -5,6 +5,9 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngInterlaceMethod( .. )
                              , PngPalette
                              , PngImageType( .. )
+                             , PngPhysicalDimension( .. )
+                             , PngGamma( .. )
+                             , PngUnit( .. )
                              , APngAnimationControl( .. )
                              , APngFrameDisposal( .. )
                              , APngBlendOp( .. )
@@ -15,7 +18,10 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , iDATSignature
                              , iENDSignature
                              , tRNSSignature
+                             , tEXtSignature
+                             , zTXtSignature
                              , gammaSignature
+                             , pHYsSignature
                              , animationControlSignature
                              -- * Low level types
                              , ChunkSignature
@@ -23,10 +29,12 @@ module Codec.Picture.Png.Type( PngIHdr( .. )
                              , PngChunk( .. )
                              , PngRawChunk( .. )
                              , PngLowLevel( .. )
+                             , chunksWithSig
+                             , mkRawChunk
                              ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative( (<$>) )
+import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
 import Control.Monad( when, replicateM )
@@ -69,6 +77,39 @@ data PngIHdr = PngIHdr
     , interlaceMethod   :: !PngInterlaceMethod   -- ^ If the image is interlaced (for progressive rendering)
     }
     deriving Show
+
+data PngUnit
+    = PngUnitUnknown -- ^ 0 value
+    | PngUnitMeter   -- ^ 1 value
+
+instance Binary PngUnit where
+  get = do
+    v <- getWord8
+    pure $ case v of
+      0 -> PngUnitUnknown
+      1 -> PngUnitMeter
+      _ -> PngUnitUnknown
+  
+  put v = case v of
+    PngUnitUnknown -> putWord8 0
+    PngUnitMeter -> putWord8 1
+
+data PngPhysicalDimension = PngPhysicalDimension
+    { pngDpiX     :: !Word32
+    , pngDpiY     :: !Word32
+    , pngUnit     :: !PngUnit
+    }
+
+instance Binary PngPhysicalDimension where
+  get = PngPhysicalDimension <$> getWord32be <*> getWord32be <*> get
+  put (PngPhysicalDimension dpx dpy unit) =
+    putWord32be dpx >> putWord32be dpy >> put unit
+
+newtype PngGamma = PngGamma { getPngGamma :: Double }
+
+instance Binary PngGamma where
+  get = PngGamma . (/ 100000) . fromIntegral <$> getWord32be
+  put = putWord32be . ceiling . (100000 *) . getPngGamma 
 
 data APngAnimationControl = APngAnimationControl
     { animationFrameCount :: !Word32
@@ -148,6 +189,14 @@ data PngRawChunk = PngRawChunk
     , chunkCRC    :: Word32
     , chunkData   :: L.ByteString
     }
+
+mkRawChunk :: ChunkSignature -> L.ByteString -> PngRawChunk
+mkRawChunk sig binaryData = PngRawChunk
+  { chunkLength = fromIntegral $ L.length binaryData
+  , chunkType   = sig
+  , chunkCRC    = pngComputeCrc [sig, binaryData]
+  , chunkData   = binaryData
+  }
 
 -- | PNG chunk representing some extra information found in the parsed file.
 data PngChunk = PngChunk
@@ -349,6 +398,15 @@ tRNSSignature = signature "tRNS"
 gammaSignature :: ChunkSignature
 gammaSignature = signature "gAMA"
 
+pHYsSignature :: ChunkSignature
+pHYsSignature = signature "pHYs"
+
+tEXtSignature :: ChunkSignature
+tEXtSignature = signature "tEXt"
+
+zTXtSignature :: ChunkSignature
+zTXtSignature = signature "zTXt"
+
 animationControlSignature :: ChunkSignature
 animationControlSignature = signature "acTL"
 
@@ -385,4 +443,8 @@ pngComputeCrc = (0xFFFFFFFF `xor`) . L.foldl' updateCrc 0xFFFFFFFF . L.concat
               let u32Val = fromIntegral val
                   lutVal = pngCrcTable ! (fromIntegral ((crc `xor` u32Val) .&. 0xFF))
               in lutVal `xor` (crc `unsafeShiftR` 8)
+
+chunksWithSig :: PngRawImage -> ChunkSignature -> [LS.ByteString]
+chunksWithSig rawImg sig =
+  [chunkData chunk | chunk <- chunks rawImg, chunkType chunk == sig]
 

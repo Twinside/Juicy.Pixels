@@ -3,21 +3,26 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 import Codec.Picture
-import Codec.Picture.Jpg( encodeJpeg )
+import Codec.Picture.Jpg( encodeJpeg, encodeJpegAtQualityWithMetadata )
 import Codec.Picture.Gif
 import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
+import Data.Char( toLower )
+import Data.List( isInfixOf )
 import Data.Monoid
 import Data.Word( Word8 )
-import Control.Monad( forM_ )
+import Control.Monad( forM_, liftM )
 import System.FilePath
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
 import Codec.Picture.HDR
+import Codec.Picture.Bitmap( encodeBitmapWithMetadata )
+import Codec.Picture.Png( encodePalettedPngWithMetadata )
+import qualified Codec.Picture.Metadata as Met
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
@@ -181,6 +186,7 @@ tiffValidTests =
     ,"compression/flower-rgb-contig-16-packbits.tif"
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
+    ,"horizontal-difference-lzw.tiff" -- produced by "Grab" on Mac OS X
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -244,9 +250,9 @@ gifToImg path = do
 
 imgToImg :: FilePath -> IO ()
 imgToImg path = do
-    rez <- readImage path
+    rez <- readImageWithMetadata path
     case rez of
-        Right (ImageYCbCr8 img) -> do
+        Right (ImageYCbCr8 img, met) -> do
             let rgb = convertImage img :: Image PixelRGB8
                 jpg = validationJpegEncode img
                 png = encodePng rgb
@@ -254,6 +260,7 @@ imgToImg path = do
                 bmp = encodeBitmap rgb
                 tiff = encodeTiff img
             putStrLn $ "YCbCr : " ++ path
+            print met
             putStrLn "-> JPG"
             L.writeFile (path ++ "._fromYCbCr8.jpg") jpg
             putStrLn "-> BMP"
@@ -267,25 +274,27 @@ imgToImg path = do
             putStrLn "-> Gif"
             eitherDo $ writeColorReducedGifImage (path ++ "._fromYCbCr8.gif") rgb
 
-        Right (ImageYF _) -> putStrLn "don't handle HDR image in imgToImg"
-        Right (ImageRGBF _) -> putStrLn "don't handle HDR image in imgToImg"
-        Right (ImageCMYK16 img) -> do
+        Right (ImageYF _, _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageRGBF _, _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageCMYK16 img, met) -> do
             let rgbimg :: Image PixelRGB16
                 rgbimg = convertImage img
                 png = encodePng rgbimg
                 tiff = encodeTiff img
             putStrLn $ "CMYK16 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK16.png") png
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromCMYK16.tiff") tiff
 
-        Right (ImageCMYK8 img) -> do
+        Right (ImageCMYK8 img, met) -> do
             let rgbimg :: Image PixelRGB8
                 rgbimg = convertImage img
                 png = encodePng rgbimg
                 tiff = encodeTiff img
             putStrLn $ "CMYK8 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK8.png") png
             putStrLn "-> Gif"
@@ -293,13 +302,14 @@ imgToImg path = do
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromCMYK8.tiff") tiff
 
-        Right (ImageRGB8 img) -> do
+        Right (ImageRGB8 img, met) -> do
             let jpg = validationJpegEncode (convertImage img)
                 png = encodePng img
                 bmp = encodeBitmap img
                 tga = encodeTga img
                 tiff = encodeTiff img
             putStrLn $ "RGB8 : " ++ path
+            print met
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromRGB8.bmp") bmp
             putStrLn "-> JPG"
@@ -313,47 +323,52 @@ imgToImg path = do
             putStrLn "-> Tga"
             L.writeFile (path ++ "._fromRGB8.tga") tga
 
-        Right (ImageY16 img) -> do
+        Right (ImageY16 img, met) -> do
             let pngFile = encodePng img
                 tiffFile = encodeTiff img
             putStrLn $ "Y16 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromY16.png") pngFile
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromY16.tiff") tiffFile
 
-        Right (ImageYA16 img) -> do
+        Right (ImageYA16 img, met) -> do
             let pngFile = imageToPng $ ImageYA16 img
             putStrLn $ "YA16 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromYA16.png") pngFile
 
-        Right (ImageRGB16 img) -> do
+        Right (ImageRGB16 img, met) -> do
             let pngFile = encodePng img
                 tiffFile = encodeTiff img
             putStrLn $ "RGB16 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB16.png") pngFile
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromRGB16.tiff") tiffFile
 
 
-        Right (ImageRGBA16 img) -> do
+        Right (ImageRGBA16 img, met) -> do
             let pngFile = encodePng img
                 tiffFile = encodeTiff img
             putStrLn $ "RGBA16 : " ++ path
+            print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGBA16.png") pngFile
             putStrLn "-> Tiff"
             L.writeFile (path ++ "._fromRGBA16.tiff") tiffFile
 
-        Right (ImageRGBA8 img) -> do
+        Right (ImageRGBA8 img, met) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode (convertImage $ dropAlphaLayer img)
                 png = encodePng img
                 tiff = encodeTiff img
                 tga = encodeTga img
             putStrLn $ "RGBA8 : " ++ path
+            print met
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromRGBA8.bmp") bmp
             putStrLn "-> JPG"
@@ -365,7 +380,7 @@ imgToImg path = do
             putStrLn "-> Tga"
             L.writeFile (path ++ "._fromRGBA8.tga") tga
 
-        Right (ImageY8 img) -> do
+        Right (ImageY8 img, met) -> do
             let bmp = encodeBitmap img
                 jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng img
@@ -373,6 +388,7 @@ imgToImg path = do
                 tga = encodeTiff img
                 gif = encodeGifImage img
             putStrLn $ "Y8 : " ++ path
+            print met
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromY8.bmp") bmp
             putStrLn "-> JPG"
@@ -386,13 +402,14 @@ imgToImg path = do
             putStrLn "-> Gif"
             L.writeFile (path ++ "._fromY8.gif") gif
 
-        Right (ImageYA8 img) -> do
+        Right (ImageYA8 img, met) -> do
             let bmp = encodeBitmap $ (promoteImage img :: Image PixelRGB8)
                 png = encodePng $ (promoteImage img :: Image PixelRGBA8)
                 gif = encodeGifImage $ (dropAlphaLayer img)
                 jpg = validationJpegEncode $ convertImage
                                 (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
             putStrLn $ "YA8 : " ++ path
+            print met
             putStrLn "-> BMP"
             L.writeFile (path ++ "._fromYA8.bmp") bmp
             putStrLn "-> JPG"
@@ -482,8 +499,29 @@ gifTest = ["Gif_pixel_cube.gif"
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
+metadataTest :: IO ()
+metadataTest = do
+  let dumbImage = generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
+      mi = Met.insert
+      metas = mi Met.Author "It's a me"
+            $ mi Met.Software "JuicyPixels test suite"
+            $ mi Met.Title "A metadata test"
+            $ mi Met.Copyright "meh"
+            $ mi Met.Description "let's see the results"
+            $ mi Met.Comment "Test of comment"
+            $ Met.mkDpiMetadata 93
+  L.writeFile "tests/metadata.png" $
+      encodePngWithMetadata metas dumbImage
+  L.writeFile "tests/metadata.jpg" $
+      encodeJpegAtQualityWithMetadata 50 metas $ convertImage dumbImage
+  L.writeFile "tests/metadata.bmp" $
+      encodeBitmapWithMetadata metas dumbImage
+
 testSuite :: IO ()
 testSuite = do
+    putStrLn ">>>> Metadata test"
+    metadataTest
+    putStrLn ">>>> Gif animation test"
     gifAnimationTest 
     putStrLn ">>>> Valid instances"
     toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
@@ -590,6 +628,7 @@ debug = do
 
 myMain :: IO ()
 myMain = do
+    prog <- liftM (map toLower) getProgName
     args <- getArgs
     case args of
         ("test":_) -> testSuite
@@ -597,6 +636,8 @@ myMain = do
         ("jpegtopng":_) -> jpegToPng
         ("pngtojpeg":_) -> pngToJpeg
         ("pngtobmp":_) -> pngToBmp
+        [] | "imagetest"      `isInfixOf` prog -> testSuite
+           | "imagebenchmark" `isInfixOf` prog -> benchMark
         _ -> do
             putStrLn ("Unknown command " ++ show args ++ "Launching benchMark")
             benchMark

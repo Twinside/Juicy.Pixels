@@ -12,7 +12,7 @@ module Codec.Picture.Jpg.Progressive
 import Control.Applicative( pure, (<$>) )
 #endif
 
-import Control.Monad( when, forM_ )
+import Control.Monad( when, unless, forM_ )
 import Control.Monad.ST( ST )
 import Control.Monad.Trans( lift )
 import Data.Bits( (.&.), (.|.), unsafeShiftL )
@@ -120,7 +120,7 @@ decodeRefineAc params _ block eobrun
         performEobRun idx | idx > maxIndex = pure ()
         performEobRun idx = do
           coeff <- lift $ block `MS.unsafeRead` idx
-          if (coeff /= 0) then do
+          if coeff /= 0 then do
             bit <- getNextBitJpg
             case (bit, (coeff .&. plusOne) == 0) of
                (False, _)    -> performEobRun $ idx + 1
@@ -151,7 +151,7 @@ decodeRefineAc params _ block eobrun
                   val <- getBitVal
                   idx' <- updateCoeffs (fromIntegral r) idx
                   when (idx' <= maxIndex) $
-                       (lift $ (block `MS.unsafeWrite` idx') val)
+                       lift $ (block `MS.unsafeWrite` idx') val
                   unpack $ idx' + 1
 
         updateCoeffs :: Int -> Int -> BoolReader s Int
@@ -248,7 +248,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
 
     lineMap imageMcuHeight $ \mmY -> do
       -- Reset all blocks to 0
-      forM_ allBlocks $ V.mapM_ (flip MS.set 0) .  componentBlocks
+      forM_ allBlocks $ V.mapM_ (`MS.set` 0) .  componentBlocks
       MS.set writeIndices 0
 
       lineMap imageMcuWidth $ \_mmx -> do
@@ -262,9 +262,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
                 indexVector =
                     componentIndices componentData ! indiceVector unpackParam
                 maxIndexLength = VS.length indexVector
-            if writeIndex + blockIndex unpackParam >= maxIndexLength then
-              return ()
-            else do
+            unless (writeIndex + blockIndex unpackParam >= maxIndexLength) $ do
                let realIndex = indexVector VS.! (writeIndex + blockIndex unpackParam)
                    writeBlock = componentBlocks componentData ! realIndex
                (eobrun', state) <-
@@ -278,7 +276,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
         forM_ allBlocks $ \comp -> do
           writeIndex <- writeIndices `MS.read` componentId comp
           let newIndex = writeIndex + componentBlockCount comp
-          (writeIndices `MS.write` componentId comp) $ newIndex
+          (writeIndices `MS.write` componentId comp) newIndex
 
       forM_ allBlocks $ \compData -> do
         let compBlocks = componentBlocks compData
@@ -316,7 +314,7 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
         allocateWorkingBlocks (ix, comp) = do
             let blockCount = hSample * vSample * imageMcuWidth
             blocks <- V.replicateM blockCount createEmptyMutableMacroBlock
-            return $ ComponentData 
+            return ComponentData 
                 { componentBlocks = blocks
                 , componentIndices = createMcuLineIndices comp imgWidth imageMcuWidth
                 , componentBlockCount = hSample * vSample

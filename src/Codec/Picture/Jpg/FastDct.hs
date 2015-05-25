@@ -21,17 +21,23 @@ import Control.Monad( forM, forM_ )
 referenceDct :: MutableMacroBlock s Int32
              -> MutableMacroBlock s Int16
              -> ST s (MutableMacroBlock s Int32)
-referenceDct workData block = forM_ [(u, v) | u <- [0 :: Int .. dctBlockSize - 1], v <- [0..dctBlockSize - 1]] (\(u,v) -> do
+referenceDct workData block = do
+  forM_ [(u, v) | u <- [0 :: Int .. dctBlockSize - 1], v <- [0..dctBlockSize - 1]] $ \(u,v) -> do
     val <- at (u,v)
-    (workData `M.unsafeWrite` (v * dctBlockSize + u)) . truncate $ (1 / 4) * c u * c v * val)
-    >> return workData
+    (workData `M.unsafeWrite` (v * dctBlockSize + u)) . truncate $ (1 / 4) * c u * c v * val
+
+  return workData
  where -- at :: (Int, Int) -> ST s Float
-       at (u,v) = sum <$> (forM [(x,y) | x <- [0..dctBlockSize - 1], y <- [0..dctBlockSize - 1 :: Int]] $ \(x,y) -> do
-           sample <- fromIntegral <$> (block `M.unsafeRead` (y * dctBlockSize + x))
-           return $ sample * cos ((2 * fromIntegral x + 1) * fromIntegral u * (pi :: Float)/ 16) 
-                           * cos ((2 * fromIntegral y + 1) * fromIntegral v * pi / 16))
-       c 0 = 1 / sqrt 2
-       c _ = 1
+   at (u,v) = do
+     toSum <-
+        forM [(x,y) | x <- [0..dctBlockSize - 1], y <- [0..dctBlockSize - 1 :: Int]] $ \(x,y) -> do
+            sample <- fromIntegral <$> (block `M.unsafeRead` (y * dctBlockSize + x))
+            return $ sample * cos ((2 * fromIntegral x + 1) * fromIntegral u * (pi :: Float)/ 16) 
+                            * cos ((2 * fromIntegral y + 1) * fromIntegral v * pi / 16)
+     return $ sum toSum
+
+   c 0 = 1 / sqrt 2
+   c _ = 1
 
 pASS1_BITS, cONST_BITS :: Int
 cONST_BITS = 13
@@ -42,18 +48,18 @@ fIX_0_298631336, fIX_0_390180644, fIX_0_541196100,
     fIX_0_765366865, fIX_0_899976223, fIX_1_175875602,
     fIX_1_501321110, fIX_1_847759065, fIX_1_961570560,
     fIX_2_053119869, fIX_2_562915447, fIX_3_072711026 :: Int32
-fIX_0_298631336 =(2446)    -- FIX(0.298631336) */
-fIX_0_390180644 =(3196)    -- FIX(0.390180644) */
-fIX_0_541196100 =(4433)    -- FIX(0.541196100) */
-fIX_0_765366865 =(6270)    -- FIX(0.765366865) */
-fIX_0_899976223 =(7373)    -- FIX(0.899976223) */
-fIX_1_175875602 =(9633)    -- FIX(1.175875602) */
-fIX_1_501321110 =(12299)    -- FIX(1.501321110) */
-fIX_1_847759065 =(15137)    -- FIX(1.847759065) */
-fIX_1_961570560 =(16069)    -- FIX(1.961570560) */
-fIX_2_053119869 =(16819)    -- FIX(2.053119869) */
-fIX_2_562915447 =(20995)    -- FIX(2.562915447) */
-fIX_3_072711026 =(25172)    -- FIX(3.072711026) */
+fIX_0_298631336 = 2446    -- FIX(0.298631336) */
+fIX_0_390180644 = 3196    -- FIX(0.390180644) */
+fIX_0_541196100 = 4433    -- FIX(0.541196100) */
+fIX_0_765366865 = 6270    -- FIX(0.765366865) */
+fIX_0_899976223 = 7373    -- FIX(0.899976223) */
+fIX_1_175875602 = 9633    -- FIX(1.175875602) */
+fIX_1_501321110 = 12299    -- FIX(1.501321110) */
+fIX_1_847759065 = 15137    -- FIX(1.847759065) */
+fIX_1_961570560 = 16069    -- FIX(1.961570560) */
+fIX_2_053119869 = 16819    -- FIX(2.053119869) */
+fIX_2_562915447 = 20995    -- FIX(2.562915447) */
+fIX_3_072711026 = 25172    -- FIX(3.072711026) */
 
 cENTERJSAMPLE :: Int32
 cENTERJSAMPLE = 128
@@ -75,7 +81,7 @@ fastDctLibJpeg workData sample_block = do
             let baseIdx = i * dctBlockSize
                 readAt idx = fromIntegral <$> sample_block `M.unsafeRead` (baseIdx + idx)
                 mult = (*)
-                writeAt idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx)) n
+                writeAt idx = dataBlock `M.unsafeWrite` (baseIdx + idx)
                 writeAtPos idx n = (dataBlock `M.unsafeWrite` (baseIdx + idx))
                                     (n `unsafeShiftR` (cONST_BITS - pASS1_BITS))
 
@@ -145,7 +151,7 @@ fastDctLibJpeg workData sample_block = do
         secondPass block i = do
             let readAt idx = block `M.unsafeRead` ((7 - i) + idx * dctBlockSize)
                 mult = (*)
-                writeAt idx n = (block `M.unsafeWrite` (dctBlockSize * idx + (7 - i))) n
+                writeAt idx = block `M.unsafeWrite` (dctBlockSize * idx + (7 - i))
                 writeAtPos idx n = (block `M.unsafeWrite` (dctBlockSize * idx + (7 - i))) $ n `unsafeShiftR` (cONST_BITS + pASS1_BITS + 3)
             blk0 <- readAt 0
             blk1 <- readAt 1
@@ -206,3 +212,7 @@ fastDctLibJpeg workData sample_block = do
             writeAtPos 7 $ tmp3'' + tmp10'' + tmp13''
 
             secondPass block (i - 1)
+
+{-# ANN module "HLint: ignore Use camelCase" #-}
+{-# ANN module "HLint: ignore Reduce duplication" #-}
+

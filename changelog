@@ -1,5 +1,12 @@
--*-change-log-*-
+Change log
+==========
 
+v3.2.5 May 2015
+ * Adding: Metadata extraction for various file format.
+ * Adding: Metadata writing for various file format.
+ * Adding: light EXIF mapping.
+ * Fix: handling of Tiff with predictors (thanks to Patrick Pelletier)
+ 
 v3.2.4 April 2015
  * Adding: Traversals compatible with the lens library.
 

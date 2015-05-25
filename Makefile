@@ -30,7 +30,9 @@ test:
 
 lint:
 	hlint lint src \
+		--cpp-define=MIN_VERSION_base=1 \
 		--cpp-define=MIN_VERSION_transformers=1 \
+		--cpp-define=MIN_VERSION_containers=1 \
 		--cpp-define=MIN_VERSION_binary=1
 
 sdist: docimages/pixelgraph.svg

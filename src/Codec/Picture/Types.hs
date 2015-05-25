@@ -228,7 +228,7 @@ unsafeExtractComponent comp img@(Image { imageWidth = w, imageHeight = h })
   | comp >= padd = error $ "extractComponent : invalid component index ("
                          ++ show comp ++ ", max:" ++ show padd ++ ")"
   | otherwise = Image { imageWidth = w, imageHeight = h, imageData = plane }
-      where plane = stride img 1 padd comp
+      where plane = stride img padd comp
             padd = componentCount (undefined :: a)
 
 -- | For any image with an alpha component (transparency),
@@ -253,14 +253,6 @@ instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE getTransparency #-}
     getTransparency (PixelRGBA8 _ _ _ a) = a
 
--- | Iteration from to n in monadic context, without data
--- keeping.
-lineMap :: (Monad m) => Int -> (Int -> m ()) -> m ()
-{-# INLINE lineMap #-}
-lineMap count f = go 0
-  where go n | n >= count = return ()
-        go n = f n >> go (n + 1)
-
 lineFold :: (Monad m) => a -> Int -> (a -> Int -> m a) -> m a
 {-# INLINE lineFold #-}
 lineFold initial count f = go 0 initial
@@ -268,19 +260,18 @@ lineFold initial count f = go 0 initial
         go n acc = f acc n >>= go (n + 1)
 
 stride :: (Storable (PixelBaseComponent a))
-       => Image a -> Int -> Int -> Int -> V.Vector (PixelBaseComponent a)
+       => Image a -> Int -> Int -> V.Vector (PixelBaseComponent a)
 stride Image { imageWidth = w, imageHeight = h, imageData = array }
-        run padd firstComponent = runST $ do
-    let cell_count = w * h * run
+        padd firstComponent = runST $ do
+    let cell_count = w * h
     outArray <- M.new cell_count
 
-    let strideWrite write_idx _ | write_idx == cell_count = return ()
-        strideWrite write_idx read_idx = do
-            lineMap (run - 1) $ \i ->
-                (outArray `M.unsafeWrite` (write_idx + i)) $ array `V.unsafeIndex` (read_idx + i)
-            strideWrite (write_idx + run) (read_idx + padd)
+    let go writeIndex _ | writeIndex >= cell_count = return ()
+        go writeIndex readIndex = do
+          (outArray `M.unsafeWrite` writeIndex) $ array `V.unsafeIndex` readIndex
+          go (writeIndex + 1) $ readIndex + padd
 
-    strideWrite 0 firstComponent
+    go 0 firstComponent
     V.unsafeFreeze outArray
 
 instance NFData (Image a) where
@@ -2132,7 +2123,7 @@ instance ColorSpaceConvertible PixelYCbCrK8 PixelRGB8 where
   convertPixel (PixelYCbCrK8 y cb cr _k) = PixelRGB8 (clamp r) (clamp g) (clamp b)
     where
       tof :: Word8 -> Float
-      tof v = fromIntegral v
+      tof = fromIntegral
 
       clamp :: Float -> Word8
       clamp = floor . max 0 . min 255
@@ -2147,7 +2138,7 @@ instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
   convertPixel (PixelYCbCrK8 y cb cr k) = PixelCMYK8 c m ye k
     where
       tof :: Word8 -> Float
-      tof v = fromIntegral v
+      tof = fromIntegral
 
       clamp :: Float -> Word8
       clamp = floor . max 0 . min 255
@@ -2546,4 +2537,6 @@ writePackedPixelAt img idx px =
     !packedPtr = castForeignPtr ptr
     !converted =
         M.unsafeFromForeignPtr packedPtr s s2
+
+{-# ANN module "HLint: ignore Reduce duplication" #-}
 

@@ -8,11 +8,15 @@
 {-# OPTIONS_GHC -fspec-constr-count=5 #-}
 -- | Module used for JPEG file loading and writing.
 module Codec.Picture.Jpg( decodeJpeg
+                        , decodeJpegWithMetadata
                         , encodeJpegAtQuality
+                        , encodeJpegAtQualityWithMetadata
                         , encodeJpeg
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)
+import Data.Foldable( foldMap )
+import Data.Monoid( mempty )
 import Control.Applicative( pure, (<$>) )
 #endif
 
@@ -25,6 +29,7 @@ import Control.Monad.Trans( lift )
 import Control.Monad.Trans.RWS.Strict( RWS, modify, tell, gets, execRWS )
 
 import Data.Bits( (.|.), unsafeShiftL )
+import Data.Monoid( (<>) )
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word32)
 import Data.Binary( Binary(..), encode )
@@ -42,11 +47,15 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
+import Codec.Picture.Metadata( Metadatas )
+import Codec.Picture.Tiff.Types
+import Codec.Picture.Tiff.Metadata
 import Codec.Picture.Jpg.Types
 import Codec.Picture.Jpg.Common
 import Codec.Picture.Jpg.Progressive
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Jpg.FastDct
+import Codec.Picture.Jpg.Metadata
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)
@@ -150,7 +159,7 @@ unpack444Ycbcr compIdx x y
             val7 <- pixelClamp <$> (block `M.unsafeRead` (readIdx + 7))
 
             (img `M.unsafeWrite` idx) val0
-            (img `M.unsafeWrite` (idx + (3    ))) val1
+            (img `M.unsafeWrite` (idx +  3     )) val1
             (img `M.unsafeWrite` (idx + (3 * 2))) val2
             (img `M.unsafeWrite` (idx + (3 * 3))) val3
             (img `M.unsafeWrite` (idx + (3 * 4))) val4
@@ -235,6 +244,8 @@ data JpgDecoderState = JpgDecoderState
     , currentRestartInterv  :: !Int
     , currentFrame          :: Maybe JpgFrameHeader
     , app14Marker           :: !(Maybe JpgAdobeApp14)
+    , app0JFifMarker        :: !(Maybe JpgJFIFApp0)
+    , app1ExifMarker        :: !(Maybe [ImageFileDirectory])
     , componentIndexMapping :: ![(Word8, Int)]
     , isProgressive         :: !Bool
     , maximumHorizontalResolution :: !Int
@@ -261,6 +272,8 @@ emptyDecoderState = JpgDecoderState
     , currentFrame         = Nothing
     , componentIndexMapping = []
     , app14Marker = Nothing
+    , app0JFifMarker = Nothing
+    , app1ExifMarker = Nothing
     , isProgressive        = False
     , maximumHorizontalResolution = 0
     , maximumVerticalResolution   = 0
@@ -272,6 +285,10 @@ emptyDecoderState = JpgDecoderState
 jpgMachineStep :: JpgFrame -> JpgScripter s ()
 jpgMachineStep (JpgAdobeAPP14 app14) = modify $ \s ->
     s { app14Marker = Just app14 }
+jpgMachineStep (JpgExif exif) = modify $ \s ->
+    s { app1ExifMarker = Just exif }
+jpgMachineStep (JpgJFIF app0) = modify $ \s ->
+    s { app0JFifMarker = Just app0 }
 jpgMachineStep (JpgAppFrame _ _) = pure ()
 jpgMachineStep (JpgExtension _ _) = pure ()
 jpgMachineStep (JpgScanBlob hdr raw_data) = do
@@ -530,15 +547,36 @@ colorSpaceOfComponentStr s = case s of
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
-decodeJpeg file = case runGetStrict get file of
+decodeJpeg = fmap fst . decodeJpegWithMetadata
+
+-- | Equivalent to 'decodeJpeg' but also extracts metadatas.
+--
+-- Extract the following metadatas from the JFIF bloc:
+--
+--  * DpiX
+--
+--  * DpiY
+--
+-- Exif metadata are also extracted if present.
+--
+decodeJpegWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeJpegWithMetadata file = case runGetStrict get file of
   Left err -> Left err
   Right img -> case imgKind of
      Just BaseLineDCT ->
-       let (st, arr) = decodeBaseline in
-       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+       let (st, arr) = decodeBaseline
+           jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
+           exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
+           meta = jfifMeta <> exifMeta
+       in
+       (, meta) <$>
+           dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
      Just ProgressiveDCT ->
-       let (st, arr) = decodeProgressive in
-       dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
+       let (st, arr) = decodeProgressive
+           meta = foldMap extractMetadatas $ app0JFifMarker st
+       in
+       (, meta) <$>
+           dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
      _ -> Left "Unkown JPG kind"
     where
       compCount = length $ jpgComponents scanInfo
@@ -703,12 +741,26 @@ defaultHuffmanTables =
 encodeJpegAtQuality :: Word8                -- ^ Quality factor
                     -> Image PixelYCbCr8    -- ^ Image to encode
                     -> L.ByteString         -- ^ Encoded JPEG
-encodeJpegAtQuality quality img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
-  where finalImage = JpgImage [ JpgQuantTable quantTables
-                              , JpgScans JpgBaselineDCTHuffman hdr
-                              , JpgHuffmanTable defaultHuffmanTables
-                              , JpgScanBlob scanHeader encodedImage
-                              ]
+encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
+
+-- | Equivalent to 'encodeJpegAtQuality', but will store the following
+-- metadatas in the file using a JFIF block:
+--
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
+--
+encodeJpegAtQualityWithMetadata :: Word8                -- ^ Quality factor
+                                -> Metadatas
+                                -> Image PixelYCbCr8    -- ^ Image to encode
+                                -> L.ByteString         -- ^ Encoded JPEG
+encodeJpegAtQualityWithMetadata quality metas img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
+  where finalImage = JpgImage $
+            encodeMetadatas metas ++
+            [ JpgQuantTable quantTables
+            , JpgScans JpgBaselineDCTHuffman hdr
+            , JpgHuffmanTable defaultHuffmanTables
+            , JpgScanBlob scanHeader encodedImage
+            ]
 
         outputComponentCount = 3
 
