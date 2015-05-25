@@ -206,7 +206,7 @@ instance Binary JpgJFIFApp0 where
 
 {-Thumbnail width (tw) 	1 	Horizontal size of embedded JFIF thumbnail in pixels-}
 {-Thumbnail height (th) 	1 	Vertical size of embedded JFIF thumbnail in pixels-}
-{-Thumbnail data 	3 × tw × th 	Uncompressed 24 bit RGB raster thumbnail-}
+{-Thumbnail data 	3 Ã— tw Ã— th 	Uncompressed 24 bit RGB raster thumbnail-}
 
 instance Binary AdobeTransform where
   put v = case v of
