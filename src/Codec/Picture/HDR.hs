@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections   #-}
 -- | Module dedicated of Radiance file decompression (.hdr or .pic) file.
 -- Radiance file format is used for High dynamic range imaging.
 module Codec.Picture.HDR( decodeHDR
+                        , decodeHDRWithMetadata
                         , encodeHDR
                         , encodeRawHDR
                         , encodeRLENewStyleHDR
@@ -35,6 +37,7 @@ import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
+import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
@@ -169,11 +172,16 @@ decodeInfos = do
 --  * PixelRGBF
 --
 decodeHDR :: B.ByteString -> Either String DynamicImage
-decodeHDR str = runST $ runExceptT $
-    case runGet decodeHeader $ L.fromChunks [str] of
-      Left err -> throwE err
-      Right rez ->
-          ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
+decodeHDR = fmap fst . decodeHDRWithMetadata
+
+-- | Equivalent to decodeHDR but with aditional metadatas.
+decodeHDRWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeHDRWithMetadata str = runST $ runExceptT $
+  case runGet decodeHeader $ L.fromChunks [str] of
+    Left err -> throwE err
+    Right rez ->
+      let meta = mkSizeMetadata (abs $ radianceWidth rez) (abs $ radianceHeight rez) in
+      (, meta) . ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
 
 getChar8 :: Get Char
 getChar8 = chr . fromIntegral <$> getWord8

@@ -47,7 +47,7 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
-import Codec.Picture.Metadata( Metadatas )
+import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
 import Codec.Picture.Tiff.Types
 import Codec.Picture.Tiff.Metadata
 import Codec.Picture.Jpg.Types
@@ -567,13 +567,15 @@ decodeJpegWithMetadata file = case runGetStrict get file of
        let (st, arr) = decodeBaseline
            jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
            exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
-           meta = jfifMeta <> exifMeta
+           meta = sizeMeta <> jfifMeta <> exifMeta
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
      Just ProgressiveDCT ->
        let (st, arr) = decodeProgressive
-           meta = foldMap extractMetadatas $ app0JFifMarker st
+           jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
+           exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
+           meta = sizeMeta <> jfifMeta <> exifMeta
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
@@ -585,6 +587,8 @@ decodeJpegWithMetadata file = case runGetStrict get file of
       imgKind = gatherImageKind $ jpgFrame img
       imgWidth = fromIntegral $ jpgWidth scanInfo
       imgHeight = fromIntegral $ jpgHeight scanInfo
+
+      sizeMeta = mkSizeMetadata imgWidth imgHeight
 
       imageSize = imgWidth * imgHeight * compCount
 

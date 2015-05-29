@@ -26,6 +26,7 @@ import Control.Applicative( (<$>) )
 import Control.Monad( when, forM_ )
 import Control.Monad.ST ( ST, runST )
 import Data.Maybe( fromMaybe )
+import Data.Monoid( (<>) )
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
@@ -312,8 +313,9 @@ pixelGet = do
     return $ PixelRGB8 r g b
 
 metadataOfHeader :: BmpInfoHeader -> Metadatas
-metadataOfHeader hdr = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX
+metadataOfHeader hdr = Met.mkSizeMetadata (width hdr) (height hdr) <> dpiMeta
   where
+    dpiMeta = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX  
     dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
     dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
 

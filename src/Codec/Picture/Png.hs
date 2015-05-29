@@ -34,6 +34,7 @@ import Control.Applicative( (<$>) )
 
 import Control.Monad( forM_, foldM_, when, void )
 import Control.Monad.ST( ST, runST )
+import Data.Monoid( (<>) )
 import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V
@@ -507,7 +508,7 @@ decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodePngWithMetadata byte =  do
   rawImg <- runGetStrict get byte
   let ihdr = header rawImg
-      metadatas = extractMetadatas rawImg
+      metadatas = mkSizeMetadata (width ihdr) (height ihdr) <> extractMetadatas rawImg
       compressedImageData =
             Lb.concat [chunkData chunk | chunk <- chunks rawImg
                                        , chunkType chunk == iDATSignature]

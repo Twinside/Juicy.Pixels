@@ -30,6 +30,7 @@ module Codec.Picture.Metadata( -- * Types
 
                               -- * Helper functions
                              , mkDpiMetadata
+                             , mkSizeMetadata
 
                                -- * Conversion functions
                              , dotsPerMeterToDotPerInch
@@ -63,6 +64,14 @@ data Equiv a b where
 --
 --   * 'DpiY' Dot per inch on this y axis.
 --
+--   * 'Width' Image width in pixel. Relying on the metadata for this
+--          information can avoid the full decompression of the image.
+--          Ignored for image writing.
+--
+--   * 'Height' Image height in pixels. Relyiung on the metadata for this
+--          information can void the full decomrpession of the image.
+--          Ignored for image writing.
+--
 --   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
 --
 --   * 'Exif' Exif tag and associated data.
@@ -71,6 +80,8 @@ data Keys a where
   Gamma       :: Keys Double
   DpiX        :: Keys Word
   DpiY        :: Keys Word
+  Width       :: Keys Word
+  Height      :: Keys Word
   Title       :: Keys String
   Description :: Keys String
   Author      :: Keys String
@@ -112,6 +123,8 @@ keyEq a b = case (a, b) of
   (Gamma, Gamma) -> Just Refl
   (DpiX, DpiX) -> Just Refl
   (DpiY, DpiY) -> Just Refl
+  (Width, Width) -> Just Refl
+  (Height, Height) -> Just Refl
   (Title, Title) -> Just Refl
   (Description, Description) -> Just Refl
   (Author, Author) -> Just Refl
@@ -199,4 +212,8 @@ dotsPerCentiMeterToDotPerInch z = z * 254 `div` 100
 -- | Create metadatas indicating the resolution, with DpiX == DpiY
 mkDpiMetadata :: Word -> Metadatas
 mkDpiMetadata w = insert DpiY w $ singleton DpiX w
+
+-- | Create metadatas holding width and height information.
+mkSizeMetadata :: Integral n => n -> n -> Metadatas
+mkSizeMetadata w h = insert Width (fromIntegral w) . singleton Height $ fromIntegral h
 

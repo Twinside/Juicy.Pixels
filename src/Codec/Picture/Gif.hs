@@ -5,6 +5,7 @@
 -- | Module implementing GIF decoding.
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
+                         , decodeGifWithMetadata
                          , decodeGifImages
                          , getDelaysGifImages
 
@@ -58,6 +59,7 @@ import Data.Binary.Put( Put
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
+import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
 import Codec.Picture.Gif.LZW
 import Codec.Picture.Gif.LZWEncoding
 import Codec.Picture.BitWriter
@@ -659,11 +661,12 @@ gifAnimationApplyer (globalWidth, globalHeight) globalPalette backgroundImage
           val = pixelAt thisPalette (fromIntegral code) 0
     pixeler x y = pixelAt oldImage x y
 
-decodeFirstGifImage :: GifFile -> Either String DynamicImage
+decodeFirstGifImage :: GifFile -> Either String (DynamicImage, Metadatas)
 decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
     case decodeAllGifImages img { gifImages = [firstImage] } of
       [] -> Left "No image after decoding"
-      (i:_) -> Right i
+      (i:_) -> Right (i, mkSizeMetadata (screenWidth hdr) (screenHeight hdr))
+  where hdr = gifScreenDescriptor $ gifHeader img
 decodeFirstGifImage _ = Left "No image in gif file"
 
 -- | Transform a raw gif image to an image, witout
@@ -675,7 +678,21 @@ decodeFirstGifImage _ = Left "No image in gif file"
 --  * PixelRGBA8
 --
 decodeGif :: B.ByteString -> Either String DynamicImage
-decodeGif img = decode img >>= decodeFirstGifImage
+decodeGif img = decode img >>= (fmap fst . decodeFirstGifImage)
+
+-- | Transform a raw gif image to an image, witout
+-- modifying the pixels.
+-- This function can output the following pixel types :
+--
+--  * PixelRGB8
+--
+--  * PixelRGBA8
+--
+-- Metadatas include Width & Height information.
+--
+decodeGifWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeGifWithMetadata img = decode img >>= decodeFirstGifImage
+
 
 -- | Transform a raw gif to a list of images, representing
 -- all the images of an animation.
