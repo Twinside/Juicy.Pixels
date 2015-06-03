@@ -17,7 +17,7 @@ import Codec.Picture.Tiff.Types
 import Codec.Picture.Metadata.Exif
 
 extractTiffStringMetadata :: [ImageFileDirectory] -> Metadatas
-extractTiffStringMetadata = foldMap go where
+extractTiffStringMetadata = Met.insert Met.Format Met.SourceTiff . foldMap go where
   strMeta k = Met.singleton k . B.unpack
   exif ifd =
     Met.singleton (Met.Exif $ ifdIdentifier ifd) $ ifdExtended ifd

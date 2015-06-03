@@ -37,7 +37,9 @@ import Control.Monad.Primitive ( PrimState, PrimMonad )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
 
-import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
+import Codec.Picture.Metadata( Metadatas
+                             , SourceFormat( SourceHDR )
+                             , basicMetadata )
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
 import Codec.Picture.VectorByteConversion
@@ -180,7 +182,7 @@ decodeHDRWithMetadata str = runST $ runExceptT $
   case runGet decodeHeader $ L.fromChunks [str] of
     Left err -> throwE err
     Right rez ->
-      let meta = mkSizeMetadata (abs $ radianceWidth rez) (abs $ radianceHeight rez) in
+      let meta = basicMetadata SourceHDR (abs $ radianceWidth rez) (abs $ radianceHeight rez) in
       (, meta) . ImageRGBF <$> (decodeRadiancePicture rez >>= lift . unsafeFreezeImage)
 
 getChar8 :: Get Char

@@ -508,7 +508,8 @@ decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodePngWithMetadata byte =  do
   rawImg <- runGetStrict get byte
   let ihdr = header rawImg
-      metadatas = mkSizeMetadata (width ihdr) (height ihdr) <> extractMetadatas rawImg
+      metadatas =
+         basicMetadata SourcePng (width ihdr) (height ihdr) <> extractMetadatas rawImg
       compressedImageData =
             Lb.concat [chunkData chunk | chunk <- chunks rawImg
                                        , chunkType chunk == iDATSignature]

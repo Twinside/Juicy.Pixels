@@ -113,6 +113,7 @@ encodeSingleMetadata = Met.foldMap go where
     Met.DpiY :=> _ -> mempty
     Met.Width :=> _ -> mempty
     Met.Height :=> _ -> mempty
+    Met.Format :=> _ -> mempty
     Met.Gamma       :=> g ->
       pure $ mkRawChunk gammaSignature . encode $ PngGamma g
     Met.Title       :=> tx -> txt "Title" (L.pack tx)

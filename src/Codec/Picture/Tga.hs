@@ -47,7 +47,9 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.InternalHelper
-import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
+import Codec.Picture.Metadata( Metadatas
+                             , SourceFormat( SourceTGA )
+                             , basicMetadata )
 import Codec.Picture.VectorByteConversion
 
 data TgaColorMapType
@@ -284,7 +286,7 @@ unparse file =
       unpacker | isRleEncoded imageType = unpackRLETga
                | otherwise = unpackUncompressedTga
 
-      metas = mkSizeMetadata (_tgaHdrWidth hdr) (_tgaHdrHeight hdr)
+      metas = basicMetadata SourceTGA (_tgaHdrWidth hdr) (_tgaHdrHeight hdr)
       decodedPalette = unparse file
         { _tgaFileHeader = hdr
             { _tgaHdrHeight = 1

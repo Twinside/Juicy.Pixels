@@ -59,7 +59,9 @@ import Data.Binary.Put( Put
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
-import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
+import Codec.Picture.Metadata( Metadatas
+                             , SourceFormat( SourceGif )
+                             , basicMetadata )
 import Codec.Picture.Gif.LZW
 import Codec.Picture.Gif.LZWEncoding
 import Codec.Picture.BitWriter
@@ -665,7 +667,7 @@ decodeFirstGifImage :: GifFile -> Either String (DynamicImage, Metadatas)
 decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
     case decodeAllGifImages img { gifImages = [firstImage] } of
       [] -> Left "No image after decoding"
-      (i:_) -> Right (i, mkSizeMetadata (screenWidth hdr) (screenHeight hdr))
+      (i:_) -> Right (i, basicMetadata SourceGif (screenWidth hdr) (screenHeight hdr))
   where hdr = gifScreenDescriptor $ gifHeader img
 decodeFirstGifImage _ = Left "No image in gif file"
 

@@ -47,7 +47,9 @@ import qualified Data.ByteString.Lazy as L
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
-import Codec.Picture.Metadata( Metadatas, mkSizeMetadata )
+import Codec.Picture.Metadata( Metadatas
+                             , SourceFormat( SourceJpeg )
+                             , basicMetadata )
 import Codec.Picture.Tiff.Types
 import Codec.Picture.Tiff.Metadata
 import Codec.Picture.Jpg.Types
@@ -588,7 +590,7 @@ decodeJpegWithMetadata file = case runGetStrict get file of
       imgWidth = fromIntegral $ jpgWidth scanInfo
       imgHeight = fromIntegral $ jpgHeight scanInfo
 
-      sizeMeta = mkSizeMetadata imgWidth imgHeight
+      sizeMeta = basicMetadata SourceJpeg imgWidth imgHeight
 
       imageSize = imgWidth * imgHeight * compCount
 

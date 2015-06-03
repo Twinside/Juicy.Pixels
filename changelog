@@ -6,6 +6,7 @@ V3.2.5.2 June 2015
 
  * Adding: Width & Height metdata to help querying image information
 	without decompressing the whole.
+ * Adding: Source format metadata.
 
 v3.2.5.1 May 2015
 ---------------
