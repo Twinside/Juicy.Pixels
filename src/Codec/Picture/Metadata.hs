@@ -16,6 +16,7 @@ module Codec.Picture.Metadata( -- * Types
                              , Keys( .. )
                              , Value( .. )
                              , Elem( .. )
+                             , SourceFormat( .. )
 
                                -- * Functions
                              , Codec.Picture.Metadata.lookup
@@ -30,6 +31,9 @@ module Codec.Picture.Metadata( -- * Types
 
                               -- * Helper functions
                              , mkDpiMetadata
+                             , mkSizeMetadata
+                             , basicMetadata
+                             , simpleMetadata
 
                                -- * Conversion functions
                              , dotsPerMeterToDotPerInch
@@ -56,6 +60,20 @@ data Equiv a b where
     Refl :: Equiv a a
 #endif
 
+-- | Type describing the original file format of the ilfe.
+data SourceFormat
+  = SourceJpeg
+  | SourceGif
+  | SourceBitmap
+  | SourceTiff
+  | SourcePng
+  | SourceHDR
+  | SourceTGA
+  deriving (Eq, Show)
+
+instance NFData SourceFormat where
+  rnf a = a `seq` ()
+
 -- | Store various additional information about an image. If
 -- something is not recognized, it can be stored in an unknown tag.
 --
@@ -63,14 +81,25 @@ data Equiv a b where
 --
 --   * 'DpiY' Dot per inch on this y axis.
 --
+--   * 'Width' Image width in pixel. Relying on the metadata for this
+--          information can avoid the full decompression of the image.
+--          Ignored for image writing.
+--
+--   * 'Height' Image height in pixels. Relyiung on the metadata for this
+--          information can void the full decomrpession of the image.
+--          Ignored for image writing.
+--
 --   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
 --
 --   * 'Exif' Exif tag and associated data.
 --
 data Keys a where
   Gamma       :: Keys Double
+  Format      :: Keys SourceFormat
   DpiX        :: Keys Word
   DpiY        :: Keys Word
+  Width       :: Keys Word
+  Height      :: Keys Word
   Title       :: Keys String
   Description :: Keys String
   Author      :: Keys String
@@ -112,6 +141,8 @@ keyEq a b = case (a, b) of
   (Gamma, Gamma) -> Just Refl
   (DpiX, DpiX) -> Just Refl
   (DpiY, DpiY) -> Just Refl
+  (Width, Width) -> Just Refl
+  (Height, Height) -> Just Refl
   (Title, Title) -> Just Refl
   (Description, Description) -> Just Refl
   (Author, Author) -> Just Refl
@@ -121,6 +152,7 @@ keyEq a b = case (a, b) of
   (Disclaimer, Disclaimer) -> Just Refl
   (Source, Source) -> Just Refl
   (Warning, Warning) -> Just Refl
+  (Format, Format) -> Just Refl
   (Unknown v1, Unknown v2) | v1 == v2 -> Just Refl
   (Exif t1, Exif t2) | t1 == t2 -> Just Refl
   _ -> Nothing
@@ -198,5 +230,30 @@ dotsPerCentiMeterToDotPerInch z = z * 254 `div` 100
 
 -- | Create metadatas indicating the resolution, with DpiX == DpiY
 mkDpiMetadata :: Word -> Metadatas
-mkDpiMetadata w = insert DpiY w $ singleton DpiX w
+mkDpiMetadata w =
+  Metadatas [DpiY :=> w, DpiX :=> w]
+
+-- | Create metadatas holding width and height information.
+mkSizeMetadata :: Integral n => n -> n -> Metadatas
+mkSizeMetadata w h = 
+  Metadatas [ Width :=> fromIntegral w, Height :=> fromIntegral h ]
+
+-- | Create simple metadatas with Format, Width & Height
+basicMetadata :: Integral nSize => SourceFormat -> nSize -> nSize -> Metadatas
+basicMetadata f w h =
+  Metadatas [ Format :=> f
+            , Width :=> fromIntegral w
+            , Height :=> fromIntegral h
+            ]
+
+-- | Create simple metadatas with Format, Width, Height, DpiX & DpiY
+simpleMetadata :: (Integral nSize, Integral nDpi)
+               => SourceFormat -> nSize -> nSize -> nDpi -> nDpi -> Metadatas
+simpleMetadata f w h dpiX dpiY =
+  Metadatas [ Format :=> f
+            , Width :=> fromIntegral w
+            , Height :=> fromIntegral h
+            , DpiX :=> fromIntegral dpiX
+            , DpiY :=> fromIntegral dpiY
+            ]
 

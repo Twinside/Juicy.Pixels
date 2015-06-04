@@ -312,7 +312,8 @@ pixelGet = do
     return $ PixelRGB8 r g b
 
 metadataOfHeader :: BmpInfoHeader -> Metadatas
-metadataOfHeader hdr = Met.insert Met.DpiY dpiY $ Met.singleton Met.DpiX dpiX
+metadataOfHeader hdr = 
+  Met.simpleMetadata Met.SourceBitmap (width hdr) (height hdr) dpiX dpiY
   where
     dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
     dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr

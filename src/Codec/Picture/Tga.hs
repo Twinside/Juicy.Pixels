@@ -4,10 +4,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE CPP #-}
 -- | Module implementing function to read and write
 -- Targa (*.tga) files.
 module Codec.Picture.Tga( decodeTga
+                        , decodeTgaWithMetadata
                         , TgaSaveable
                         , encodeTga
                         , writeTga
@@ -45,6 +47,9 @@ import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
 import Codec.Picture.InternalHelper
+import Codec.Picture.Metadata( Metadatas
+                             , SourceFormat( SourceTGA )
+                             , basicMetadata )
 import Codec.Picture.VectorByteConversion
 
 data TgaColorMapType
@@ -271,7 +276,7 @@ applyPalette f palette (ImageY8 img) =
 applyPalette _ _ _ =
   fail "Bad colorspace for image"
 
-unparse :: TgaFile -> Either String DynamicImage
+unparse :: TgaFile -> Either String (DynamicImage, Metadatas)
 unparse file =
   let hdr = _tgaFileHeader file
       imageType = _tgaHdrImageType hdr
@@ -281,6 +286,7 @@ unparse file =
       unpacker | isRleEncoded imageType = unpackRLETga
                | otherwise = unpackUncompressedTga
 
+      metas = basicMetadata SourceTGA (_tgaHdrWidth hdr) (_tgaHdrHeight hdr)
       decodedPalette = unparse file
         { _tgaFileHeader = hdr
             { _tgaHdrHeight = 1
@@ -294,18 +300,18 @@ unparse file =
   case imageType of
     ImageTypeNoData _ -> fail "No data detected in TGA file"
     ImageTypeTrueColor _ ->
-      prepareUnpacker file unpacker
+      fmap (, metas) $ prepareUnpacker file unpacker
     ImageTypeMonochrome _ ->
-      prepareUnpacker file unpacker
+      fmap (, metas) $ prepareUnpacker file unpacker
     ImageTypeColorMapped _ ->
       case decodedPalette of
         Left str -> Left str
-        Right (ImageY8 img) ->
-          prepareUnpacker file unpacker >>= applyPalette ImageY8 img
-        Right (ImageRGB8 img) ->
-          prepareUnpacker file unpacker >>= applyPalette ImageRGB8 img
-        Right (ImageRGBA8 img) ->
-          prepareUnpacker file unpacker >>= applyPalette ImageRGBA8 img
+        Right (ImageY8 img, _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageY8 img
+        Right (ImageRGB8 img, _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageRGB8 img
+        Right (ImageRGBA8 img, _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageRGBA8 img
         Right _ -> fail "Unknown pixel type"
 
 writeRun :: (Pixel px)
@@ -444,7 +450,11 @@ validateTga _ = return ()
 --    * PixelRGBA8
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
-decodeTga byte = runGetStrict get byte >>= unparse
+decodeTga byte = runGetStrict get byte >>= (fmap fst . unparse)
+
+-- | Equivalent to decodeTga but also provide metadata
+decodeTgaWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodeTgaWithMetadata byte = runGetStrict get byte >>= unparse
 
 -- | This typeclass determine if a pixel can be saved in the
 -- TGA format.

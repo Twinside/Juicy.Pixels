@@ -136,7 +136,6 @@ module Codec.Picture (
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
-import Data.Monoid( mempty )
 #endif
 
 import Control.DeepSeq( NFData, deepseq )
@@ -163,6 +162,7 @@ import Codec.Picture.Png( PngSavable( .. )
 import Codec.Picture.Gif( GifDelay
                         , GifLooping( .. )
                         , decodeGif
+                        , decodeGifWithMetadata
                         , decodeGifImages
                         , encodeGifImage
                         , encodeGifImageWithPalette
@@ -174,6 +174,7 @@ import Codec.Picture.Gif( GifDelay
                         )
 
 import Codec.Picture.HDR( decodeHDR
+                        , decodeHDRWithMetadata
                         , encodeHDR
                         , writeHDR
                         )
@@ -184,6 +185,7 @@ import Codec.Picture.Tiff( decodeTiff
                          , writeTiff )
 import Codec.Picture.Tga( TgaSaveable
                         , decodeTga
+                        , decodeTgaWithMetadata
                         , encodeTga
                         , writeTga
                         )
@@ -275,14 +277,11 @@ decodeImageWithMetadata str = eitherLoad str
     [ ("Jpeg", decodeJpegWithMetadata)
     , ("PNG", decodePngWithMetadata)
     , ("Bitmap", decodeBitmapWithMetadata)
-    , ("GIF", noMeta decodeGif)
-    , ("HDR", noMeta decodeHDR)
+    , ("GIF", decodeGifWithMetadata)
+    , ("HDR", decodeHDRWithMetadata)
     , ("Tiff", decodeTiffWithMetadata)
-    , ("TGA", noMeta decodeTga)
+    , ("TGA", decodeTgaWithMetadata)
     ]
-  where
-    noMeta f = fmap (, mempty) . f
-
 
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
