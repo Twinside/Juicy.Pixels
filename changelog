@@ -1,6 +1,11 @@
 Change log
 ==========
 
+V3.2.5.3 July 2015
+------------------
+
+ * Fix: bumping vector upper bounds.
+
 V3.2.5.2 June 2015
 ------------------
 
