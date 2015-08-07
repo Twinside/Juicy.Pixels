@@ -8,6 +8,7 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 module Codec.Picture.BaseTypes ( Image( .. )
                                , MutableImage( .. )
                                , ColorPlane( .. )
@@ -22,6 +23,8 @@ module Codec.Picture.BaseTypes ( Image( .. )
                                , PlaneMagenta( .. )
                                , PlaneYellow( .. )
                                , PlaneBlack( .. )
+                               , BasicPixel
+                               , BasicComponent
                                , extractComponent
                                , dropAlphaLayer
                                , TransparentPixel( .. )
@@ -105,6 +108,9 @@ data Image a = Image
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
 
+type BasicPixel a = PixelBaseComponent a ~ a
+type BasicComponent a = BasicPixel (PixelBaseComponent a)
+
 -- | Class used to describle plane present in the pixel
 -- type. If a pixel has a plane description associated,
 -- you can use the plane name to extract planes independently.
@@ -160,8 +166,7 @@ data PlaneBlack = PlaneBlack
 --
 extractComponent :: forall px plane. ( Pixel px
                                , Pixel (PixelBaseComponent px)
-                               , PixelBaseComponent (PixelBaseComponent px)
-                                              ~ PixelBaseComponent px
+                               , BasicComponent px 
                                , ColorPlane px plane )
                  => plane -> Image px -> Image (PixelBaseComponent px)
 extractComponent plane = unsafeExtractComponent idx
@@ -175,8 +180,8 @@ extractComponent plane = unsafeExtractComponent idx
 unsafeExtractComponent :: forall a
                         . ( Pixel a
                           , Pixel (PixelBaseComponent a)
-                          , PixelBaseComponent (PixelBaseComponent a)
-                                              ~ PixelBaseComponent a)
+                          , BasicComponent a
+                          )
                        => Int     -- ^ The component index, beginning at 0 ending at (componentCount - 1)
                        -> Image a -- ^ Source image
                        -> Image (PixelBaseComponent a)
@@ -189,14 +194,18 @@ unsafeExtractComponent comp img@(Image { imageWidth = w, imageHeight = h })
 
 -- | For any image with an alpha component (transparency),
 -- drop it, returning a pure opaque image.
-dropAlphaLayer :: (TransparentPixel a b) => Image a -> Image b
+dropAlphaLayer :: (TransparentPixel a b, Pixel b) => Image a -> Image b
 dropAlphaLayer = pixelMap dropTransparency
 
 -- | Class modeling transparent pixel, should provide a method
 -- to combine transparent pixels
-class (Pixel a, Pixel b) => TransparentPixel a b | a -> b where
+class (Pixel a) => TransparentPixel a b | a -> b where
     -- | Just return the opaque pixel value
     dropTransparency :: a -> b
+
+    -- | Set alpha component of the pixel
+    setOpacity :: (PixelBaseComponent a) -> a -> a
+
 
 lineFold :: (Monad m) => a -> Int -> (a -> Int -> m a) -> m a
 {-# INLINE lineFold #-}
@@ -305,8 +314,7 @@ type PixelF = Float
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).
-class ( Storable (PixelBaseComponent a)
-      , Num (PixelBaseComponent a), Eq a ) => Pixel a where
+class ( Storable (PixelBaseComponent a) ) => Pixel a where
     -- | Type of the pixel component, "classical" images
     -- would have Word8 type as their PixelBaseComponent,
     -- HDR image would have Float for instance
@@ -335,6 +343,12 @@ class ( Storable (PixelBaseComponent a)
                  -> a -> a -> a
     {-# INLINE mixWithAlpha #-}
     mixWithAlpha f _ = mixWith f
+
+    -- | Opaque pixel with all values empty
+    emptyPixel :: a
+
+    -- | Opaque full pixel value in normal display range
+    saturatedPixel :: a
 
     -- | Return the opacity of a pixel, if the pixel has an
     -- alpha layer, return the alpha value. If the pixel
@@ -764,6 +778,12 @@ instance (Pixel a) => ColorConvertible a a where
 instance Pixel Pixel8 where
     type PixelBaseComponent Pixel8 = Word8
 
+    {-# INLINE emptyPixel #-}
+    emptyPixel = 0
+
+    {-# INLINE saturatedPixel #-}
+    saturatedPixel = 0xFF
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
 
@@ -808,6 +828,12 @@ instance ColorConvertible Pixel8 Pixel16 where
 instance Pixel Pixel16 where
     type PixelBaseComponent Pixel16 = Word16
 
+    {-# INLINE emptyPixel #-}
+    emptyPixel = 0
+
+    {-# INLINE saturatedPixel #-}
+    saturatedPixel = 0xFFFF
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
 
@@ -842,6 +868,12 @@ instance Pixel Pixel16 where
 --------------------------------------------------
 instance Pixel Pixel32 where
     type PixelBaseComponent Pixel32 = Word32
+
+    {-# INLINE emptyPixel #-}
+    emptyPixel = 0
+
+    {-# INLINE saturatedPixel #-}
+    saturatedPixel = 0xFFFFFFFF
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
@@ -878,6 +910,12 @@ instance Pixel Pixel32 where
 --------------------------------------------------
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
+
+    {-# INLINE emptyPixel #-}
+    emptyPixel = 0
+
+    {-# INLINE saturatedPixel #-}
+    saturatedPixel = 1
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const 1.0

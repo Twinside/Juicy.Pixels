@@ -22,6 +22,7 @@ import Codec.Picture.BaseTypes
 instance TransparentPixel PixelRGBA8 PixelRGB8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
+    setOpacity a (PixelRGBA8 r g b _) = PixelRGBA8 r g b a
 
 -- | Image type enumerating all predefined pixel types.
 -- It enables loading and use of images of different
@@ -373,6 +374,9 @@ instance ColorConvertible PixelF PixelRGBF where
 instance Pixel PixelYA8 where
     type PixelBaseComponent PixelYA8 = Word8
 
+    emptyPixel = PixelYA8 emptyPixel saturatedPixel
+    saturatedPixel = PixelYA8 saturatedPixel saturatedPixel
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity (PixelYA8 _ a) = a
 
@@ -430,6 +434,7 @@ instance ColorPlane PixelYA8 PlaneAlpha where
 instance TransparentPixel PixelYA8 Pixel8 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelYA8 y _) = y
+    setOpacity a (PixelYA8 y _) = PixelYA8 y a
 
 instance LumaPlaneExtractable PixelYA8 where
     {-# INLINE computeLuma #-}
@@ -441,6 +446,9 @@ instance LumaPlaneExtractable PixelYA8 where
 --------------------------------------------------
 instance Pixel PixelYA16 where
     type PixelBaseComponent PixelYA16 = Word16
+
+    emptyPixel = PixelYA16 emptyPixel saturatedPixel
+    saturatedPixel = PixelYA16 saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity (PixelYA16 _ a) = a
@@ -498,12 +506,16 @@ instance ColorPlane PixelYA16 PlaneAlpha where
 instance TransparentPixel PixelYA16 Pixel16 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelYA16 y _) = y
+    setOpacity a (PixelYA16 y _) = PixelYA16 y a
 
 --------------------------------------------------
 ----            PixelRGBF instances
 --------------------------------------------------
 instance Pixel PixelRGBF where
     type PixelBaseComponent PixelRGBF = PixelF
+
+    emptyPixel = PixelRGBF emptyPixel emptyPixel emptyPixel
+    saturatedPixel = PixelRGBF saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const 1.0
@@ -566,6 +578,9 @@ instance ColorPlane PixelRGBF PlaneBlue where
 --------------------------------------------------
 instance Pixel PixelRGB16 where
     type PixelBaseComponent PixelRGB16 = Pixel16
+
+    emptyPixel = PixelRGB16 emptyPixel emptyPixel emptyPixel
+    saturatedPixel = PixelRGB16 saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
@@ -641,6 +656,9 @@ instance LumaPlaneExtractable PixelRGB16 where
 --------------------------------------------------
 instance Pixel PixelRGB8 where
     type PixelBaseComponent PixelRGB8 = Word8
+
+    emptyPixel = PixelRGB8 emptyPixel emptyPixel emptyPixel
+    saturatedPixel = PixelRGB8 saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
@@ -727,6 +745,11 @@ instance LumaPlaneExtractable PixelRGB8 where
 instance Pixel PixelRGBA8 where
     type PixelBaseComponent PixelRGBA8 = Word8
 
+    emptyPixel =
+        PixelRGBA8 emptyPixel emptyPixel emptyPixel saturatedPixel
+    saturatedPixel =
+        PixelRGBA8 saturatedPixel saturatedPixel saturatedPixel saturatedPixel
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity (PixelRGBA8 _ _ _ a) = a
 
@@ -810,6 +833,11 @@ instance ColorPlane PixelRGBA8 PlaneAlpha where
 instance Pixel PixelRGBA16 where
     type PixelBaseComponent PixelRGBA16 = Pixel16
 
+    emptyPixel =
+        PixelRGBA16 emptyPixel emptyPixel emptyPixel saturatedPixel
+    saturatedPixel =
+        PixelRGBA16 saturatedPixel saturatedPixel saturatedPixel saturatedPixel
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity (PixelRGBA16 _ _ _ a) = a
 
@@ -872,6 +900,7 @@ instance Pixel PixelRGBA16 where
 instance TransparentPixel PixelRGBA16 PixelRGB16 where
     {-# INLINE dropTransparency #-}
     dropTransparency (PixelRGBA16 r g b _) = PixelRGB16 r g b
+    setOpacity a (PixelRGBA16 r g b _) = PixelRGBA16 r g b a
 
 instance ColorPlane PixelRGBA16 PlaneRed where
     toComponentIndex _ _ = 0
@@ -890,6 +919,11 @@ instance ColorPlane PixelRGBA16 PlaneAlpha where
 --------------------------------------------------
 instance Pixel PixelYCbCr8 where
     type PixelBaseComponent PixelYCbCr8 = Word8
+
+    emptyPixel =
+        PixelYCbCr8 emptyPixel emptyPixel emptyPixel
+    saturatedPixel =
+        PixelYCbCr8 saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
@@ -1055,6 +1089,11 @@ instance ColorPlane PixelYCbCr8 PlaneCr where
 instance Pixel PixelCMYK8 where
     type PixelBaseComponent PixelCMYK8 = Word8
 
+    emptyPixel =
+        PixelCMYK8 emptyPixel emptyPixel emptyPixel emptyPixel
+    saturatedPixel =
+        PixelCMYK8 saturatedPixel saturatedPixel saturatedPixel saturatedPixel
+
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
 
@@ -1129,6 +1168,11 @@ instance ColorSpaceConvertible PixelCMYK8 PixelRGB8 where
 --------------------------------------------------
 instance Pixel PixelYCbCrK8 where
     type PixelBaseComponent PixelYCbCrK8 = Word8
+
+    emptyPixel =
+        PixelYCbCrK8 emptyPixel emptyPixel emptyPixel emptyPixel
+    saturatedPixel =
+        PixelYCbCrK8 saturatedPixel saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
@@ -1240,6 +1284,11 @@ instance ColorPlane PixelCMYK8 PlaneBlack where
 --------------------------------------------------
 instance Pixel PixelCMYK16 where
     type PixelBaseComponent PixelCMYK16 = Word16
+
+    emptyPixel =
+        PixelCMYK16 emptyPixel emptyPixel emptyPixel emptyPixel
+    saturatedPixel =
+        PixelCMYK16 saturatedPixel saturatedPixel saturatedPixel saturatedPixel
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const maxBound
