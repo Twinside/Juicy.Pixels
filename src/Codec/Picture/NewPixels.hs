@@ -158,6 +158,16 @@ data YA c = YA !c -- Luminance
                !c  -- Alpha value
   deriving (Eq, Ord, Show)
 
+instance Functor YA where
+  fmap f (YA y a) = YA (f y) (f a)
+
+instance Applicative YA where
+  pure a = YA a a
+  (YA fy fa) <*> (YA y a) = YA (fy y) (fa a)
+
+instance Foldable YA where
+  foldr f acc (YA y a) = f y $ f a acc
+
 -- | Classic pixel type storing red, green and blue (RGB) information.
 -- Values are stored in the following order:
 --
@@ -172,6 +182,16 @@ data RGB c = RGB !c -- Red
                  !c -- Blue
   deriving (Eq, Ord, Show)
 
+instance Functor RGB where
+  fmap f (RGB r g b) = RGB (f r) (f g) (f b)
+
+instance Applicative RGB where
+  pure a = RGB a a a
+  (RGB fr fg fb) <*> (RGB r g b) = RGB (fr r) (fg g) (fb b)
+
+instance Foldable RGB where
+  foldr f acc (RGB r g b) = f r . f g $ f b acc
+
 -- | Pixel type storing value for the YCCK color space:
 --
 -- * Y (Luminance)
@@ -185,6 +205,16 @@ data RGB c = RGB !c -- Red
 data YCbCrK c = YCbCrK !c !c !c !c
   deriving (Eq, Ord, Show)
 
+instance Functor YCbCrK where
+  fmap f (YCbCrK y cb cr k) = YCbCrK (f y) (f cb) (f cr) (f k)
+
+instance Applicative YCbCrK where
+  pure a = YCbCrK a a a a
+  (YCbCrK fy fcb fcr fk) <*> (YCbCrK y cb cr k) =
+      YCbCrK (fy y) (fcb cb) (fcr cr) (fk k)
+
+instance Foldable YCbCrK where
+  foldr f acc (YCbCrK y cb cr k) = f y . f cb . f cr $ f k acc
 
 -- | Pixel type storing luminance, blue difference and red difference (YCbCr) information.
 -- Values are stored in the following order:
@@ -199,6 +229,17 @@ data YCbCr c = YCbCr !c -- Y luminance
                      !c -- Cb blue difference
                      !c -- Cr red difference
   deriving (Eq, Ord, Show)
+
+instance Functor YCbCr where
+  fmap f (YCbCr y cb cr) = YCbCr (f y) (f cb) (f cr)
+
+instance Applicative YCbCr where
+  pure a = YCbCr a a a
+  (YCbCr fy fcb fcr) <*> (YCbCr y cb cr) =
+      YCbCr (fy y) (fcb cb) (fcr cr)
+
+instance Foldable YCbCr where
+  foldr f acc (YCbCr y cb cr) = f y . f cb $ f cr acc
 
 -- | Pixel type storing cyan, magenta, yellow and black (CMYK) information.
 -- Values are stored in the following order:
@@ -217,6 +258,17 @@ data CMYK c = CMYK !c -- Cyan
                    !c -- Black
   deriving (Eq, Ord, Show)
 
+instance Functor CMYK where
+  fmap f (CMYK c m y k) = CMYK (f c) (f m) (f y) (f k)
+
+instance Applicative CMYK where
+  pure a = CMYK a a a a
+  (CMYK fc fm fy fk) <*> (CMYK c m y k) =
+      CMYK (fc c) (fm m) (fy y) (fk k)
+
+instance Foldable CMYK where
+  foldr f acc (CMYK c m y k) = f c . f y . f m $ f k acc
+
 -- | Classical pixel type storing red, green, blue and alpha (RGBA) information.
 -- Values are stored in the following order:
 --
@@ -234,6 +286,16 @@ data RGBA c = RGBA !c -- Red
                    !c -- Alpha
   deriving (Eq, Ord, Show)
 
+instance Functor RGBA where
+  fmap f (RGBA r g b a) = RGBA (f r) (f g) (f b) (f a)
+
+instance Applicative RGBA where
+  pure a = RGBA a a a a
+  (RGBA fr fg fb fa) <*> (RGBA r g b a) =
+      RGBA (fr r) (fg g) (fb b) (fa a)
+
+instance Foldable RGBA where
+  foldr f acc (RGBA r g b a) = f r . f g . f b $ f a acc
 
 instance LumaPlaneExtractable (RGB PixelF) where
     {-# INLINE computeLuma #-}
