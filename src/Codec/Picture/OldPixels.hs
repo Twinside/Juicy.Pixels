@@ -24,6 +24,8 @@ instance TransparentPixel PixelRGBA8 PixelRGB8 where
     dropTransparency (PixelRGBA8 r g b _) = PixelRGB8 r g b
     setOpacity a (PixelRGBA8 r g b _) = PixelRGBA8 r g b a
 
+type Palette = Image PixelRGB8
+
 -- | Image type enumerating all predefined pixel types.
 -- It enables loading and use of images of different
 -- pixel types.

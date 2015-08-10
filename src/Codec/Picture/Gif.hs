@@ -502,11 +502,12 @@ instance Binary GifFile where
                        , gifLoopingBehaviour = LoopingNever
                        }
 
-substituteColors :: Palette -> Image Pixel8 -> Image PixelRGB8
+substituteColors :: Palette -> Image Pixel8 -> Image (RGB Pixel8)
 substituteColors palette = pixelMap swaper
   where swaper n = pixelAt palette (fromIntegral n) 0
 
-substituteColorsWithTransparency :: Int -> Image PixelRGBA8 -> Image Pixel8 -> Image PixelRGBA8
+substituteColorsWithTransparency :: Int -> Image (RGBA Pixel8) -> Image Pixel8
+                                 -> Image (RGBA Pixel8)
 substituteColorsWithTransparency transparent palette = pixelMap swaper where
   swaper n | ix == transparent = PixelRGBA8 0 0 0 0
            | otherwise = promotePixel $ pixelAt palette ix 0

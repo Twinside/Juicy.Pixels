@@ -104,8 +104,8 @@ instance Binary RadianceFormat where
             | sig == radiance32bitRleXYZEFromat = pure FormatXYZE
             | otherwise = fail "Unrecognized Radiance format"
 
-toRGBE :: PixelRGBF -> RGBE
-toRGBE (PixelRGBF r g b)
+toRGBE :: (RGB PixelF) -> RGBE
+toRGBE ((RGB PixelF) r g b)
     | d <= 1e-32 = RGBE 0 0 0 0
     | otherwise = RGBE (fix r) (fix g) (fix b) (fromIntegral $ e + 128)
   where d = maximum [r, g, b]
@@ -171,7 +171,7 @@ decodeInfos = do
 -- | Decode an HDR (radiance) image, the resulting pixel
 -- type can be :
 --
---  * PixelRGBF
+--  * (RGB PixelF)
 --
 decodeHDR :: B.ByteString -> Either String DynamicImage
 decodeHDR = fmap fst . decodeHDRWithMetadata
@@ -327,8 +327,8 @@ decodeHeader = do
 
       _ -> fail "Multiple radiance format specified"
 
-toFloat :: RGBE -> PixelRGBF
-toFloat (RGBE r g b e) = PixelRGBF rf gf bf
+toFloat :: RGBE -> (RGB PixelF)
+toFloat (RGBE r g b e) = (RGB PixelF) rf gf bf
   where f = encodeFloat 1 $ fromIntegral e - (128 + 8)
         rf = (fromIntegral r + 0.0) * f
         gf = (fromIntegral g + 0.0) * f
@@ -401,24 +401,24 @@ encodeScanlineColor vec outVec outIdx = do
 
 -- | Write an High dynamic range image into a radiance
 -- image file on disk.
-writeHDR :: FilePath -> Image PixelRGBF -> IO ()
+writeHDR :: FilePath -> Image (RGB PixelF) -> IO ()
 writeHDR filename img = L.writeFile filename $ encodeHDR img
 
 -- | Write a RLE encoded High dynamic range image into a radiance
 -- image file on disk.
-writeRLENewStyleHDR :: FilePath -> Image PixelRGBF -> IO ()
+writeRLENewStyleHDR :: FilePath -> Image (RGB PixelF) -> IO ()
 writeRLENewStyleHDR filename img =
     L.writeFile filename $ encodeRLENewStyleHDR img
 
 -- | Encode an High dynamic range image into a radiance image
 -- file format.
 -- Alias for encodeRawHDR
-encodeHDR :: Image PixelRGBF -> L.ByteString
+encodeHDR :: Image (RGB PixelF) -> L.ByteString
 encodeHDR = encodeRawHDR
 
 -- | Encode an High dynamic range image into a radiance image
 -- file format. without compression
-encodeRawHDR :: Image PixelRGBF -> L.ByteString
+encodeRawHDR :: Image (RGB PixelF) -> L.ByteString
 encodeRawHDR pic = encode descriptor
   where
     newImage = pixelMap rgbeInRgba pic
@@ -440,7 +440,7 @@ encodeRawHDR pic = encode descriptor
 -- | Encode an High dynamic range image into a radiance image
 -- file format using a light RLE compression. Some problems
 -- seem to arise with some image viewer.
-encodeRLENewStyleHDR :: Image PixelRGBF -> L.ByteString
+encodeRLENewStyleHDR :: Image (RGB PixelF) -> L.ByteString
 encodeRLENewStyleHDR pic = encode $ runST $ do
     let w = imageWidth pic
         h = imageHeight pic
@@ -486,7 +486,7 @@ encodeRLENewStyleHDR pic = encode $ runST $ do
         }
     
 
-decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s PixelRGBF)
+decodeRadiancePicture :: RadianceHeader -> HDRReader s (MutableImage s (RGB PixelF))
 decodeRadiancePicture hdr = do
     let width = abs $ radianceWidth hdr
         height = abs $ radianceHeight hdr

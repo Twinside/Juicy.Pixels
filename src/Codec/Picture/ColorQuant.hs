@@ -73,7 +73,7 @@ defaultPaletteOptions = PaletteOptions
 
 -- | Reduces an image to a color palette according to `PaletteOpts` and
 --   returns the /indices image/ along with its `Palette`.
-palettize :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
+palettize :: PaletteOptions -> Image (RGB Pixel8) -> (Image Pixel8, Palette)
 palettize opts@PaletteOptions { paletteCreationMethod = method } =
   case method of
     MedianMeanCut -> medianMeanCutQuantization opts
@@ -81,7 +81,7 @@ palettize opts@PaletteOptions { paletteCreationMethod = method } =
 
 -- | Modified median cut algorithm with optional ordered dithering. Returns an
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
-medianMeanCutQuantization :: PaletteOptions -> Image PixelRGB8
+medianMeanCutQuantization :: PaletteOptions -> Image (RGB Pixel8)
                           -> (Image Pixel8, Palette)
 medianMeanCutQuantization opts img
   | isBelow =
@@ -105,7 +105,7 @@ medianMeanCutQuantization opts img
 -- down to the nearest power of 2, and the bits are divided among the three
 -- color channels with priority order green, red, blue. Returns an
 -- image of `Pixel8` that acts as a matrix of indices into the `Palette`.
-uniformQuantization :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
+uniformQuantization :: PaletteOptions -> Image (RGB Pixel8) -> (Image Pixel8, Palette)
 uniformQuantization opts img
   -- -| colorCount img <= maxCols = colorQuantExact img
   | enableImageDithering opts =
@@ -114,16 +114,16 @@ uniformQuantization opts img
   where
     maxCols = paletteColorCount opts
     palette = listToPalette paletteList
-    paletteList = [PixelRGB8 r g b | r <- [0,dr..255]
-                                   , g <- [0,dg..255]
-                                   , b <- [0,db..255]]
+    paletteList = [RGB r g b | r <- [0,dr..255]
+                             , g <- [0,dg..255]
+                             , b <- [0,db..255]]
     (bg, br, bb) = bitDiv3 maxCols
     (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
-    paletteIndex (PixelRGB8 r g b) = fromIntegral $ fromMaybe 0 (elemIndex
-      (PixelRGB8 (r .&. (255 - dr)) (g .&. (255 - dg)) (b .&. (255 - db)))
+    paletteIndex (RGB r g b) = fromIntegral $ fromMaybe 0 (elemIndex
+      ((RGB Pixel8) (r .&. (255 - dr)) (g .&. (255 - dg)) (b .&. (255 - db)))
       paletteList)
 
-isColorCountBelow :: Int -> Image PixelRGB8 -> (Set.Set PixelRGB8, Bool)
+isColorCountBelow :: Int -> Image (RGB Pixel8) -> (Set.Set (RGB Pixel8), Bool)
 isColorCountBelow maxColorCount img = go 0 Set.empty
   where rawData = imageData img
         maxIndex = VS.length rawData
@@ -134,10 +134,10 @@ isColorCountBelow maxColorCount img = go 0 Set.empty
             | otherwise = go (idx + 3) $ Set.insert px allColors
                 where px = unsafePixelAt rawData idx 
 
-vecToPalette :: Vector PixelRGB8 -> Palette
+vecToPalette :: Vector (RGB Pixel8) -> Palette
 vecToPalette ps = generateImage (\x _ -> ps ! x) (V.length ps) 1
 
-listToPalette :: [PixelRGB8] -> Palette
+listToPalette :: [(RGB Pixel8)] -> Palette
 listToPalette ps = generateImage (\x _ -> ps !! x) (length ps) 1
 
 bitDiv3 :: Int -> (Int, Int, Int)
@@ -158,10 +158,8 @@ bitDiv3 n = case r of
 -- Uses a small, spatially stable dithering algorithm based on magic numbers
 -- and arithmetic inspired by the /a dither/ algorithm of Øyvind Kolås,
 -- pippin@gimp.org, 2013. See, http://pippin.gimp.org/a_dither/.
-dither :: Int -> Int -> PixelRGB8 -> PixelRGB8
-dither x y (PixelRGB8 r g b) = PixelRGB8 (fromIntegral r')
-                                         (fromIntegral g')
-                                         (fromIntegral b')
+dither :: Int -> Int -> (RGB Pixel8) -> (RGB Pixel8)
+dither x y (RGB r g b) = RGB (fromIntegral r') (fromIntegral g') (fromIntegral b')
   where
     -- Should view 16 as a parameter that can be optimized for best looking
     -- results
@@ -235,15 +233,15 @@ intLength = Fold (\n _ -> n + 1) 0 id
 -- mean of the parent cluster. So median cut is a bit of a misnomer, since one
 -- of the modifiations is to use the mean.
 
-mkPaletteVec :: [Cluster] -> Vector PixelRGB8
+mkPaletteVec :: [Cluster] -> Vector (RGB Pixel8)
 mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)
 
 type PackedRGB = Word32
 
 data Cluster = Cluster
     { value       :: {-# UNPACK #-} !Float
-    , meanColor   :: !PixelRGBF
-    , dims        :: !PixelRGBF
+    , meanColor   :: !(RGB PixelF)
+    , dims        :: !(RGB PixelF)
     , colors      :: VU.Vector PackedRGB
     }
 
@@ -260,39 +258,39 @@ data Axis = RAxis | GAxis | BAxis
 inf :: Float
 inf = read "Infinity"
 
-fromRGB8 :: PixelRGB8 -> PixelRGBF
-fromRGB8 (PixelRGB8 r g b) =
-  PixelRGBF (fromIntegral r) (fromIntegral g) (fromIntegral b)
+fromRGB8 :: RGB Pixel8 -> (RGB PixelF)
+fromRGB8 (RGB r g b) =
+  (RGB PixelF) (fromIntegral r) (fromIntegral g) (fromIntegral b)
 
-toRGB8 :: PixelRGBF -> PixelRGB8
-toRGB8 (PixelRGBF r g b) =
-  PixelRGB8 (round r) (round g) (round b)
+toRGB8 :: (RGB PixelF) -> (RGB Pixel8)
+toRGB8 ((RGB PixelF) r g b) =
+  (RGB Pixel8) (round r) (round g) (round b)
 
-meanRGB :: Fold PixelRGBF PixelRGBF
+meanRGB :: Fold (RGB PixelF) (RGB PixelF)
 meanRGB = mean <$> intLength <*> pixelSum
   where
-    pixelSum = Fold (mixWith $ const (+)) (PixelRGBF 0 0 0) id
+    pixelSum = Fold (mixWith $ const (+)) ((RGB PixelF) 0 0 0) id
     mean n = colorMap (/ nf)
       where nf = fromIntegral n
 
-minimal :: Fold PixelRGBF PixelRGBF
-minimal = Fold mini (PixelRGBF inf inf inf) id
+minimal :: Fold (RGB PixelF) (RGB PixelF)
+minimal = Fold mini ((RGB PixelF) inf inf inf) id
   where mini = mixWith $ const min
 
-maximal :: Fold PixelRGBF PixelRGBF
-maximal = Fold maxi (PixelRGBF (-inf) (-inf) (-inf)) id
+maximal :: Fold (RGB PixelF) (RGB PixelF)
+maximal = Fold maxi ((RGB PixelF) (-inf) (-inf) (-inf)) id
   where maxi = mixWith $ const max
 
-extrems :: Fold PixelRGBF (PixelRGBF, PixelRGBF)
+extrems :: Fold (RGB PixelF) ((RGB PixelF), (RGB PixelF))
 extrems = (,) <$> minimal <*> maximal
 
-volAndDims :: Fold PixelRGBF (Float, PixelRGBF)
+volAndDims :: Fold (RGB PixelF) (Float, (RGB PixelF))
 volAndDims = deltify <$> extrems
   where deltify (mini, maxi) = (dr * dg * db, delta)
-          where delta@(PixelRGBF dr dg db) =
+          where delta@((RGB PixelF) dr dg db) =
                         mixWith (const (-)) maxi mini
 
-unpackFold :: Fold PixelRGBF a -> Fold PackedRGB a
+unpackFold :: Fold (RGB PixelF) a -> Fold PackedRGB a
 unpackFold (Fold step start done) = Fold (\acc -> step acc . transform) start done
   where transform = fromRGB8 . rgbIntUnpack
 
@@ -307,8 +305,8 @@ mkCluster ps = Cluster
     worker = (,,) <$> volAndDims <*> meanRGB <*> intLength
     ((v, ds), m, l) = fold (unpackFold worker) ps
 
-maxAxis :: PixelRGBF -> Axis
-maxAxis (PixelRGBF r g b) =
+maxAxis :: (RGB PixelF) -> Axis
+maxAxis ((RGB PixelF) r g b) =
   case (r `compare` g, r `compare` b, g `compare` b) of
     (GT, GT, _)  -> RAxis
     (LT, GT, _)  -> GAxis
@@ -322,32 +320,32 @@ maxAxis (PixelRGBF r g b) =
 subdivide :: Cluster -> (Cluster, Cluster)
 subdivide cluster = (mkCluster px1, mkCluster px2)
   where
-    (PixelRGBF mr mg mb) = meanColor cluster
+    (RGB mr mg mb) = meanColor cluster
     (px1, px2) = VU.partition (cond . rgbIntUnpack) $ colors cluster
     cond = case maxAxis $ dims cluster of
-      RAxis -> \(PixelRGB8 r _ _) -> fromIntegral r < mr
-      GAxis -> \(PixelRGB8 _ g _) -> fromIntegral g < mg
-      BAxis -> \(PixelRGB8 _ _ b) -> fromIntegral b < mb
+      RAxis -> \((RGB Pixel8) r _ _) -> fromIntegral r < mr
+      GAxis -> \((RGB Pixel8) _ g _) -> fromIntegral g < mg
+      BAxis -> \((RGB Pixel8) _ _ b) -> fromIntegral b < mb
 
-rgbIntPack :: PixelRGB8 -> PackedRGB
-rgbIntPack (PixelRGB8 r g b) =
+rgbIntPack :: (RGB Pixel8) -> PackedRGB
+rgbIntPack ((RGB Pixel8) r g b) =
     wr `unsafeShiftL` (2 * 8) .|. wg `unsafeShiftL` 8 .|. wb
   where wr = fromIntegral r
         wg = fromIntegral g
         wb = fromIntegral b
 
-rgbIntUnpack :: PackedRGB -> PixelRGB8
-rgbIntUnpack v = PixelRGB8 r g b
+rgbIntUnpack :: PackedRGB -> (RGB Pixel8)
+rgbIntUnpack v = (RGB Pixel8) r g b
   where
     r = fromIntegral $ v `unsafeShiftR` (2 * 8)
     g = fromIntegral $ v `unsafeShiftR` 8
     b = fromIntegral v
 
-initCluster :: Image PixelRGB8 -> Cluster
+initCluster :: Image (RGB Pixel8) -> Cluster
 initCluster img = mkCluster $ VU.generate ((w * h) `div` subSampling) packer
   where samplingFactor = 3
         subSampling = samplingFactor * samplingFactor
-        compCount = componentCount (undefined :: PixelRGB8)
+        compCount = componentCount (undefined :: (RGB Pixel8))
         w = imageWidth img
         h = imageHeight img
         rawData = imageData img
@@ -365,7 +363,7 @@ split cs = Set.insert c1 . Set.insert c2  $ cs'
 
 -- Keep splitting the initial cluster until there are 256 clusters, then return
 -- a priority queue containing all 256.
-clusters :: Int -> Image PixelRGB8 -> Set Cluster
+clusters :: Int -> Image (RGB Pixel8) -> Set Cluster
 clusters maxCols img = clusters' (maxCols - 1)
   where
     clusters' :: Int -> Set Cluster
@@ -374,13 +372,13 @@ clusters maxCols img = clusters' (maxCols - 1)
     c = initCluster img
 
 -- Euclidean distance squared, between two pixels.
-dist2Px :: PixelRGB8 -> PixelRGB8 -> Int
-dist2Px (PixelRGB8 r1 g1 b1) (PixelRGB8 r2 g2 b2) = dr*dr + dg*dg + db*db
+dist2Px :: (RGB Pixel8) -> (RGB Pixel8) -> Int
+dist2Px ((RGB Pixel8) r1 g1 b1) ((RGB Pixel8) r2 g2 b2) = dr*dr + dg*dg + db*db
   where
     (dr, dg, db) =
       ( fromIntegral r1 - fromIntegral r2
       , fromIntegral g1 - fromIntegral g2
       , fromIntegral b1 - fromIntegral b2 )
 
-nearestColorIdx :: PixelRGB8 -> Vector PixelRGB8 -> Pixel8
+nearestColorIdx :: (RGB Pixel8) -> Vector (RGB Pixel8) -> Pixel8
 nearestColorIdx p ps  = fromIntegral $ V.minIndex (V.map (`dist2Px` p) ps)

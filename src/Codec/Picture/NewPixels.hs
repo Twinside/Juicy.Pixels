@@ -20,9 +20,12 @@ module Codec.Picture.NewPixels
                           , YCbCr( .. )
                           , YCbCrK( .. )
                           , Palette
+                          , DynamicImage( .. )
 
                           , dynamicMap 
                           , dynamicPixelMap
+                          , gammaCorrection
+                          , toneMapping
                           ) where
 
 import Control.Monad( liftM, ap )
@@ -1063,6 +1066,24 @@ instance PackeablePixel (YA Pixel8) where
       where
         low v = fromIntegral (v .&. 0xFF)
         bitCount = 8
+
+-- | Perform a gamma correction for an image with HDR pixels.
+gammaCorrection :: (Pixel (f PixelF), Functor f)
+                => PixelF          -- ^ Gamma value, should be between 0.5 and 3.0
+                -> Image (f PixelF) -- ^ Image to treat.
+                -> Image (f PixelF)
+gammaCorrection gammaVal = pixelMap (fmap fixVal)
+  where gammaExponent = 1.0 / gammaVal
+        fixVal v = v ** gammaExponent
+
+-- | Perform a tone mapping operation on an High dynamic range image.
+toneMapping :: PixelF          -- ^ Exposure parameter
+            -> Image (RGB PixelF) -- ^ Image to treat.
+            -> Image (RGB PixelF)
+toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
+ where coeff = exposure * (exposure / maxBrightness + 1.0) / (exposure + 1.0);
+       maxBrightness = pixelFold (\luma _ _ px -> max luma $ computeLuma px) 0 img
+       scaledData = V.map (* coeff) $ imageData img
 
 {-# ANN module "HLint: ignore Reduce duplication" #-}
 

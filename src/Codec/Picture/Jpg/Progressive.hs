@@ -213,7 +213,7 @@ progressiveUnpack :: (Int, Int)
                   -> JpgFrameHeader
                   -> V.Vector (MacroBlock Int16)
                   -> [([(JpgUnpackerParameter, a)], L.ByteString)]
-                  -> ST s (MutableImage s PixelYCbCr8)
+                  -> ST s (MutableImage s (YCbCr Pixel8))
 progressiveUnpack (maxiW, maxiH) frame quants lst = do
     (unpackers, readers) <- prepareUnpacker lst
     allBlocks <- mapM allocateWorkingBlocks . zip [0..] $ jpgComponents frame

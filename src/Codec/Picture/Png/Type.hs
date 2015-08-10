@@ -171,7 +171,7 @@ data PngRawImage = PngRawImage
     }
 
 -- | Palette with indices beginning at 0 to elemcount - 1
-type PngPalette = Image PixelRGB8
+type PngPalette = Palette
 
 -- | Parse a palette from a png chunk.
 parsePalette :: PngRawChunk -> Either String PngPalette

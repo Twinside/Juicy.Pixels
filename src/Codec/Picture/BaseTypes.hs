@@ -61,6 +61,8 @@ module Codec.Picture.BaseTypes ( Image( .. )
                                , unsafeWritePixelBetweenAt
                                , readPackedPixelAt
                                , writePackedPixelAt
+                               , Traversal
+                               , unsafeExtractComponent
                                ) where
 
 #if !MIN_VERSION_base(4,8,0)

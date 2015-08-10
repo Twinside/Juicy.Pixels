@@ -150,7 +150,7 @@ genericEncodePng palette imgKind metas
           imgEncodedData = Z.compress . Lb.fromChunks
                         $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
-instance PngSavable PixelRGBA8 where
+instance PngSavable (RGBA Pixel8) where
   encodePngWithMetadata = genericEncodePng Nothing PngTrueColourWithAlpha
 
 instance PngSavable PixelRGB8 where

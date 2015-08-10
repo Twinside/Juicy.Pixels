@@ -205,7 +205,7 @@ unpackMacroBlock :: Int    -- ^ Component count
                  -> Int -- ^ x
                  -> Int -- ^ y
                  -> Int    -- ^ Component index
-                 -> MutableImage s PixelYCbCr8
+                 -> MutableImage s (YCbCr Pixel8)
                  -> MutableMacroBlock s Int16
                  -> ST s ()
 unpackMacroBlock compCount wCoeff hCoeff compIdx x y

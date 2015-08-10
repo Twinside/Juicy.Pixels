@@ -222,9 +222,9 @@ instance TGAPixel Depth8 where
    tgaUnpack _ = U.unsafeIndex
 
 instance TGAPixel Depth15 where
-   type Unpacked Depth15 = PixelRGBA8
+   type Unpacked Depth15 = (RGBA Pixel8)
    packedByteSize _ = 2
-   tgaUnpack _ str ix = PixelRGBA8 r g b a
+   tgaUnpack _ str ix = (RGBA Pixel8) r g b a
       where
         v0 = U.unsafeIndex str ix
         v1 = U.unsafeIndex str $ ix + 1
@@ -243,9 +243,9 @@ instance TGAPixel Depth24 where
        r = U.unsafeIndex str (ix + 2)
 
 instance TGAPixel Depth32 where
-   type Unpacked Depth32 = PixelRGBA8
+   type Unpacked Depth32 = (RGBA Pixel8)
    packedByteSize _ = 4
-   tgaUnpack _ str ix = PixelRGBA8 r g b a
+   tgaUnpack _ str ix = (RGBA Pixel8) r g b a
      where
        b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
@@ -447,7 +447,7 @@ validateTga _ = return ()
 --
 --    * PixelRGB8
 --
---    * PixelRGBA8
+--    * (RGBA Pixel8)
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
 decodeTga byte = runGetStrict get byte >>= (fmap fst . unparse)
@@ -473,14 +473,14 @@ instance TgaSaveable PixelRGB8 where
     tgaTypeOfImage _ = ImageTypeTrueColor False
     tgaDataOfImage = toByteString . imageData . pixelMap flipRgb
       where
-        flipRgb (PixelRGB8 r g b) = PixelRGB8 b g r
+        flipRgb (RGB r g b) = RGB b g r
 
-instance TgaSaveable PixelRGBA8 where
+instance TgaSaveable (RGBA Pixel8) where
     tgaPixelDepthOfImage _ = 32
     tgaTypeOfImage _ = ImageTypeTrueColor False
     tgaDataOfImage = toByteString . imageData . pixelMap flipRgba
       where
-        flipRgba (PixelRGBA8 r g b a) = PixelRGBA8 b g r a
+        flipRgba (RGBA r g b a) = RGBA b g r a
 
 -- | Helper function to directly write an image a tga on disk.
 writeTga :: (TgaSaveable pixel) => FilePath -> Image pixel -> IO ()
