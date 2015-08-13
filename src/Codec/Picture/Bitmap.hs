@@ -196,7 +196,7 @@ instance BmpEncodable Pixel8 where
                   stridePut buff w stride
                   VS.unsafeFreeze buff
 
-instance BmpEncodable PixelRGBA8 where
+instance BmpEncodable (RGBA Pixel8) where
     bitsPerPixel _ = 32
     bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
       forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
@@ -224,7 +224,7 @@ instance BmpEncodable PixelRGBA8 where
             inner 0 0 initialIndex
             VS.unsafeFreeze buff
 
-instance BmpEncodable PixelRGB8 where
+instance BmpEncodable (RGB Pixel8) where
     bitsPerPixel _ = 24
     bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
        forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
@@ -252,7 +252,7 @@ instance BmpEncodable PixelRGB8 where
               inner 0 0 initialIndex
               VS.unsafeFreeze buff
 
-decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
+decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image (RGB Pixel8)
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
   where wi = fromIntegral w
         hi = fromIntegral h
@@ -303,13 +303,13 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
             in inner readIndex writeIndex
 
 
-pixelGet :: Get PixelRGB8
+pixelGet :: Get (RGB Pixel8)
 pixelGet = do
     b <- getWord8
     g <- getWord8
     r <- getWord8
     _ <- getWord8
-    return $ PixelRGB8 r g b
+    return $ RGB r g b
 
 metadataOfHeader :: BmpInfoHeader -> Metadatas
 metadataOfHeader hdr = 

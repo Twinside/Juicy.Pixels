@@ -7,8 +7,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE BangPatterns #-}
-
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | Module providing the basic types for image manipulation in the library.
 -- Defining the types used to store all those _Juicy Pixels_
 module Codec.Picture.NewPixels
@@ -317,6 +317,22 @@ instance (Storable a, Pixel a, BasicComponent (YCbCr a)) =>
     computeLuma (YCbCr y _ _) = y
     extractLumaPlane = extractComponent PlaneLuma
 
+instance ColorConvertible Pixel8 Pixel8 where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
+instance ColorConvertible Pixel16 Pixel16 where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
+instance ColorConvertible Pixel32 Pixel32 where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
+instance ColorConvertible PixelF PixelF where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
 instance (Pixel a, Storable a) => ColorConvertible a (YA a) where
     {-# INLINE promotePixel #-}
     promotePixel c = YA c saturatedPixel
@@ -378,10 +394,6 @@ instance (Pixel a, Storable a) => Pixel (YA a) where
     unsafeWritePixel v idx (YA y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
 
-instance (Storable a, Pixel a) => ColorConvertible (YA a) (RGB a) where
-    {-# INLINE promotePixel #-}
-    promotePixel (YA y _) = RGB y y y
-
 instance (Pixel a, Storable a) => ColorConvertible (YA a) (RGBA a) where
     {-# INLINE promotePixel #-}
     promotePixel (YA y a) = RGBA y y y a
@@ -416,10 +428,6 @@ instance (Pixel a, Storable a, Integral a, Bounded a) =>
         ColorSpaceConvertible (RGB a) (CMYK a) where
     {-# INLINE convertPixel #-}
     convertPixel (RGB r g b) = integralRGBToCMYK CMYK (r, g, b)
-
-instance (Storable a, Pixel a) => ColorConvertible (RGB a) (RGBA a) where
-    {-# INLINE promotePixel #-}
-    promotePixel (RGB r g b) = RGBA r g b saturatedPixel
 
 instance LumaPlaneExtractable (RGB Pixel16) where
     {-# INLINE computeLuma #-}
@@ -494,6 +502,12 @@ instance (Storable a, Storable b,
     {-# INLINE promotePixel #-}
     promotePixel (RGB r g b) =
         RGB (promotePixel r) (promotePixel g) (promotePixel b)
+
+instance (Storable a, Storable b,
+          ColorConvertible a b) => ColorConvertible (RGBA a) (RGBA b) where
+    {-# INLINE promotePixel #-}
+    promotePixel (RGBA r g b a) =
+        RGBA (promotePixel r) (promotePixel g) (promotePixel b) (promotePixel a)
 
 instance LumaPlaneExtractable (RGB Word8) where
     {-# INLINE computeLuma #-}

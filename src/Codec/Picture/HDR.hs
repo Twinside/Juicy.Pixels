@@ -105,7 +105,7 @@ instance Binary RadianceFormat where
             | otherwise = fail "Unrecognized Radiance format"
 
 toRGBE :: (RGB PixelF) -> RGBE
-toRGBE ((RGB PixelF) r g b)
+toRGBE (RGB r g b)
     | d <= 1e-32 = RGBE 0 0 0 0
     | otherwise = RGBE (fix r) (fix g) (fix b) (fromIntegral $ e + 128)
   where d = maximum [r, g, b]
@@ -328,7 +328,7 @@ decodeHeader = do
       _ -> fail "Multiple radiance format specified"
 
 toFloat :: RGBE -> (RGB PixelF)
-toFloat (RGBE r g b e) = (RGB PixelF) rf gf bf
+toFloat (RGBE r g b e) = RGB rf gf bf
   where f = encodeFloat 1 $ fromIntegral e - (128 + 8)
         rf = (fromIntegral r + 0.0) * f
         gf = (fromIntegral g + 0.0) * f
@@ -425,7 +425,7 @@ encodeRawHDR pic = encode descriptor
     -- we are cheating to death here, the layout we want
     -- correspond to the layout of pixelRGBA8, so we
     -- convert
-    rgbeInRgba pixel = PixelRGBA8 r g b e
+    rgbeInRgba pixel = RGBA r g b e
       where RGBE r g b e = toRGBE pixel
 
     descriptor = RadianceHeader
@@ -520,7 +520,7 @@ decodeRadiancePicture hdr = do
           forM_ [0 .. width - 1] $ \i -> do
               -- mokay, it's a hack, but I don't want to define a
               -- pixel instance of RGBE...
-              PixelRGBA8 r g b e <- lift $ readPixel scanLineImage i 0
+              RGBA r g b e <- lift $ readPixel scanLineImage i 0
               lift $ writePixel finalImage i line . toFloat $ RGBE r g b e
 
           return newRead

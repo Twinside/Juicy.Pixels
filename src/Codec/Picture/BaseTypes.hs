@@ -766,14 +766,6 @@ instance LumaPlaneExtractable PixelF where
     computeLuma = id
     extractLumaPlane = id
 
--- | Free promotion for identic pixel types
-instance (Pixel a) => ColorConvertible a a where
-    {-# INLINE promotePixel #-}
-    promotePixel = id
-
-    {-# INLINE promoteImage #-}
-    promoteImage = id
-
 --------------------------------------------------
 ----            Pixel8 instances
 --------------------------------------------------

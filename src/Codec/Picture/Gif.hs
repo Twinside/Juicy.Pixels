@@ -509,7 +509,7 @@ substituteColors palette = pixelMap swaper
 substituteColorsWithTransparency :: Int -> Image (RGBA Pixel8) -> Image Pixel8
                                  -> Image (RGBA Pixel8)
 substituteColorsWithTransparency transparent palette = pixelMap swaper where
-  swaper n | ix == transparent = PixelRGBA8 0 0 0 0
+  swaper n | ix == transparent = RGBA 0 0 0 0
            | otherwise = promotePixel $ pixelAt palette ix 0
     where ix = fromIntegral n
 
@@ -548,7 +548,7 @@ gifInterlacingIndices height = V.accum (\_ v -> v) (V.replicate height 0) indice
                        , [1, 1 + 2 .. height - 1]
                        ]
 
-paletteOf :: (ColorConvertible PixelRGB8 px)
+paletteOf :: (ColorConvertible (RGB Pixel8) px)
           => Image px -> GifImage -> Image px
 paletteOf global GifImage { imgLocalPalette = Nothing } = global
 paletteOf      _ GifImage { imgLocalPalette = Just p  } = promoteImage p
@@ -587,11 +587,11 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
       [ImageRGB8 img | (_, _, img) <- scanl scanner initState rest]
 
   | otherwise =
-      let backImage :: Image PixelRGBA8
+      let backImage :: Image (RGBA Pixel8)
           backImage =
             generateImage (\_ _ -> transparentBackground) globalWidth globalHeight
 
-          thisPalette :: Image PixelRGBA8
+          thisPalette :: Image (RGBA Pixel8)
           thisPalette = paletteOf (promoteImage palette) firstImage
 
           transparentCode = transparentColorOf firstControl
@@ -608,16 +608,16 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
       globalWidth = fromIntegral $ screenWidth wholeDescriptor
       globalHeight = fromIntegral $ screenHeight wholeDescriptor
 
-      transparentBackground = PixelRGBA8 r g b 0
-          where PixelRGB8 r g b = backgroundColor
+      transparentBackground = RGBA r g b 0
+          where RGB r g b = backgroundColor
 
       backgroundColor
         | hasGlobalMap wholeDescriptor =
             pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
-        | otherwise = PixelRGB8 0 0 0
+        | otherwise = RGB 0 0 0
 
 gifAnimationApplyer :: forall px.
-                       (Pixel px, ColorConvertible PixelRGB8 px)
+                       (Pixel px, ColorConvertible (RGB Pixel8) px)
                     => (Int, Int) -> Image px -> Image px
                     -> (Image px, Maybe GraphicControlExtension, Image px)
                     -> (Maybe GraphicControlExtension, GifImage)
@@ -709,7 +709,7 @@ getDelaysGifImages img = getFrameDelays <$> decode img
 -- | Default palette to produce greyscale images.
 greyPalette :: Palette
 greyPalette = generateImage toGrey 256 1
-  where toGrey x _ = PixelRGB8 ix ix ix
+  where toGrey x _ = RGB ix ix ix
            where ix = fromIntegral x
 
 checkGifImageSizes :: [(a, b, Image px)] -> Bool

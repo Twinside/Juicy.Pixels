@@ -121,7 +121,7 @@ pixelClamp n = fromIntegral . min 255 $ max 0 n
 unpack444Y :: Int -- ^ component index
            -> Int -- ^ x
            -> Int -- ^ y
-           -> MutableImage s PixelYCbCr8
+           -> MutableImage s (YCbCr Pixel8)
            -> MutableMacroBlock s Int16
            -> ST s ()
 unpack444Y _ x y (MutableImage { mutableImageWidth = imgWidth, mutableImageData = img })
@@ -140,7 +140,7 @@ unpack444Y _ x y (MutableImage { mutableImageWidth = imgWidth, mutableImageData 
 unpack444Ycbcr :: Int -- ^ Component index
               -> Int -- ^ x
               -> Int -- ^ y
-              -> MutableImage s PixelYCbCr8
+              -> MutableImage s (YCbCr Pixel8)
               -> MutableMacroBlock s Int16
               -> ST s ()
 unpack444Ycbcr compIdx x y
@@ -181,7 +181,7 @@ unpack444Ycbcr compIdx x y
 unpack421Ycbcr :: Int -- ^ Component index
                -> Int -- ^ x
                -> Int -- ^ y
-               -> MutableImage s PixelYCbCr8
+               -> MutableImage s (YCbCr Pixel8)
                -> MutableMacroBlock s Int16
                -> ST s ()
 unpack421Ycbcr compIdx x y
@@ -232,7 +232,7 @@ unpack421Ycbcr compIdx x y
 type Unpacker s = Int -- ^ component index
                -> Int -- ^ x
                -> Int -- ^ y
-               -> MutableImage s PixelYCbCr8
+               -> MutableImage s (YCbCr Pixel8)
                -> MutableMacroBlock s Int16
                -> ST s ()
 
@@ -407,8 +407,8 @@ unpackerDecision compCount (xScalingFactor, yScalingFactor) =
 decodeImage :: JpgFrameHeader
             -> V.Vector (MacroBlock Int16)
             -> [([(JpgUnpackerParameter, Unpacker s)], L.ByteString)]
-            -> MutableImage s PixelYCbCr8 -- ^ Result image to write into
-            -> ST s (MutableImage s PixelYCbCr8)
+            -> MutableImage s (YCbCr Pixel8) -- ^ Result image to write into
+            -> ST s (MutableImage s (YCbCr Pixel8))
 decodeImage frame quants lst outImage = do
   let compCount = length $ jpgComponents frame
   zigZagArray <- createEmptyMutableMacroBlock
@@ -488,7 +488,7 @@ dynamicOfColorSpace Nothing _ _ _ = fail "Unknown color space"
 dynamicOfColorSpace (Just color) w h imgData = case color of
   JpgColorSpaceCMYK -> return . ImageCMYK8 $ Image w h imgData
   JpgColorSpaceYCCK ->
-     let ymg = Image w h $ VS.map (255-) imgData :: Image PixelYCbCrK8 in
+     let ymg = Image w h $ VS.map (255-) imgData :: Image (YCbCrK Pixel8) in
      return . ImageCMYK8 $ convertImage ymg
   JpgColorSpaceYCbCr -> return . ImageYCbCr8 $ Image w h imgData
   JpgColorSpaceRGB -> return . ImageRGB8 $ Image w h imgData
@@ -623,7 +623,7 @@ decodeJpegWithMetadata file = case runGetStrict get file of
         frozen <- unsafeFreezeImage fImg
         return (st, imageData frozen)
 
-extractBlock :: Image PixelYCbCr8       -- ^ Source image
+extractBlock :: Image (YCbCr Pixel8)    -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
              -> Int                     -- ^ Plane
              -> Int                     -- ^ X sampling factor
@@ -730,7 +730,7 @@ prepareHuffmanTable classVal dest tableDef =
 -- | Encode an image in jpeg at a reasonnable quality level.
 -- If you want better quality or reduced file size, you should
 -- use `encodeJpegAtQuality`
-encodeJpeg :: Image PixelYCbCr8 -> L.ByteString
+encodeJpeg :: Image (YCbCr Pixel8) -> L.ByteString
 encodeJpeg = encodeJpegAtQuality 50
 
 defaultHuffmanTables :: [(JpgHuffmanTableSpec, HuffmanPackedTree)]
@@ -745,7 +745,7 @@ defaultHuffmanTables =
 -- The quality factor should be between 0 and 100 (100 being
 -- the best quality).
 encodeJpegAtQuality :: Word8                -- ^ Quality factor
-                    -> Image PixelYCbCr8    -- ^ Image to encode
+                    -> Image (YCbCr Pixel8) -- ^ Image to encode
                     -> L.ByteString         -- ^ Encoded JPEG
 encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
 
@@ -757,7 +757,7 @@ encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
 --
 encodeJpegAtQualityWithMetadata :: Word8                -- ^ Quality factor
                                 -> Metadatas
-                                -> Image PixelYCbCr8    -- ^ Image to encode
+                                -> Image (YCbCr Pixel8) -- ^ Image to encode
                                 -> L.ByteString         -- ^ Encoded JPEG
 encodeJpegAtQualityWithMetadata quality metas img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
   where finalImage = JpgImage $

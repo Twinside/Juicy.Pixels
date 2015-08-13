@@ -1508,5 +1508,13 @@ instance PackeablePixel PixelYA8 where
         low v = fromIntegral (v .&. 0xFF)
         bitCount = 8
 
+-- | Free promotion for identic pixel types
+instance (Pixel a) => ColorConvertible a a where
+    {-# INLINE promotePixel #-}
+    promotePixel = id
+
+    {-# INLINE promoteImage #-}
+    promoteImage = id
+
 {-# ANN module "HLint: ignore Reduce duplication" #-}
 

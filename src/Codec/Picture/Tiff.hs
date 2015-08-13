@@ -78,7 +78,7 @@ data TiffInfo = TiffInfo
   , tiffCompression        :: TiffCompression
   , tiffStripSize          :: V.Vector Word32
   , tiffOffsets            :: V.Vector Word32
-  , tiffPalette            :: Maybe (Image PixelRGB16)
+  , tiffPalette            :: Maybe (Image (RGB Pixel16))
   , tiffYCbCrSubsampling   :: V.Vector Word32
   , tiffExtraSample        :: Maybe ExtraSample
   , tiffPredictor          :: Predictor
@@ -97,7 +97,7 @@ findIFD errorMessage tag lst =
     [] -> fail errorMessage
     (x:_) -> pure x
 
-findPalette :: [ImageFileDirectory] -> Get (Maybe (Image PixelRGB16))
+findPalette :: [ImageFileDirectory] -> Get (Maybe (Image (RGB Pixel16)))
 findPalette ifds =
     case [v | v <- ifds, ifdIdentifier v == TagColorMap] of
         (ImageFileDirectory { ifdExtended = ExifShorts vec }:_) ->
@@ -451,6 +451,7 @@ instance Unpackable YCbCrSubsampling where
 
 gatherStrips :: ( Unpackable comp
                 , Pixel pixel
+                , Num (StorageType comp)
                 , StorageType comp ~ PixelBaseComponent pixel
                 )
              => comp -> B.ByteString -> TiffInfo -> Image pixel
@@ -675,9 +676,9 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
     case img of
       ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
       ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      ImageYA8 i -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
+      ImageYA8 i -> let negative (YA y a) = YA (maxBound - y) a
                     in pure . ImageYA8 $ pixelMap negative i
-      ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
+      ImageYA16 i -> let negative (YA y a) = YA (maxBound - y) a
                      in pure . ImageYA16 $ pixelMap negative i
       _ -> fail "Unsupported color type used with colorspace MonochromeWhite0"
 
@@ -810,35 +811,35 @@ instance TiffSaveable Pixel8 where
 instance TiffSaveable Pixel16 where
   colorSpaceOfPixel _ = TiffMonochrome
 
-instance TiffSaveable PixelYA8 where
+instance TiffSaveable (YA Pixel8) where
   colorSpaceOfPixel _ = TiffMonochrome
   extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
-instance TiffSaveable PixelYA16 where
+instance TiffSaveable (YA Pixel16) where
   colorSpaceOfPixel _ = TiffMonochrome
   extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
-instance TiffSaveable PixelCMYK8 where
+instance TiffSaveable (CMYK Pixel8) where
   colorSpaceOfPixel _ = TiffCMYK
 
-instance TiffSaveable PixelCMYK16 where
+instance TiffSaveable (CMYK Pixel16) where
   colorSpaceOfPixel _ = TiffCMYK
 
-instance TiffSaveable PixelRGB8 where
+instance TiffSaveable (RGB Pixel8) where
   colorSpaceOfPixel  _ = TiffRGB
 
-instance TiffSaveable PixelRGB16 where
+instance TiffSaveable (RGB Pixel16) where
   colorSpaceOfPixel  _ = TiffRGB
 
-instance TiffSaveable PixelRGBA8 where
+instance TiffSaveable (RGBA Pixel8) where
   colorSpaceOfPixel _ = TiffRGB
   extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
-instance TiffSaveable PixelRGBA16 where
+instance TiffSaveable (RGBA Pixel16) where
   colorSpaceOfPixel _ = TiffRGB
   extraSampleCodeOfPixel _ = Just ExtraSampleUnassociatedAlpha
 
-instance TiffSaveable PixelYCbCr8 where
+instance TiffSaveable (YCbCr Pixel8) where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 

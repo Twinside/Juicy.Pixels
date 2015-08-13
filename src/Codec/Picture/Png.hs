@@ -415,7 +415,7 @@ applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
 applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
     where (_, initSize) = bounds img
           pixels = concat [[r, g, b] | ipx <- V.toList img
-                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
+                                     , let RGB r g b = pixelAt pal (fromIntegral ipx) 0]
 
 applyPaletteWithTransparency :: PngPalette -> Lb.ByteString -> V.Vector Word8
                              -> V.Vector Word8
@@ -425,7 +425,7 @@ applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) 
           pixels = concat
             [ [r, g, b, opacity]
                   | ipx <- V.toList img
-                  , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0
+                  , let RGB r g b = pixelAt pal (fromIntegral ipx) 0
                         opacity | fromIntegral ipx < maxi = Lb.index transpBuffer $ fromIntegral ipx
                                 | otherwise = 255]
 

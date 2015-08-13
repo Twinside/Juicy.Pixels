@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
@@ -153,25 +154,25 @@ genericEncodePng palette imgKind metas
 instance PngSavable (RGBA Pixel8) where
   encodePngWithMetadata = genericEncodePng Nothing PngTrueColourWithAlpha
 
-instance PngSavable PixelRGB8 where
+instance PngSavable (RGB Pixel8) where
   encodePngWithMetadata = genericEncodePng Nothing PngTrueColour
 
 instance PngSavable Pixel8 where
   encodePngWithMetadata = genericEncodePng Nothing PngGreyscale
 
-instance PngSavable PixelYA8 where
+instance PngSavable (YA Pixel8) where
   encodePngWithMetadata = genericEncodePng Nothing PngGreyscaleWithAlpha
 
-instance PngSavable PixelYA16 where
+instance PngSavable (YA Pixel16) where
   encodePngWithMetadata = genericEncode16BitsPng PngGreyscaleWithAlpha
 
 instance PngSavable Pixel16 where
   encodePngWithMetadata = genericEncode16BitsPng PngGreyscale
 
-instance PngSavable PixelRGB16 where
+instance PngSavable (RGB Pixel16) where
   encodePngWithMetadata = genericEncode16BitsPng PngTrueColour
 
-instance PngSavable PixelRGBA16 where
+instance PngSavable (RGBA Pixel16) where
   encodePngWithMetadata = genericEncode16BitsPng PngTrueColourWithAlpha
 
 -- | Write a dynamic image in a .png image file if possible.

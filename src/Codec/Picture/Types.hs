@@ -40,6 +40,7 @@ module Codec.Picture.Types( -- * Types
                           , RGBA( .. )
                           , CMYK( .. )
                           , YCbCr( .. )
+                          , YCbCrK( .. )
 
                           -- * Type classes
                           , ColorConvertible( .. )

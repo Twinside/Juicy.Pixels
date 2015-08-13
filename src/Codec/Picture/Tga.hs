@@ -222,9 +222,9 @@ instance TGAPixel Depth8 where
    tgaUnpack _ = U.unsafeIndex
 
 instance TGAPixel Depth15 where
-   type Unpacked Depth15 = (RGBA Pixel8)
+   type Unpacked Depth15 = RGBA Pixel8
    packedByteSize _ = 2
-   tgaUnpack _ str ix = (RGBA Pixel8) r g b a
+   tgaUnpack _ str ix = RGBA r g b a
       where
         v0 = U.unsafeIndex str ix
         v1 = U.unsafeIndex str $ ix + 1
@@ -234,18 +234,18 @@ instance TGAPixel Depth15 where
         a = 255 -- v1 .&. 0x80
 
 instance TGAPixel Depth24 where
-   type Unpacked Depth24 = PixelRGB8
+   type Unpacked Depth24 = RGB Pixel8
    packedByteSize _ = 3
-   tgaUnpack _ str ix = PixelRGB8 r g b
+   tgaUnpack _ str ix = RGB r g b
      where
        b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
        r = U.unsafeIndex str (ix + 2)
 
 instance TGAPixel Depth32 where
-   type Unpacked Depth32 = (RGBA Pixel8)
+   type Unpacked Depth32 = RGBA Pixel8
    packedByteSize _ = 4
-   tgaUnpack _ str ix = (RGBA Pixel8) r g b a
+   tgaUnpack _ str ix = RGBA r g b a
      where
        b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
@@ -468,7 +468,7 @@ instance TgaSaveable Pixel8 where
     tgaPixelDepthOfImage _ = 8
     tgaTypeOfImage _ = ImageTypeMonochrome False
 
-instance TgaSaveable PixelRGB8 where
+instance TgaSaveable (RGB Pixel8) where
     tgaPixelDepthOfImage _ = 24
     tgaTypeOfImage _ = ImageTypeTrueColor False
     tgaDataOfImage = toByteString . imageData . pixelMap flipRgb

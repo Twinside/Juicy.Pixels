@@ -26,9 +26,9 @@ import qualified Data.Vector.Storable as V
 componentToLDR :: Float -> Word8
 componentToLDR = truncate . (255 *) . min 1.0 . max 0.0
 
-toStandardDef :: Image PixelRGBF -> Image PixelRGB8
+toStandardDef :: Image (RGB PixelF) -> Image (RGB Pixel8)
 toStandardDef = pixelMap pixelConverter
-  where pixelConverter (PixelRGBF rf gf bf) = PixelRGB8 r g b
+  where pixelConverter (RGB rf gf bf) = RGB r g b
           where r = componentToLDR rf
                 g = componentToLDR gf
                 b = componentToLDR bf
@@ -75,18 +75,18 @@ imageToRadiance (ImageYA8    img) =
     imageToRadiance . ImageRGB8 . promoteImage $ dropAlphaLayer img
 imageToRadiance (ImageY16    img) =
   imageToRadiance . ImageRGBF $ pixelMap toRgbf img
-    where toRgbf v = PixelRGBF val val val
+    where toRgbf v = RGB val val val
             where val = fromIntegral v / 65536.0
 
 imageToRadiance (ImageYA16   img) =
   imageToRadiance . ImageRGBF $ pixelMap toRgbf img
-    where toRgbf (PixelYA16 v _) = PixelRGBF val val val
+    where toRgbf (YA v _) = RGB val val val
             where val = fromIntegral v / 65536.0
 imageToRadiance (ImageRGB16  img) =
     imageToRadiance . ImageRGBF $ from16toFloat img
 imageToRadiance (ImageRGBA16 img) =
     imageToRadiance . ImageRGBF $ pixelMap toRgbf img
-    where toRgbf (PixelRGBA16 r g b _) = PixelRGBF (f r) (f g) (f b)
+    where toRgbf (RGBA r g b _) = RGB (f r) (f g) (f b)
             where f v = fromIntegral v / 65536.0
 
 -- | This function will try to do anything to encode an image
@@ -104,9 +104,9 @@ imageToJpg quality dynImage =
         ImageRGBA8  img -> encodeAtQuality (convertImage $ dropAlphaLayer img)
         ImageYF     img -> imageToJpg quality . ImageY8 $ greyScaleToStandardDef img
         ImageY8     img -> encodeAtQuality . convertImage
-                                           $ (promoteImage img :: Image PixelRGB8)
+                                           $ (promoteImage img :: Image (RGB Pixel8))
         ImageYA8    img -> encodeAtQuality $
-                            convertImage (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
+                            convertImage (promoteImage $ dropAlphaLayer img :: Image (RGB Pixel8))
         ImageY16    img -> imageToJpg quality . ImageY8 $ from16to8 img
         ImageYA16   img -> imageToJpg quality . ImageYA8 $ from16to8 img
         ImageRGB16  img -> imageToJpg quality . ImageRGB8 $ from16to8 img
@@ -116,9 +116,9 @@ imageToJpg quality dynImage =
 -- as PNG, make all color conversion and such. Equivalent
 -- of 'decodeImage' for PNG encoding
 imageToPng :: DynamicImage -> L.ByteString
-imageToPng (ImageYCbCr8 img) = encodePng (convertImage img :: Image PixelRGB8)
-imageToPng (ImageCMYK8 img)  = encodePng (convertImage img :: Image PixelRGB8)
-imageToPng (ImageCMYK16 img) = encodePng (convertImage img :: Image PixelRGB16)
+imageToPng (ImageYCbCr8 img) = encodePng (convertImage img :: Image (RGB Pixel8))
+imageToPng (ImageCMYK8 img)  = encodePng (convertImage img :: Image (RGB Pixel8))
+imageToPng (ImageCMYK16 img) = encodePng (convertImage img :: Image (RGB Pixel16))
 imageToPng (ImageRGB8   img) = encodePng img
 imageToPng (ImageRGBF   img) = encodePng $ toStandardDef img
 imageToPng (ImageRGBA8  img) = encodePng img
@@ -152,15 +152,15 @@ imageToTiff (ImageRGBA16 img) = encodeTiff img
 -- as bitmap, make all color conversion and such. Equivalent
 -- of 'decodeImage' for Bitmap encoding
 imageToBitmap :: DynamicImage -> L.ByteString
-imageToBitmap (ImageYCbCr8 img) = encodeBitmap (convertImage img :: Image PixelRGB8)
-imageToBitmap (ImageCMYK8  img) = encodeBitmap (convertImage img :: Image PixelRGB8)
+imageToBitmap (ImageYCbCr8 img) = encodeBitmap (convertImage img :: Image (RGB Pixel8))
+imageToBitmap (ImageCMYK8  img) = encodeBitmap (convertImage img :: Image (RGB Pixel8))
 imageToBitmap (ImageCMYK16 img) = imageToBitmap . ImageRGB16 $ convertImage img
 imageToBitmap (ImageRGBF   img) = encodeBitmap $ toStandardDef img
 imageToBitmap (ImageRGB8   img) = encodeBitmap img
 imageToBitmap (ImageRGBA8  img) = encodeBitmap img
 imageToBitmap (ImageY8     img) = encodeBitmap img
 imageToBitmap (ImageYF     img) = encodeBitmap $ greyScaleToStandardDef img
-imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image PixelRGBA8)
+imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image (RGBA Pixel8))
 imageToBitmap (ImageY16    img) = imageToBitmap . ImageY8 $ from16to8 img
 imageToBitmap (ImageYA16   img) = imageToBitmap . ImageYA8 $ from16to8 img
 imageToBitmap (ImageRGB16  img) = imageToBitmap . ImageRGB8 $ from16to8 img

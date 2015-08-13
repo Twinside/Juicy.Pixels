@@ -120,7 +120,7 @@ uniformQuantization opts img
     (bg, br, bb) = bitDiv3 maxCols
     (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
     paletteIndex (RGB r g b) = fromIntegral $ fromMaybe 0 (elemIndex
-      ((RGB Pixel8) (r .&. (255 - dr)) (g .&. (255 - dg)) (b .&. (255 - db)))
+      (RGB (r .&. (255 - dr)) (g .&. (255 - dg)) (b .&. (255 - db)))
       paletteList)
 
 isColorCountBelow :: Int -> Image (RGB Pixel8) -> (Set.Set (RGB Pixel8), Bool)
@@ -258,27 +258,27 @@ data Axis = RAxis | GAxis | BAxis
 inf :: Float
 inf = read "Infinity"
 
-fromRGB8 :: RGB Pixel8 -> (RGB PixelF)
+fromRGB8 :: RGB Pixel8 -> RGB PixelF
 fromRGB8 (RGB r g b) =
-  (RGB PixelF) (fromIntegral r) (fromIntegral g) (fromIntegral b)
+  RGB (fromIntegral r) (fromIntegral g) (fromIntegral b)
 
-toRGB8 :: (RGB PixelF) -> (RGB Pixel8)
-toRGB8 ((RGB PixelF) r g b) =
-  (RGB Pixel8) (round r) (round g) (round b)
+toRGB8 :: RGB PixelF -> RGB Pixel8
+toRGB8 (RGB r g b) =
+  RGB (round r) (round g) (round b)
 
 meanRGB :: Fold (RGB PixelF) (RGB PixelF)
 meanRGB = mean <$> intLength <*> pixelSum
   where
-    pixelSum = Fold (mixWith $ const (+)) ((RGB PixelF) 0 0 0) id
+    pixelSum = Fold (mixWith $ const (+)) (RGB 0 0 0) id
     mean n = colorMap (/ nf)
       where nf = fromIntegral n
 
 minimal :: Fold (RGB PixelF) (RGB PixelF)
-minimal = Fold mini ((RGB PixelF) inf inf inf) id
+minimal = Fold mini (RGB inf inf inf) id
   where mini = mixWith $ const min
 
 maximal :: Fold (RGB PixelF) (RGB PixelF)
-maximal = Fold maxi ((RGB PixelF) (-inf) (-inf) (-inf)) id
+maximal = Fold maxi (RGB (-inf) (-inf) (-inf)) id
   where maxi = mixWith $ const max
 
 extrems :: Fold (RGB PixelF) ((RGB PixelF), (RGB PixelF))
@@ -287,7 +287,7 @@ extrems = (,) <$> minimal <*> maximal
 volAndDims :: Fold (RGB PixelF) (Float, (RGB PixelF))
 volAndDims = deltify <$> extrems
   where deltify (mini, maxi) = (dr * dg * db, delta)
-          where delta@((RGB PixelF) dr dg db) =
+          where delta@(RGB dr dg db) =
                         mixWith (const (-)) maxi mini
 
 unpackFold :: Fold (RGB PixelF) a -> Fold PackedRGB a
@@ -306,7 +306,7 @@ mkCluster ps = Cluster
     ((v, ds), m, l) = fold (unpackFold worker) ps
 
 maxAxis :: (RGB PixelF) -> Axis
-maxAxis ((RGB PixelF) r g b) =
+maxAxis (RGB r g b) =
   case (r `compare` g, r `compare` b, g `compare` b) of
     (GT, GT, _)  -> RAxis
     (LT, GT, _)  -> GAxis
@@ -323,19 +323,19 @@ subdivide cluster = (mkCluster px1, mkCluster px2)
     (RGB mr mg mb) = meanColor cluster
     (px1, px2) = VU.partition (cond . rgbIntUnpack) $ colors cluster
     cond = case maxAxis $ dims cluster of
-      RAxis -> \((RGB Pixel8) r _ _) -> fromIntegral r < mr
-      GAxis -> \((RGB Pixel8) _ g _) -> fromIntegral g < mg
-      BAxis -> \((RGB Pixel8) _ _ b) -> fromIntegral b < mb
+      RAxis -> \(RGB r _ _) -> fromIntegral r < mr
+      GAxis -> \(RGB _ g _) -> fromIntegral g < mg
+      BAxis -> \(RGB _ _ b) -> fromIntegral b < mb
 
-rgbIntPack :: (RGB Pixel8) -> PackedRGB
-rgbIntPack ((RGB Pixel8) r g b) =
+rgbIntPack :: RGB Pixel8 -> PackedRGB
+rgbIntPack (RGB r g b) =
     wr `unsafeShiftL` (2 * 8) .|. wg `unsafeShiftL` 8 .|. wb
   where wr = fromIntegral r
         wg = fromIntegral g
         wb = fromIntegral b
 
-rgbIntUnpack :: PackedRGB -> (RGB Pixel8)
-rgbIntUnpack v = (RGB Pixel8) r g b
+rgbIntUnpack :: PackedRGB -> RGB Pixel8
+rgbIntUnpack v = RGB r g b
   where
     r = fromIntegral $ v `unsafeShiftR` (2 * 8)
     g = fromIntegral $ v `unsafeShiftR` 8
@@ -372,8 +372,8 @@ clusters maxCols img = clusters' (maxCols - 1)
     c = initCluster img
 
 -- Euclidean distance squared, between two pixels.
-dist2Px :: (RGB Pixel8) -> (RGB Pixel8) -> Int
-dist2Px ((RGB Pixel8) r1 g1 b1) ((RGB Pixel8) r2 g2 b2) = dr*dr + dg*dg + db*db
+dist2Px :: RGB Pixel8 -> RGB Pixel8 -> Int
+dist2Px (RGB r1 g1 b1) (RGB r2 g2 b2) = dr*dr + dg*dg + db*db
   where
     (dr, dg, db) =
       ( fromIntegral r1 - fromIntegral r2
