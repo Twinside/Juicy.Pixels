@@ -250,7 +250,7 @@ instance TGAPixel Depth32 where
        b = U.unsafeIndex str ix
        g = U.unsafeIndex str (ix + 1)
        r = U.unsafeIndex str (ix + 2)
-       a = 255 - U.unsafeIndex str (ix + 3)
+       a = U.unsafeIndex str (ix + 3)
 
 prepareUnpacker :: TgaFile
                 -> (forall tgapx. (TGAPixel tgapx) => tgapx -> TgaFile -> Image (Unpacked tgapx))

@@ -1,6 +1,16 @@
 Change log
 ==========
 
+V3.2.5.4 August 2015
+--------------------
+
+ * Fix: don't invert TGA alpha channel
+
+V3.2.5.3 July 2015
+------------------
+
+ * Fix: bumping vector upper bounds.
+
 V3.2.5.2 June 2015
 ------------------
 
