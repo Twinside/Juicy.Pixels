@@ -1,69 +1,89 @@
-language: haskell
+# This file has been generated -- see https://github.com/hvr/multi-ghc-travis
+language: c
+sudo: false
 
-env:
-  - CABALVER=1.18 GHCVER=7.4.2
-  - CABALVER=1.18 GHCVER=7.6.3
-  - CABALVER=1.18 GHCVER=7.8.4
-  - CABALVER=1.22 GHCVER=7.10.1
-  - CABALVER=1.22 GHCVER=head
-  # - >
-  #   GHCVER=7.4.2
-  #   MODE="-fsafe"
+cache:
+  directories:
+    - $HOME/.cabsnap
+    - $HOME/.cabal/packages
+
+before_cache:
+  - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
+  - rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
 
 matrix:
-  allow_failures:
-    - env: GHCVER=head
+  include:
+    - env: CABALVER=1.18 GHCVER=7.4.2
+      compiler: ": #GHC 7.4.2"
+      addons: {apt: {packages: [cabal-install-1.18,ghc-7.4.2,alex-3.1.4,happy-1.19.5], sources: [hvr-ghc]}}
+    - env: CABALVER=1.18 GHCVER=7.6.3
+      compiler: ": #GHC 7.6.3"
+      addons: {apt: {packages: [cabal-install-1.18,ghc-7.6.3,alex-3.1.4,happy-1.19.5], sources: [hvr-ghc]}}
+    - env: CABALVER=1.18 GHCVER=7.8.4
+      compiler: ": #GHC 7.8.4"
+      addons: {apt: {packages: [cabal-install-1.18,ghc-7.8.4,alex-3.1.4,happy-1.19.5], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.10.1
+      compiler: ": #GHC 7.10.1"
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.1,alex-3.1.4,happy-1.19.5], sources: [hvr-ghc]}}
 
 before_install:
-  # If $GHCVER is the one travis has, don't bother reinstalling it.
-  # We can also have faster builds by installing some libraries with
-  # `apt`. If it isn't, install the GHC we want from hvr's PPA along
-  # with cabal-1.18.
-  - |
-    if [ $GHCVER = `ghc --numeric-version` ]; then
-      # Try installing some of the build-deps with apt-get for speed.
-      travis/cabal-apt-install --enable-tests $MODE
-      export CABAL=cabal
-    else
-      # Install the GHC we want from hvr's PPA
-      travis_retry sudo add-apt-repository -y ppa:hvr/ghc
-      travis_retry sudo apt-get update
-      travis_retry sudo apt-get install cabal-install-$CABALVER ghc-$GHCVER happy
-      export CABAL=cabal-$CABALVER
-      export PATH=/opt/ghc/$GHCVER/bin:$PATH
-    fi
-  # Uncomment whenever hackage is down.
-  # - mkdir -p ~/.cabal && cp travis/config ~/.cabal/config && $CABAL update
-  - $CABAL update
-
-  # Update happy when building with GHC head
-  - |
-    if [ $GHCVER = "head" ] || [ $GHCVER = "7.8.4" ] || [ $GHCVER = "7.10.1" ]; then
-      $CABAL install --constraint=transformers\ installed happy alex
-      export PATH=$HOME/.cabal/bin:$PATH
-    fi
+ - unset CC
+ - export HAPPYVER=1.19.5
+ - export ALEXVER=3.1.4
+ - export PATH=~/.cabal/bin:/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:/opt/happy/$HAPPYVER/bin:/opt/alex/$ALEXVER/bin:$PATH
 
 install:
-  - $CABAL install --dependencies-only
-  - $CABAL configure $MODE
+ - cabal --version
+ - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
+ - if [ -f $HOME/.cabal/packages/hackage.haskell.org/00-index.tar.gz ];
+   then
+     zcat $HOME/.cabal/packages/hackage.haskell.org/00-index.tar.gz >
+          $HOME/.cabal/packages/hackage.haskell.org/00-index.tar;
+   fi
+ - travis_retry cabal update
+ - "sed -i  's/^jobs:.*$/jobs: 2/' $HOME/.cabal/config"
+ - cabal install --only-dependencies --dry -v JuicyPixels.cabal > installplan.txt
+ - sed -i -e '1,/^Resolving /d' installplan.txt; cat installplan.txt
 
+# check whether current requested install-plan matches cached package-db snapshot
+ - if diff -u installplan.txt $HOME/.cabsnap/installplan.txt;
+   then
+     echo "cabal build-cache HIT";
+     rm -rfv .ghc;
+     cp -a $HOME/.cabsnap/ghc $HOME/.ghc;
+     cp -a $HOME/.cabsnap/lib $HOME/.cabsnap/share $HOME/.cabsnap/bin $HOME/.cabal/;
+   else
+     echo "cabal build-cache MISS";
+     rm -rf $HOME/.cabsnap;
+     mkdir -p $HOME/.ghc $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin;
+     cabal install --only-dependencies --enable-tests lens.cabal reflection/;
+     if [ "$GHCVER" = "7.10.1" ]; then cabal install Cabal-1.22.4.0; fi;
+   fi
+
+# snapshot package-db on cache miss
+ - if [ ! -d $HOME/.cabsnap ];
+   then
+      echo "snapshotting package-db to build-cache";
+      mkdir $HOME/.cabsnap;
+      cp -a $HOME/.ghc $HOME/.cabsnap/ghc;
+      cp -a $HOME/.cabal/lib $HOME/.cabal/share $HOME/.cabal/bin installplan.txt $HOME/.cabsnap/;
+   fi
+
+# Here starts the actual work to be performed for the package under test;
+# any command which exits with a non-zero exit code causes the build to fail.
 script:
-  - $CABAL build
+ - cabal configure -v2  # -v2 provides useful information for debugging
+ - cabal build   # this builds all libraries and executables (including tests)
+ - cabal sdist   # tests that a source-distribution can be generated
 
-  # tests that a source-distribution can be generated
-  - cabal sdist
-
-  # check that the generated source-distribution can be built & installed
-  - export SRC_TGZ=$($CABAL info . | awk '{print $2 ".tar.gz";exit}') ;
-    cd dist/;
-    if [ -f "$SRC_TGZ" ]; then
-       $CABAL install --force-reinstalls "$SRC_TGZ";
-    else
-       echo "expected '$SRC_TGZ' not found";
-       exit 1;
-    fi
+# Check that the resulting source distribution can be built & installed.
+# If there are no other `.tar.gz` files in `dist`, this can be even simpler:
+# `cabal install --force-reinstalls dist/*-*.tar.gz`
+ - SRC_TGZ=$(cabal info . | awk '{print $2;exit}').tar.gz &&
+   (cd dist && cabal install --force-reinstalls "$SRC_TGZ")
 
 notifications:
   email:
       - twinside@gmail.com
+#EOF
 
