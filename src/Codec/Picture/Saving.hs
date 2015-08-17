@@ -7,6 +7,7 @@ module Codec.Picture.Saving( imageToJpg
                            , imageToBitmap
                            , imageToTiff
                            , imageToRadiance
+                           , imageToTga
                            ) where
 
 import Data.Bits( unsafeShiftR )
@@ -20,6 +21,7 @@ import Codec.Picture.ColorQuant
 import Codec.Picture.HDR
 import Codec.Picture.Types
 import Codec.Picture.Tiff
+import Codec.Picture.Tga
 
 import qualified Data.Vector.Storable as V
 
@@ -185,3 +187,21 @@ imageToGif (ImageY16    img) = imageToGif . ImageY8 $ from16to8 img
 imageToGif (ImageYA16   img) = imageToGif . ImageYA8 $ from16to8 img
 imageToGif (ImageRGB16  img) = imageToGif . ImageRGB8 $ from16to8 img
 imageToGif (ImageRGBA16 img) = imageToGif . ImageRGBA8 $ from16to8 img
+
+-- | This function will try to do anything to encode an image
+-- as a tga, make all color conversion and quantization. Equivalent
+-- of 'decodeImage' for tga encoding
+imageToTga :: DynamicImage -> L.ByteString
+imageToTga (ImageYCbCr8 img) = encodeTga (convertImage img :: Image PixelRGB8)
+imageToTga (ImageCMYK8  img) = encodeTga (convertImage img :: Image PixelRGB8)
+imageToTga (ImageCMYK16 img) = encodeTga (from16to8 img :: Image PixelRGB8)
+imageToTga (ImageRGBF   img) = encodeTga $ toStandardDef img
+imageToTga (ImageRGB8   img) = encodeTga img
+imageToTga (ImageRGBA8  img) = encodeTga img
+imageToTga (ImageY8     img) = encodeTga img
+imageToTga (ImageYF     img) = encodeTga $ greyScaleToStandardDef img
+imageToTga (ImageYA8    img) = encodeTga (promoteImage img :: Image PixelRGBA8)
+imageToTga (ImageY16    img) = encodeTga (from16to8 img :: Image Pixel8)
+imageToTga (ImageYA16   img) = encodeTga (from16to8 img :: Image PixelRGBA8)
+imageToTga (ImageRGB16  img) = encodeTga (from16to8 img :: Image PixelRGB8)
+imageToTga (ImageRGBA16 img) = encodeTga (from16to8 img :: Image PixelRGBA8)

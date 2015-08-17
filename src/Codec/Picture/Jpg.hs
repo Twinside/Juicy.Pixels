@@ -581,7 +581,7 @@ decodeJpegWithMetadata file = case runGetStrict get file of
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
-     _ -> Left "Unnkown JPG kind"
+     _ -> Left "Unknown JPG kind"
     where
       compCount = length $ jpgComponents scanInfo
       (_,scanInfo) = gatherScanInfo img

@@ -1,6 +1,13 @@
 Change log
 ==========
 
+V3.2.6 August 2015
+--------------------
+
+ * Added: imageToTga saving helper function.
+ * Fix: don't invert TGA alpha channel.
+ * Fix: various typo in documentation.
+
 V3.2.5.3 July 2015
 ------------------
 
