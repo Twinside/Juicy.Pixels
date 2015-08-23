@@ -45,6 +45,7 @@ import Data.Binary.Get( Get
                       , skip
                       )
 
+import Data.Int( Int32 )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -93,14 +94,14 @@ instance Binary BmpHeader where
 
 data BmpInfoHeader = BmpInfoHeader
     { size              :: !Word32 -- Header size in bytes
-    , width             :: !Word32
-    , height            :: !Word32
+    , width             :: !Int32
+    , height            :: !Int32
     , planes            :: !Word16 -- Number of colour planes
     , bitPerPixel       :: !Word16
     , bitmapCompression :: !Word32
     , byteImageSize     :: !Word32
-    , xResolution       :: !Word32 -- ^ Pixels per meter
-    , yResolution       :: !Word32 -- ^ Pixels per meter
+    , xResolution       :: !Int32 -- ^ Pixels per meter
+    , yResolution       :: !Int32 -- ^ Pixels per meter
     , colorCount        :: !Word32
     , importantColours  :: !Word32
     }
@@ -113,27 +114,27 @@ sizeofBmpInfo = 3 * 4 + 2 * 2 + 6 * 4
 instance Binary BmpInfoHeader where
     put hdr = do
         putWord32le $ size hdr
-        putWord32le $ width hdr
-        putWord32le $ height hdr
+        putWord32le . fromIntegral $ width hdr
+        putWord32le . fromIntegral $ height hdr
         putWord16le $ planes hdr
         putWord16le $ bitPerPixel hdr
         putWord32le $ bitmapCompression hdr
         putWord32le $ byteImageSize hdr
-        putWord32le $ xResolution hdr
-        putWord32le $ yResolution hdr
+        putWord32le . fromIntegral $ xResolution hdr
+        putWord32le . fromIntegral $ yResolution hdr
         putWord32le $ colorCount hdr
         putWord32le $ importantColours hdr
 
     get = do
         readSize <- getWord32le
-        readWidth <- getWord32le
-        readHeight <- getWord32le
+        readWidth <- fromIntegral <$> getWord32le
+        readHeight <- fromIntegral <$> getWord32le
         readPlanes <- getWord16le
         readBitPerPixel <- getWord16le
         readBitmapCompression <- getWord32le
         readByteImageSize <- getWord32le
-        readXResolution <- getWord32le
-        readYResolution <- getWord32le
+        readXResolution <- fromIntegral <$> getWord32le
+        readYResolution <- fromIntegral <$> getWord32le
         readColorCount <- getWord32le
         readImportantColours <- getWord32le
         return BmpInfoHeader {
@@ -454,8 +455,8 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
               bitPerPixel = fromIntegral bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
-              xResolution = dpiX,
-              yResolution = dpiY,
+              xResolution = fromIntegral dpiX,
+              yResolution = fromIntegral dpiY,
               colorCount = 0,
               importantColours = paletteSize
           }
