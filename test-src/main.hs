@@ -150,7 +150,9 @@ bmpValidTests :: [FilePath]
 bmpValidTests =
     ["simple_bitmap_24bits.bmp"
     ,"simple_bitmap_8bits.bmp"
-    ,"eggyra0001.bmp"]
+    ,"eggyra0001.bmp"
+    ,"smiley.bmp"
+    ]
 
 -- "caspian.tif"
 tiffValidTests :: [FilePath]
