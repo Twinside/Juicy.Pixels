@@ -23,7 +23,7 @@ import Data.Monoid( mempty )
 import Control.Applicative( (<$>) )
 #endif
 
-import Control.Monad( when, forM_ )
+import Control.Monad( when, foldM_, forM_ )
 import Control.Monad.ST ( ST, runST )
 import Data.Maybe( fromMaybe )
 import qualified Data.Vector as V
@@ -45,6 +45,7 @@ import Data.Binary.Get( Get
                       , skip
                       )
 
+import Data.Int( Int32 )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -93,14 +94,14 @@ instance Binary BmpHeader where
 
 data BmpInfoHeader = BmpInfoHeader
     { size              :: !Word32 -- Header size in bytes
-    , width             :: !Word32
-    , height            :: !Word32
+    , width             :: !Int32
+    , height            :: !Int32
     , planes            :: !Word16 -- Number of colour planes
     , bitPerPixel       :: !Word16
     , bitmapCompression :: !Word32
     , byteImageSize     :: !Word32
-    , xResolution       :: !Word32 -- ^ Pixels per meter
-    , yResolution       :: !Word32 -- ^ Pixels per meter
+    , xResolution       :: !Int32 -- ^ Pixels per meter
+    , yResolution       :: !Int32 -- ^ Pixels per meter
     , colorCount        :: !Word32
     , importantColours  :: !Word32
     }
@@ -113,27 +114,27 @@ sizeofBmpInfo = 3 * 4 + 2 * 2 + 6 * 4
 instance Binary BmpInfoHeader where
     put hdr = do
         putWord32le $ size hdr
-        putWord32le $ width hdr
-        putWord32le $ height hdr
+        putWord32le . fromIntegral $ width hdr
+        putWord32le . fromIntegral $ height hdr
         putWord16le $ planes hdr
         putWord16le $ bitPerPixel hdr
         putWord32le $ bitmapCompression hdr
         putWord32le $ byteImageSize hdr
-        putWord32le $ xResolution hdr
-        putWord32le $ yResolution hdr
+        putWord32le . fromIntegral $ xResolution hdr
+        putWord32le . fromIntegral $ yResolution hdr
         putWord32le $ colorCount hdr
         putWord32le $ importantColours hdr
 
     get = do
         readSize <- getWord32le
-        readWidth <- getWord32le
-        readHeight <- getWord32le
+        readWidth <- fromIntegral <$> getWord32le
+        readHeight <- fromIntegral <$> getWord32le
         readPlanes <- getWord16le
         readBitPerPixel <- getWord16le
         readBitmapCompression <- getWord32le
         readByteImageSize <- getWord32le
-        readXResolution <- getWord32le
-        readYResolution <- getWord32le
+        readXResolution <- fromIntegral <$> getWord32le
+        readYResolution <- fromIntegral <$> getWord32le
         readColorCount <- getWord32le
         readImportantColours <- getWord32le
         return BmpInfoHeader {
@@ -253,54 +254,54 @@ instance BmpEncodable PixelRGB8 where
               VS.unsafeFreeze buff
 
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
-decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
-  where wi = fromIntegral w
-        hi = fromIntegral h
-        stArray = runST $ do
-            arr <- M.new (fromIntegral $ w * h * 3)
-            forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
-            VS.unsafeFreeze arr
+decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
+  wi = fromIntegral w
+  hi = abs $ fromIntegral h
+  stArray = runST $ do
+      arr <- M.new (fromIntegral $ w * abs h * 3)
+      if h > 0 then
+        foldM_ (readLine arr) 0 [0 .. hi - 1]
+      else
+        foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
+      VS.unsafeFreeze arr
 
-        stride = linePadding 24 wi
+  stride = linePadding 24 wi
 
-        readLine :: forall s. M.MVector s Word8 -> Int -> ST s ()
-        readLine arr line =
-            let readIndex = (wi * 3 + stride) * line
-                lastIndex = wi * (hi - 1 - line + 1) * 3
-                writeIndex = wi * (hi - 1 - line) * 3
+  readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
+  readLine arr readIndex line = inner readIndex writeIndex where
+    lastIndex = wi * (hi - 1 - line + 1) * 3
+    writeIndex = wi * (hi - 1 - line) * 3
 
-                inner _ writeIdx | writeIdx >= lastIndex = return ()
-                inner readIdx writeIdx = do
-                    (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
-                    (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
-                    (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
-                    inner (readIdx + 3) (writeIdx + 3)
-
-            in inner readIndex writeIndex
+    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+    inner readIdx writeIdx = do
+        (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
+        (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
+        (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
+        inner (readIdx + 3) (writeIdx + 3)
 
 decodeImageY8 :: BmpInfoHeader -> B.ByteString -> Image Pixel8
-decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray
-  where wi = fromIntegral w
-        hi = fromIntegral h
-        stArray = runST $ do
-            arr <- M.new . fromIntegral $ w * h
-            forM_ [hi - 1, hi - 2 .. 0] (readLine arr)
-            VS.unsafeFreeze arr
+decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
+  wi = fromIntegral w
+  hi = abs $ fromIntegral h
+  stArray = runST $ do
+      arr <- M.new . fromIntegral $ w * abs h
+      if h > 0 then
+        foldM_ (readLine arr) 0 [0 .. hi - 1]
+      else
+        foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
+      VS.unsafeFreeze arr
 
-        stride = linePadding 8 wi
-        
-        readLine :: forall s. M.MVector s Word8 -> Int -> ST s ()
-        readLine arr line =
-            let readIndex = (wi + stride) * line
-                lastIndex = wi * (hi - 1 - line + 1)
-                writeIndex = wi * (hi - 1 - line)
+  stride = linePadding 8 wi
+  
+  readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
+  readLine arr readIndex line = inner readIndex writeIndex where
+    lastIndex = wi * (hi - 1 - line + 1)
+    writeIndex = wi * (hi - 1 - line)
 
-                inner _ writeIdx | writeIdx >= lastIndex = return ()
-                inner readIdx writeIdx = do
-                    (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
-                    inner (readIdx + 1) (writeIdx + 1)
-
-            in inner readIndex writeIndex
+    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+    inner readIdx writeIdx = do
+      (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
+      inner (readIdx + 1) (writeIdx + 1)
 
 
 pixelGet :: Get PixelRGB8
@@ -313,7 +314,7 @@ pixelGet = do
 
 metadataOfHeader :: BmpInfoHeader -> Metadatas
 metadataOfHeader hdr = 
-  Met.simpleMetadata Met.SourceBitmap (width hdr) (height hdr) dpiX dpiY
+  Met.simpleMetadata Met.SourceBitmap (width hdr) (abs $ height hdr) dpiX dpiY
   where
     dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
     dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
@@ -337,6 +338,12 @@ decodeBitmapWithMetadata str = flip runGetStrict str $ do
   readed <- bytesRead
   when (readed > fromIntegral (dataOffset hdr))
        (fail "Invalid bmp image, data in header")
+  
+  when (width bmpHeader <= 0)
+       (fail $ "Invalid bmp width, " ++ show (width bmpHeader))
+
+  when (height bmpHeader == 0)
+       (fail $ "Invalid bmp height (0) ")
 
   let bpp = fromIntegral $ bitPerPixel bmpHeader :: Int
       paletteColorCount
@@ -454,8 +461,8 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
               bitPerPixel = fromIntegral bpp,
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
-              xResolution = dpiX,
-              yResolution = dpiY,
+              xResolution = fromIntegral dpiX,
+              yResolution = fromIntegral dpiY,
               colorCount = 0,
               importantColours = paletteSize
           }

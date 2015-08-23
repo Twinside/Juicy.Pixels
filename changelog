@@ -1,6 +1,11 @@
 Change log
 ==========
 
+v3.2.6.1 AUgust 2015
+--------------------
+ * Fix: handling of negative height & width in bitmap format.
+ * Fix: regression on Tiff parsing.
+
 V3.2.6 August 2015
 --------------------
 
