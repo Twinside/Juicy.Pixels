@@ -742,7 +742,7 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 --
 -- > imageCreator :: String -> IO ()
 -- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
--- >    where pixelRenderer x y = PixelRGB8 x y 128
+-- >    where pixelRenderer x y = PixelRGB8 (fromIntegral x) (fromIntegral y) 128
 --
 generateImage :: forall a. (Pixel a)
               => (Int -> Int -> a)  -- ^ Generating function, with `x` and `y` params.
