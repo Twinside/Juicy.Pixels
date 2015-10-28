@@ -1,6 +1,10 @@
 Change log
 ==========
 
+v3.2.6.2 November 2015
+----------------------
+ * Fix: Using minimal GIF version if outputing a single image.
+
 v3.2.6.1 AUgust 2015
 --------------------
  * Fix: handling of negative height & width in bitmap format.
