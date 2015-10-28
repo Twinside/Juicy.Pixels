@@ -753,9 +753,14 @@ encodeGifImages _ imageList
     | any areIndexAbsentFromPalette imageList = Left "Image contains indexes absent from the palette"
 encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
   where
+    version = case imageList of
+      [] -> GIF87a
+      [_] -> GIF87a
+      _:_:_ -> GIF89a
+
     allFile = GifFile
         { gifHeader = GifHeader
-            { gifVersion = GIF89a
+            { gifVersion = version
             , gifScreenDescriptor = logicalScreen
             , gifGlobalMap = firstPalette
             }
