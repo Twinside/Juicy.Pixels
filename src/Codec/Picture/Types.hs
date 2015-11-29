@@ -323,7 +323,7 @@ createMutableImage :: (Pixel px, PrimMonad m)
                    -> Int -- ^ Height
                    -> px  -- ^ Background color
                    -> m (MutableImage (PrimState m) px)
-{-# INLINE createMutableImage #-}
+{-# NOINLINE createMutableImage #-}
 createMutableImage width height background =
    unsafeThawImage $ generateImage (\_ _ -> background) width height
 
