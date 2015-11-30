@@ -323,9 +323,9 @@ createMutableImage :: (Pixel px, PrimMonad m)
                    -> Int -- ^ Height
                    -> px  -- ^ Background color
                    -> m (MutableImage (PrimState m) px)
-{-# NOINLINE createMutableImage #-}
+{-# INLINE createMutableImage #-}
 createMutableImage width height background =
-   unsafeThawImage $ generateImage (\_ _ -> background) width height
+   thawImage $ generateImage (\_ _ -> background) width height
 
 -- | Create a mutable image with garbage as content. All data
 -- is uninitialized.
