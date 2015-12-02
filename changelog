@@ -1,6 +1,10 @@
 Change log
 ==========
 
+v3.2.6.3 December 2015
+----------------------
+ * Fix: previous broken bugfix.
+
 v3.2.6.3 November 2015
 ----------------------
  * Fix: Fixing unwanted sharing with createMutableImage due to
