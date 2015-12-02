@@ -309,6 +309,7 @@ thawImage (Image w h d) = MutableImage w h `liftM` V.thaw d
 -- The source image shouldn't be used after this operation.
 unsafeThawImage :: (Storable (PixelBaseComponent px), PrimMonad m)
                 => Image px -> m (MutableImage (PrimState m) px)
+{-# NOINLINE unsafeThawImage #-}
 unsafeThawImage (Image w h d) = MutableImage w h `liftM` V.unsafeThaw d
 
 -- | `O(1)` Unsafe convert a mutable image to an immutable one without copying.
@@ -323,9 +324,8 @@ createMutableImage :: (Pixel px, PrimMonad m)
                    -> Int -- ^ Height
                    -> px  -- ^ Background color
                    -> m (MutableImage (PrimState m) px)
-{-# NOINLINE createMutableImage #-}
 createMutableImage width height background =
-   unsafeThawImage $ generateImage (\_ _ -> background) width height
+   generateMutableImage (\_ _ -> background) width height
 
 -- | Create a mutable image with garbage as content. All data
 -- is uninitialized.
@@ -733,6 +733,26 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
     convertImage :: Image a -> Image b
     convertImage = pixelMap convertPixel
 
+generateMutableImage :: forall m px. (Pixel px, PrimMonad m)
+                     => (Int -> Int -> px)  -- ^ Generating function, with `x` and `y` params.
+                     -> Int        -- ^ Width in pixels
+                     -> Int        -- ^ Height in pixels
+                     -> m (MutableImage (PrimState m) px)
+{-# INLINE generateMutableImage #-}
+generateMutableImage f w h = MutableImage w h <$> generated where
+  compCount = componentCount (undefined :: px)
+
+  generated = do
+    arr <- M.new (w * h * compCount)
+    let lineGenerator _ !y | y >= h = return ()
+        lineGenerator !lineIdx y = column lineIdx 0
+          where column !idx !x | x >= w = lineGenerator idx $ y + 1
+                column idx x = do
+                    unsafeWritePixel arr idx $ f x y
+                    column (idx + compCount) $ x + 1
+    lineGenerator 0 0
+    return arr
+
 -- | Create an image given a function to generate pixels.
 -- The function will receive values from 0 to width-1 for the x parameter
 -- and 0 to height-1 for the y parameter. The coordinates 0,0 are the upper
@@ -744,25 +764,15 @@ class (Pixel a, Pixel b) => ColorSpaceConvertible a b where
 -- > imageCreator path = writePng path $ generateImage pixelRenderer 250 300
 -- >    where pixelRenderer x y = PixelRGB8 (fromIntegral x) (fromIntegral y) 128
 --
-generateImage :: forall a. (Pixel a)
-              => (Int -> Int -> a)  -- ^ Generating function, with `x` and `y` params.
+generateImage :: forall px. (Pixel px)
+              => (Int -> Int -> px)  -- ^ Generating function, with `x` and `y` params.
               -> Int        -- ^ Width in pixels
               -> Int        -- ^ Height in pixels
-              -> Image a
+              -> Image px
 {-# INLINE generateImage #-}
-generateImage f w h = Image { imageWidth = w, imageHeight = h, imageData = generated }
-  where compCount = componentCount (undefined :: a)
-        generated = runST $ do
-            arr <- M.new (w * h * compCount)
-            let lineGenerator _ !y | y >= h = return ()
-                lineGenerator !lineIdx y = column lineIdx 0
-                  where column !idx !x | x >= w = lineGenerator idx $ y + 1
-                        column idx x = do
-                            unsafeWritePixel arr idx $ f x y
-                            column (idx + compCount) $ x + 1
-
-            lineGenerator 0 0
-            V.unsafeFreeze arr
+generateImage f w h = runST img where
+  img :: ST s (Image px)
+  img = generateMutableImage f w h >>= unsafeFreezeImage
 
 -- | Create an image using a monadic initializer function.
 -- The function will receive values from 0 to width-1 for the x parameter
