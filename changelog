@@ -1,7 +1,11 @@
 Change log
 ==========
 
-v3.2.6.3 December 2015
+v3.2.6.5 December 2015
+----------------------
+ * Fix: Compilation on GHC 7.6/7.8
+
+v3.2.6.4 December 2015
 ----------------------
  * Fix: previous broken bugfix.
 

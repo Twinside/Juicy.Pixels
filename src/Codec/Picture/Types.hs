@@ -739,7 +739,7 @@ generateMutableImage :: forall m px. (Pixel px, PrimMonad m)
                      -> Int        -- ^ Height in pixels
                      -> m (MutableImage (PrimState m) px)
 {-# INLINE generateMutableImage #-}
-generateMutableImage f w h = MutableImage w h <$> generated where
+generateMutableImage f w h = MutableImage w h `liftM` generated where
   compCount = componentCount (undefined :: px)
 
   generated = do
