@@ -18,6 +18,10 @@ module Codec.Picture (
                      , readImageWithMetadata
                      , decodeImage
                      , decodeImageWithMetadata
+                     , readRGBA8
+                     , readRGBA8WithMetadata
+                     , decodeRGBA8
+                     , decodeRGBA8WithMetadata
                      , pixelMap
                      , generateImage
                      , generateFoldImage
@@ -259,9 +263,20 @@ withImageDecoder decoder path = Exc.catch doit
 readImage :: FilePath -> IO (Either String DynamicImage)
 readImage = withImageDecoder decodeImage
 
+-- | The *RGBA8 functions further decode a 'DynamicImage' and convert to the RGA8
+-- pixel format, potentially costing a full image copy.  These are
+-- convenience operation only as the same functionality is available by
+-- manually operating over the 'DynamicImage' of the similarly-named *Image
+-- functions.
+readRGBA8 :: FilePath -> IO (Either String (Image PixelRGBA8))
+readRGBA8 = withImageDecoder decodeRGBA8
+
 -- | Equivalent to 'readImage'  but also providing metadatas.
 readImageWithMetadata :: FilePath -> IO (Either String (DynamicImage, Metadatas))
 readImageWithMetadata = withImageDecoder decodeImageWithMetadata
+
+readRGBA8WithMetadata :: FilePath -> IO (Either String (Image PixelRGBA8, Metadatas))
+readRGBA8WithMetadata = withImageDecoder decodeRGBA8WithMetadata
 
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
@@ -269,6 +284,33 @@ readImageWithMetadata = withImageDecoder decodeImageWithMetadata
 -- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage = fmap fst . decodeImageWithMetadata 
+
+decodeRGBA8 :: B.ByteString -> Either String (Image PixelRGBA8)
+decodeRGBA8 = convertRGBA8 . fmap fst . decodeImageWithMetadata
+
+convertRGBA8 :: Either String DynamicImage -> Either String (Image PixelRGBA8)
+convertRGBA8 xs =
+  case xs of
+    Right a -> convertRGBA8' a
+    Left s  -> Left s
+ where
+  err = Left "Could not convert input image to RGBA8."
+  convertRGBA8' dy =
+    case dy of
+      ImageY8     img -> Right $ promoteImage img
+      ImageY16    _mg -> err
+      ImageYF     _mg -> err
+      ImageYA8    img -> Right $ promoteImage img
+      ImageYA16   _mg -> err
+      ImageRGB8   img -> Right $ promoteImage img
+      ImageRGB16  _mg -> err
+      ImageRGBF   _mg -> err
+      ImageRGBA8  img -> Right $ promoteImage img
+      ImageRGBA16 _mg -> err
+      ImageYCbCr8 _mg -> err
+      ImageCMYK8  _mg -> err
+      ImageCMYK16 _mg -> err
+
 
 -- | Equivalent to 'decodeImage', but also provide potential metadatas
 -- present in the given file.
@@ -282,6 +324,12 @@ decodeImageWithMetadata str = eitherLoad str
     , ("Tiff", decodeTiffWithMetadata)
     , ("TGA", decodeTgaWithMetadata)
     ]
+
+decodeRGBA8WithMetadata :: B.ByteString -> Either String (Image PixelRGBA8, Metadatas)
+decodeRGBA8WithMetadata f =
+  case decodeImageWithMetadata f of
+    Left err    -> Left err
+    Right (a,b) -> fmap (,b) (convertRGBA8 (Right a))
 
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)
