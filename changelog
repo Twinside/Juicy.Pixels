@@ -1,6 +1,10 @@
 Change log
 ==========
 
+v3.2.7 2015?
+------------
+ * adding convertRGB8 and convertRGBA8 helper functions
+
 v3.2.6.5 December 2015
 ----------------------
  * Fix: Compilation on GHC 7.6/7.8
