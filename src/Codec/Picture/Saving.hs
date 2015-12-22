@@ -94,9 +94,13 @@ imageToRadiance (ImageRGBA16 img) =
 -- | This function will try to do anything to encode an image
 -- as JPEG, make all color conversion and such. Equivalent
 -- of 'decodeImage' for jpeg encoding
+-- Save Y or YCbCr Jpeg only, all other colorspaces are converted.
+-- To save a RGB or CMYK JPEG file, use the
+-- 'Codec.Picture.Jpg.encodeDirectJpegAtQualityWithMetadata' function
 imageToJpg :: Int -> DynamicImage -> L.ByteString
 imageToJpg quality dynImage =
     let encodeAtQuality = encodeJpegAtQuality (fromIntegral quality)
+        encodeWithMeta = encodeDirectJpegAtQualityWithMetadata (fromIntegral quality) mempty
     in case dynImage of
         ImageYCbCr8 img -> encodeAtQuality img
         ImageCMYK8  img -> imageToJpg quality . ImageRGB8 $ convertImage img
@@ -105,10 +109,8 @@ imageToJpg quality dynImage =
         ImageRGBF   img -> imageToJpg quality . ImageRGB8 $ toStandardDef img
         ImageRGBA8  img -> encodeAtQuality (convertImage $ dropAlphaLayer img)
         ImageYF     img -> imageToJpg quality . ImageY8 $ greyScaleToStandardDef img
-        ImageY8     img -> encodeAtQuality . convertImage
-                                           $ (promoteImage img :: Image PixelRGB8)
-        ImageYA8    img -> encodeAtQuality $
-                            convertImage (promoteImage $ dropAlphaLayer img :: Image PixelRGB8)
+        ImageY8     img -> encodeWithMeta img
+        ImageYA8    img -> encodeWithMeta $ dropAlphaLayer img
         ImageY16    img -> imageToJpg quality . ImageY8 $ from16to8 img
         ImageYA16   img -> imageToJpg quality . ImageYA8 $ from16to8 img
         ImageRGB16  img -> imageToJpg quality . ImageRGB8 $ from16to8 img

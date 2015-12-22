@@ -427,7 +427,8 @@ takeCurrentFrame = do
     getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
-putFrame (JpgAdobeAPP14 _adobe) = return ()
+putFrame (JpgAdobeAPP14 adobe) = 
+    put (JpgAppSegment 14) >> putWord16be 14 >> put adobe
 putFrame (JpgJFIF jfif) =
     put (JpgAppSegment 0) >> putWord16be (14+2) >> put jfif
 putFrame (JpgExif _exif) =
