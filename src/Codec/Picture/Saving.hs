@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 -- | Helper functions to save dynamic images to other file format
 -- with automatic color space/sample format conversion done automatically.
 module Codec.Picture.Saving( imageToJpg
@@ -9,6 +10,10 @@ module Codec.Picture.Saving( imageToJpg
                            , imageToRadiance
                            , imageToTga
                            ) where
+
+#if !MIN_VERSION_base(4,8,0)
+import Data.Monoid( mempty )
+#endif
 
 import Data.Bits( unsafeShiftR )
 import Data.Word( Word8, Word16 )
