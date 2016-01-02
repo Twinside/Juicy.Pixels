@@ -9,6 +9,7 @@ module Codec.Picture.BitWriter( BoolReader
                               , getNextBitsLSBFirst
                               , getNextBitsMSBFirst 
                               , getNextBitJpg
+                              , getNextIntJpg
                               , setDecodedString
                               , setDecodedStringJpg
                               , runBoolReader
@@ -33,6 +34,7 @@ import Data.STRef
 import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
+import Data.Int ( Int32, Int64 )
 import Data.Word( Word8, Word32 )
 import Data.Bits( (.&.), (.|.), unsafeShiftR, unsafeShiftL )
 
@@ -41,6 +43,7 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+
 
 --------------------------------------------------
 ----            Reader
@@ -102,6 +105,53 @@ getNextBitJpg = do
       then setDecodedStringJpg chain
       else S.put $ BoolState (idx - 1) v chain
     return val
+
+{-# INLINE getNextIntJpg #-}
+getNextIntJpg :: Int -> BoolReader s Int32
+getNextIntJpg 0 = return 0
+getNextIntJpg bits = do BoolState prevIdx _ _ <- S.get
+                        let numBytes = (bits + 7 + (7 - prevIdx)) `div` 8
+                        bs <- getNextWord8sJpg numBytes
+
+                        -- Adjust index accordingly.
+                        let newIdx = (prevIdx - bits) `mod` 8
+
+                        BoolState _ v chain <- S.get
+
+                        -- Skip over escape codes if we're in a new word.
+                        if newIdx == 7
+                          then setDecodedStringJpg chain
+                          else S.put $ BoolState newIdx v chain
+
+                        -- Fix the ends of our individual bytes.
+                        let bs' = case B.uncons bs of
+                              Nothing -> B.empty
+                              Just (h, rest) -> let mask = 0xFF `unsafeShiftR` (7 - prevIdx)
+                                                in B.cons (h .&. mask) newTail
+                                where newTail = case B.unsnoc rest of
+                                        Nothing -> B.empty
+                                        Just (start, t) -> let mask = 0xFF `unsafeShiftL` newIdx
+                                                           in B.snoc start (t .&. mask)
+
+                        -- Turn our ByteString into an integer.
+                        let shiftAmount = (newIdx + 1) `mod` 8
+                        return $ bytesToInt shiftAmount bs'
+
+{-# INLINE bytesToInt #-}
+bytesToInt :: Int -> B.ByteString -> Int32
+bytesToInt shiftAmount bs = fromIntegral $ (B.foldl' packStep 0 bs) `unsafeShiftR` shiftAmount
+  where
+    packStep :: Int64 -> Word8 -> Int64
+    packStep acc v = (acc `unsafeShiftL` 8) .|. (fromIntegral v)
+
+{-# INLINE getNextWord8sJpg #-}
+getNextWord8sJpg :: Int -> BoolReader s B.ByteString
+getNextWord8sJpg = go B.empty
+  where go acc 1 = do BoolState _ v _ <- S.get
+                      return (B.snoc acc v)
+        go acc n = do BoolState _ v chain <- S.get
+                      setDecodedStringJpg chain
+                      go (B.snoc acc v) (n-1)
 
 {-# INLINE getNextBitMSB #-}
 getNextBitMSB :: BoolReader s Bool
