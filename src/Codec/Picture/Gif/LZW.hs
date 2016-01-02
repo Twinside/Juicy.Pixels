@@ -72,7 +72,10 @@ isOldTiffLZW str = firstByte == 0 && secondByte == 1
 decodeLzwTiff :: B.ByteString -> M.STVector s Word8 -> Int
               -> BoolReader s()
 decodeLzwTiff str outVec initialWriteIdx = do
-    setDecodedString str
+    if isOldTiffLZW str then
+      setDecodedString str
+    else
+      setDecodedStringMSB str
     let variant | isOldTiffLZW str = OldTiffVariant
                 | otherwise = TiffVariant
     lzw variant 12 9 initialWriteIdx outVec
