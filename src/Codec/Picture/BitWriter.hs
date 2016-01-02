@@ -127,7 +127,7 @@ getNextIntJpg = go 0 where
           !mask = (1 `unsafeShiftL` n) - 1
           !finalV = fromIntegral v `unsafeShiftR` remaining
       S.put $ BoolState (fromIntegral remaining - 1) v chain
-      pure $ (finalV .&. mask) .|. acc
+      return $ (finalV .&. mask) .|. acc
 
 
 setDecodedStringMSB :: B.ByteString -> BoolReader s ()
@@ -152,7 +152,7 @@ getNextBitsMSBFirst requested = go 0 requested where
       let !remaining = leftBits - n
           !mask = (1 `unsafeShiftL` remaining) - 1
       S.put $ BoolState (fromIntegral remaining) (v .&. mask) chain
-      pure $ (fromIntegral v `unsafeShiftR` remaining) .|. acc
+      return $ (fromIntegral v `unsafeShiftR` remaining) .|. acc
 
 {-# INLINE getNextBitsLSBFirst #-}
 getNextBitsLSBFirst :: Int -> BoolReader s Word32

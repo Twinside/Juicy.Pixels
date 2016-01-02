@@ -1,10 +1,11 @@
 Change log
 ==========
 
-v3.2.7 2016
-------------
+v3.2.7 January 2016
+-------------------
  * Addition: convertRGB8 and convertRGBA8 helper functions
  * Addition: new output colorspace for JPEG format: Y, RGB & CMYK
+ * Enhancement: Optimized JPG & Tiff reading (thanks to Calvin Beck)
 
 v3.2.6.5 December 2015
 ----------------------
