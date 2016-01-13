@@ -897,6 +897,7 @@ pixelMap :: forall a b. (Pixel a, Pixel b)
 {-# SPECIALIZE INLINE pixelMap :: (PixelRGB8 -> PixelRGBA8) -> Image PixelRGB8 -> Image PixelRGBA8 #-}
 {-# SPECIALIZE INLINE pixelMap :: (PixelRGBA8 -> PixelRGBA8) -> Image PixelRGBA8 -> Image PixelRGBA8 #-}
 {-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> PixelRGB8) -> Image Pixel8 -> Image PixelRGB8 #-}
+{-# SPECIALIZE INLINE pixelMap :: (Pixel8 -> Pixel8) -> Image Pixel8 -> Image Pixel8 #-}
 pixelMap f Image { imageWidth = w, imageHeight = h, imageData = vec } =
   Image w h pixels
     where sourceComponentCount = componentCount (undefined :: a)
