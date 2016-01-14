@@ -253,6 +253,34 @@ instance BmpEncodable PixelRGB8 where
               inner 0 0 initialIndex
               VS.unsafeFreeze buff
 
+decodeImageRGBA8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGBA8
+decodeImageRGBA8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
+  wi = fromIntegral w
+  hi = abs $ fromIntegral h
+  stArray = runST $ do
+      arr <- M.new (fromIntegral $ w * abs h * 4)
+      if h > 0 then
+        foldM_ (readLine arr) 0 [0 .. hi - 1]
+      else
+        foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
+      VS.unsafeFreeze arr
+
+  stride = linePadding 32 wi -- will be 0
+
+  readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
+  readLine arr readIndex line = inner readIndex writeIndex where
+    lastIndex = wi * (hi - 1 - line + 1) * 4
+    writeIndex = wi * (hi - 1 - line) * 4
+
+    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+    inner readIdx writeIdx = do
+        -- 32-bit BMP pixels are BGRA
+        (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
+        (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
+        (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx     )
+        (arr `M.unsafeWrite` (writeIdx + 3)) (str `B.index` (readIdx + 3))
+        inner (readIdx + 4) (writeIdx + 4)
+
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
   wi = fromIntegral w
@@ -361,8 +389,9 @@ decodeBitmapWithMetadata str = flip runGetStrict str $ do
   let addMetadata i = (i, metadataOfHeader bmpHeader)
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
-    -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-    (24, 1, 0) -> return . addMetadata . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
+    (32, 1, n) | n == 0 || n == 3
+               -> return . addMetadata . ImageRGBA8 $ decodeImageRGBA8 bmpHeader rest
+    (24, 1, 0) -> return . addMetadata . ImageRGB8  $ decodeImageRGB8  bmpHeader rest
     ( 8, 1, 0) ->
         let indexer v = table V.! fromIntegral v in
         return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
