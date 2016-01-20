@@ -350,6 +350,8 @@ metadataOfHeader hdr =
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
 --
+--    * PixelRGBA8
+--
 --    * PixelRGB8
 --
 --    * Pixel8
@@ -488,6 +490,7 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
               height = fromIntegral imgHeight,
               planes = 1,
               bitPerPixel = fromIntegral bpp,
+              -- TODO: put 3 for RGBA
               bitmapCompression = 0, -- no compression
               byteImageSize = imagePixelSize,
               xResolution = fromIntegral dpiX,

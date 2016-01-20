@@ -5,7 +5,10 @@ v3.2.7 January 2016
 -------------------
  * Addition: convertRGB8 and convertRGBA8 helper functions
  * Addition: new output colorspace for JPEG format: Y, RGB & CMYK
+ * Addition: RGBA8 bitmap reading (thanks to mtolly)
  * Enhancement: Optimized JPG & Tiff reading (thanks to Calvin Beck)
+ * Enhancement: INLINE SPECIALIZE for pixelMap (Pixel8 -> Pixel8) (thx to Calvin Beck)
+ * Fix: GHC 8.0 compilation (thanks to phadej)
 
 v3.2.6.5 December 2015
 ----------------------

@@ -395,7 +395,7 @@ readGifImages = withImageDecoder decodeGifImages
 readJpeg :: FilePath -> IO (Either String DynamicImage)
 readJpeg = withImageDecoder decodeJpeg
 
--- | Try to load a .bmp file. The colorspace would be RGB or Y.
+-- | Try to load a .bmp file. The colorspace would be RGB, RGBA or Y.
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
 

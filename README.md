@@ -52,6 +52,7 @@ Status
 
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
+        - 32bits (RGBA) images
         - 24bits (RGB) images
         - 8bits (greyscale & paletted) images
 
