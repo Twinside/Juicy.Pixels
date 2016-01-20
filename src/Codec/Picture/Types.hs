@@ -1106,9 +1106,9 @@ instance LumaPlaneExtractable PixelRGBF where
 
 instance LumaPlaneExtractable PixelRGBA8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * toRational r +
-                                             0.59 * toRational g +
-                                             0.11 * toRational b
+    computeLuma (PixelRGBA8 r g b _) = floor $ 0.3 * fromIntegral r +
+                                             0.59 * fromIntegral g +
+                                             0.11 * fromIntegral b
 
 instance LumaPlaneExtractable PixelYCbCr8 where
     {-# INLINE computeLuma #-}
@@ -1571,9 +1571,9 @@ instance ColorConvertible PixelRGB16 PixelRGBA16 where
 
 instance LumaPlaneExtractable PixelRGB16 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB16 r g b) = floor $ 0.3 * toRational r +
-                                             0.59 * toRational g +
-                                             0.11 * toRational b
+    computeLuma (PixelRGB16 r g b) = floor $ 0.3 * fromIntegral r +
+                                             0.59 * fromIntegral g +
+                                             0.11 * fromIntegral b
 --------------------------------------------------
 ----            PixelRGB8 instances
 --------------------------------------------------
@@ -1655,9 +1655,9 @@ instance ColorPlane PixelRGB8 PlaneBlue where
 
 instance LumaPlaneExtractable PixelRGB8 where
     {-# INLINE computeLuma #-}
-    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * toRational r +
-                                            0.59 * toRational g +
-                                            0.11 * toRational b
+    computeLuma (PixelRGB8 r g b) = floor $ 0.3 * fromIntegral r +
+                                            0.59 * fromIntegral g +
+                                            0.11 * fromIntegral b
 
 --------------------------------------------------
 ----            PixelRGBA8 instances
