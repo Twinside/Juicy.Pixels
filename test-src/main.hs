@@ -154,6 +154,7 @@ bmpValidTests =
     ["simple_bitmap_24bits.bmp"
     ,"simple_bitmap_8bits.bmp"
     ,"simple_bitmap_32bits.bmp"
+    ,"bitmap_32bits_type0.bmp"
     ,"eggyra0001.bmp"
     ,"smiley.bmp"
     ]
