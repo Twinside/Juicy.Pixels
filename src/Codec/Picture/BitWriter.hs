@@ -1,4 +1,5 @@
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 -- | This module implement helper functions to read & write data
 -- at bits level.
@@ -9,7 +10,9 @@ module Codec.Picture.BitWriter( BoolReader
                               , getNextBitsLSBFirst
                               , getNextBitsMSBFirst 
                               , getNextBitJpg
+                              , getNextIntJpg
                               , setDecodedString
+                              , setDecodedStringMSB
                               , setDecodedStringJpg
                               , runBoolReader
 
@@ -33,6 +36,7 @@ import Data.STRef
 import Control.Monad( when )
 import Control.Monad.ST( ST )
 import qualified Control.Monad.Trans.State.Strict as S
+import Data.Int ( Int32 )
 import Data.Word( Word8, Word32 )
 import Data.Bits( (.&.), (.|.), unsafeShiftR, unsafeShiftL )
 
@@ -41,6 +45,7 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.Vector.Storable as VS
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+
 
 --------------------------------------------------
 ----            Reader
@@ -93,8 +98,8 @@ byteAlignJpg = do
   BoolState idx _ chain <- S.get
   when (idx /= 7) (setDecodedStringJpg chain)
 
-{-# INLINE getNextBitJpg #-}
 getNextBitJpg :: BoolReader s Bool
+{-# INLINE getNextBitJpg #-}
 getNextBitJpg = do
     BoolState idx v chain <- S.get
     let val = (v .&. (1 `unsafeShiftL` idx)) /= 0
@@ -103,25 +108,51 @@ getNextBitJpg = do
       else S.put $ BoolState (idx - 1) v chain
     return val
 
-{-# INLINE getNextBitMSB #-}
-getNextBitMSB :: BoolReader s Bool
-getNextBitMSB = do
+getNextIntJpg :: Int -> BoolReader s Int32
+{-# INLINE getNextIntJpg #-}
+getNextIntJpg = go 0 where
+  go !acc !0 = return acc
+  go !acc !n = do
     BoolState idx v chain <- S.get
-    let val = (v .&. (1 `unsafeShiftL` (7 - idx))) /= 0
-    if idx == 7
-      then setDecodedString chain
-      else S.put $ BoolState (idx + 1) v chain
-    return val
+    let !leftBits = 1 + fromIntegral idx
+    if n >= leftBits then do
+      setDecodedStringJpg chain
+      let !remaining = n - leftBits
+          !mask = (1 `unsafeShiftL` leftBits) - 1
+          !finalV = fromIntegral v .&. mask
+          !theseBits = finalV `unsafeShiftL` remaining
+      go (acc .|. theseBits) remaining
+    else do
+      let !remaining = leftBits - n
+          !mask = (1 `unsafeShiftL` n) - 1
+          !finalV = fromIntegral v `unsafeShiftR` remaining
+      S.put $ BoolState (fromIntegral remaining - 1) v chain
+      return $ (finalV .&. mask) .|. acc
+
+
+setDecodedStringMSB :: B.ByteString -> BoolReader s ()
+setDecodedStringMSB str = case B.uncons str of
+  Nothing        -> S.put $ BoolState      8 0 B.empty
+  Just (v, rest) -> S.put $ BoolState      8 v    rest
+
 
 {-# INLINE getNextBitsMSBFirst #-}
 getNextBitsMSBFirst :: Int -> BoolReader s Word32
-getNextBitsMSBFirst = aux 0
-  where aux acc 0 = return acc
-        aux acc n = do
-            bit <- getNextBitMSB
-            let nextVal | bit = (acc `unsafeShiftL` 1) .|. 1
-                        | otherwise = acc `unsafeShiftL` 1
-            aux nextVal (n - 1)
+getNextBitsMSBFirst requested = go 0 requested where
+  go :: Word32 -> Int -> BoolReader s Word32
+  go !acc !0 = return acc
+  go !acc !n = do
+    BoolState idx v chain <- S.get
+    let !leftBits = fromIntegral idx
+    if n >= leftBits then do
+      setDecodedStringMSB chain
+      let !theseBits = fromIntegral v `unsafeShiftL` (n - leftBits)
+      go (acc .|. theseBits) (n - leftBits)
+    else do
+      let !remaining = leftBits - n
+          !mask = (1 `unsafeShiftL` remaining) - 1
+      S.put $ BoolState (fromIntegral remaining) (v .&. mask) chain
+      return $ (fromIntegral v `unsafeShiftR` remaining) .|. acc
 
 {-# INLINE getNextBitsLSBFirst #-}
 getNextBitsLSBFirst :: Int -> BoolReader s Word32

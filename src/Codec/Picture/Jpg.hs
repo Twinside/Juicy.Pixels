@@ -11,7 +11,9 @@ module Codec.Picture.Jpg( decodeJpeg
                         , decodeJpegWithMetadata
                         , encodeJpegAtQuality
                         , encodeJpegAtQualityWithMetadata
+                        , encodeDirectJpegAtQualityWithMetadata
                         , encodeJpeg
+                        , JpgEncodable
                         ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -546,6 +548,8 @@ colorSpaceOfComponentStr s = case s of
 --
 --    * PixelRGB8
 --
+--    * PixelCMYK8
+--
 --    * PixelYCbCr8
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
@@ -623,7 +627,8 @@ decodeJpegWithMetadata file = case runGetStrict get file of
         frozen <- unsafeFreezeImage fImg
         return (st, imageData frozen)
 
-extractBlock :: Image PixelYCbCr8       -- ^ Source image
+extractBlock :: forall s px. (PixelBaseComponent px ~ Word8)
+             => Image px       -- ^ Source image
              -> MutableMacroBlock s Int16      -- ^ Mutable block where to put extracted block
              -> Int                     -- ^ Plane
              -> Int                     -- ^ X sampling factor
@@ -741,6 +746,22 @@ defaultHuffmanTables =
     , prepareHuffmanTable AcComponent 1 defaultAcChromaHuffmanTable
     ]
 
+lumaQuantTableAtQuality :: Int -> QuantificationTable 
+lumaQuantTableAtQuality qual = scaleQuantisationMatrix qual defaultLumaQuantizationTable
+
+chromaQuantTableAtQuality :: Int -> QuantificationTable
+chromaQuantTableAtQuality qual =
+  scaleQuantisationMatrix qual defaultChromaQuantizationTable
+
+zigzaggedQuantificationSpec :: Int -> [JpgQuantTableSpec]
+zigzaggedQuantificationSpec qual =
+  [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0, quantTable = luma }
+  , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1, quantTable = chroma }
+  ]
+  where
+    luma = zigZagReorderForwardv $ lumaQuantTableAtQuality qual
+    chroma = zigZagReorderForwardv $ chromaQuantTableAtQuality qual
+
 -- | Function to call to encode an image to jpeg.
 -- The quality factor should be between 0 and 100 (100 being
 -- the best quality).
@@ -748,6 +769,203 @@ encodeJpegAtQuality :: Word8                -- ^ Quality factor
                     -> Image PixelYCbCr8    -- ^ Image to encode
                     -> L.ByteString         -- ^ Encoded JPEG
 encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
+
+-- | Record gathering all information to encode a component
+-- from the source image. Previously was a huge tuple
+-- burried in the code
+data EncoderState = EncoderState
+  { _encComponentIndex :: !Int
+  , _encBlockWidth     :: !Int
+  , _encBlockHeight    :: !Int
+  , _encQuantTable     :: !QuantificationTable
+  , _encDcHuffman      :: !HuffmanWriterCode
+  , _encAcHuffman      :: !HuffmanWriterCode
+  }
+
+
+-- | Helper type class describing all JPG-encodable pixel types
+class (Pixel px, PixelBaseComponent px ~ Word8) => JpgEncodable px where
+  additionalBlocks :: Image px -> [JpgFrame]
+  additionalBlocks _ = []
+
+  componentsOfColorSpace :: Image px -> [JpgComponent]
+
+  encodingState :: Int -> Image px -> V.Vector EncoderState
+
+  imageHuffmanTables :: Image px -> [(JpgHuffmanTableSpec, HuffmanPackedTree)]
+  imageHuffmanTables _ = defaultHuffmanTables 
+
+  scanSpecificationOfColorSpace :: Image px -> [JpgScanSpecification]
+
+  quantTableSpec :: Image px -> Int -> [JpgQuantTableSpec]
+  quantTableSpec _ qual = take 1 $ zigzaggedQuantificationSpec qual
+
+  maximumSubSamplingOf :: Image px -> Int
+  maximumSubSamplingOf _ = 1
+
+instance JpgEncodable Pixel8 where
+  scanSpecificationOfColorSpace _ =
+    [ JpgScanSpecification { componentSelector = 1
+                           , dcEntropyCodingTable = 0
+                           , acEntropyCodingTable = 0
+                           }
+    ]
+
+  componentsOfColorSpace _ =
+    [ JpgComponent { componentIdentifier      = 1
+                   , horizontalSamplingFactor = 1
+                   , verticalSamplingFactor   = 1
+                   , quantizationTableDest    = 0
+                   }
+    ]
+
+  imageHuffmanTables _ =
+    [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+    , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+    ]
+
+  encodingState qual _ = V.singleton EncoderState
+     { _encComponentIndex = 0
+     , _encBlockWidth     = 1
+     , _encBlockHeight    = 1
+     , _encQuantTable     = zigZagReorderForwardv $ lumaQuantTableAtQuality qual
+     , _encDcHuffman      = makeInverseTable defaultDcLumaHuffmanTree
+     , _encAcHuffman      = makeInverseTable defaultAcLumaHuffmanTree
+     }
+
+
+instance JpgEncodable PixelYCbCr8 where
+  maximumSubSamplingOf _ = 2
+  quantTableSpec _ qual = zigzaggedQuantificationSpec qual
+  scanSpecificationOfColorSpace _ =
+    [ JpgScanSpecification { componentSelector = 1
+                           , dcEntropyCodingTable = 0
+                           , acEntropyCodingTable = 0
+                           }
+    , JpgScanSpecification { componentSelector = 2
+                           , dcEntropyCodingTable = 1
+                           , acEntropyCodingTable = 1
+                           }
+    , JpgScanSpecification { componentSelector = 3
+                           , dcEntropyCodingTable = 1
+                           , acEntropyCodingTable = 1
+                           }
+    ]
+
+  componentsOfColorSpace _ =
+    [ JpgComponent { componentIdentifier      = 1
+                   , horizontalSamplingFactor = 2
+                   , verticalSamplingFactor   = 2
+                   , quantizationTableDest    = 0
+                   }
+    , JpgComponent { componentIdentifier      = 2
+                   , horizontalSamplingFactor = 1
+                   , verticalSamplingFactor   = 1
+                   , quantizationTableDest    = 1
+                   }
+    , JpgComponent { componentIdentifier      = 3
+                   , horizontalSamplingFactor = 1
+                   , verticalSamplingFactor   = 1
+                   , quantizationTableDest    = 1
+                   }
+    ]
+  
+  encodingState qual _ = V.fromListN 3 [lumaState, chromaState, chromaState { _encComponentIndex = 2 }]
+    where
+      lumaState = EncoderState
+        { _encComponentIndex = 0
+        , _encBlockWidth     = 2
+        , _encBlockHeight    = 2
+        , _encQuantTable     = zigZagReorderForwardv $ lumaQuantTableAtQuality qual
+        , _encDcHuffman      = makeInverseTable defaultDcLumaHuffmanTree
+        , _encAcHuffman      = makeInverseTable defaultAcLumaHuffmanTree
+        }
+      chromaState = EncoderState
+        { _encComponentIndex = 1
+        , _encBlockWidth     = 1
+        , _encBlockHeight    = 1
+        , _encQuantTable     = zigZagReorderForwardv $ chromaQuantTableAtQuality qual
+        , _encDcHuffman      = makeInverseTable defaultDcChromaHuffmanTree
+        , _encAcHuffman      = makeInverseTable defaultAcChromaHuffmanTree
+        }
+
+instance JpgEncodable PixelRGB8 where
+  additionalBlocks _ = [] where
+    _adobe14 = JpgAdobeApp14
+        { _adobeDctVersion = 100
+        , _adobeFlag0      = 0
+        , _adobeFlag1      = 0
+        , _adobeTransform  = AdobeUnknown
+        }
+
+  imageHuffmanTables _ =
+    [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+    , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+    ]
+
+  scanSpecificationOfColorSpace _ = fmap build "RGB" where
+    build c = JpgScanSpecification
+      { componentSelector = fromIntegral $ fromEnum c
+      , dcEntropyCodingTable = 0
+      , acEntropyCodingTable = 0
+      }
+
+  componentsOfColorSpace _ = fmap build "RGB" where
+    build c = JpgComponent
+      { componentIdentifier      = fromIntegral $ fromEnum c
+      , horizontalSamplingFactor = 1
+      , verticalSamplingFactor   = 1
+      , quantizationTableDest    = 0
+      }
+
+  encodingState qual _ = V.fromListN 3 $ fmap build [0 .. 2] where
+    build ix = EncoderState
+      { _encComponentIndex = ix
+      , _encBlockWidth     = 1
+      , _encBlockHeight    = 1
+      , _encQuantTable     = zigZagReorderForwardv $ lumaQuantTableAtQuality qual
+      , _encDcHuffman      = makeInverseTable defaultDcLumaHuffmanTree
+      , _encAcHuffman      = makeInverseTable defaultAcLumaHuffmanTree
+      }
+
+instance JpgEncodable PixelCMYK8 where
+  additionalBlocks _ = [] where
+    _adobe14 = JpgAdobeApp14
+        { _adobeDctVersion = 100
+        , _adobeFlag0      = 32768
+        , _adobeFlag1      = 0
+        , _adobeTransform  = AdobeYCck
+        }
+    
+  imageHuffmanTables _ =
+    [ prepareHuffmanTable DcComponent 0 defaultDcLumaHuffmanTable
+    , prepareHuffmanTable AcComponent 0 defaultAcLumaHuffmanTable
+    ]
+
+  scanSpecificationOfColorSpace _ = fmap build "CMYK" where
+    build c = JpgScanSpecification
+      { componentSelector = fromIntegral $ fromEnum c
+      , dcEntropyCodingTable = 0
+      , acEntropyCodingTable = 0
+      }
+
+  componentsOfColorSpace _ = fmap build "CMYK" where
+    build c = JpgComponent
+      { componentIdentifier      = fromIntegral $ fromEnum c
+      , horizontalSamplingFactor = 1
+      , verticalSamplingFactor   = 1
+      , quantizationTableDest    = 0
+      }
+
+  encodingState qual _ = V.fromListN 4 $ fmap build [0 .. 3] where
+    build ix = EncoderState
+      { _encComponentIndex = ix
+      , _encBlockWidth     = 1
+      , _encBlockHeight    = 1
+      , _encQuantTable     = zigZagReorderForwardv $ lumaQuantTableAtQuality qual
+      , _encDcHuffman      = makeInverseTable defaultDcLumaHuffmanTree
+      , _encAcHuffman      = makeInverseTable defaultAcLumaHuffmanTree
+      }
 
 -- | Equivalent to 'encodeJpegAtQuality', but will store the following
 -- metadatas in the file using a JFIF block:
@@ -759,121 +977,86 @@ encodeJpegAtQualityWithMetadata :: Word8                -- ^ Quality factor
                                 -> Metadatas
                                 -> Image PixelYCbCr8    -- ^ Image to encode
                                 -> L.ByteString         -- ^ Encoded JPEG
-encodeJpegAtQualityWithMetadata quality metas img@(Image { imageWidth = w, imageHeight = h }) = encode finalImage
-  where finalImage = JpgImage $
-            encodeMetadatas metas ++
-            [ JpgQuantTable quantTables
-            , JpgScans JpgBaselineDCTHuffman hdr
-            , JpgHuffmanTable defaultHuffmanTables
-            , JpgScanBlob scanHeader encodedImage
-            ]
+encodeJpegAtQualityWithMetadata = encodeDirectJpegAtQualityWithMetadata
 
-        outputComponentCount = 3
+-- | Equivalent to 'encodeJpegAtQuality', but will store the following
+-- metadatas in the file using a JFIF block:
+--
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
+--
+-- This function also allow to create JPEG files with the following color
+-- space:
+--
+--  * Y (Pixel8) for greyscale.
+--  * RGB (PixelRGB8) with no color downsampling on any plane
+--  * CMYK (PixelCMYK8) with no color downsampling on any plane
+--
+encodeDirectJpegAtQualityWithMetadata :: forall px. (JpgEncodable px)
+                                      => Word8                -- ^ Quality factor
+                                      -> Metadatas
+                                      -> Image px             -- ^ Image to encode
+                                      -> L.ByteString         -- ^ Encoded JPEG
+encodeDirectJpegAtQualityWithMetadata quality metas img = encode finalImage where
+  !w = imageWidth img
+  !h = imageHeight img
+  finalImage = JpgImage $
+      encodeMetadatas metas ++
+      additionalBlocks img ++
+      [ JpgQuantTable $ quantTableSpec img (fromIntegral quality)
+      , JpgScans JpgBaselineDCTHuffman hdr
+      , JpgHuffmanTable $ imageHuffmanTables img
+      , JpgScanBlob scanHeader encodedImage
+      ]
 
-        scanHeader = scanHeader'{ scanLength = fromIntegral $ calculateSize scanHeader' }
-        scanHeader' = JpgScanHeader
-            { scanLength = 0
-            , scanComponentCount = outputComponentCount
-            , scans = [ JpgScanSpecification { componentSelector = 1
-                                             , dcEntropyCodingTable = 0
-                                             , acEntropyCodingTable = 0
-                                             }
-                      , JpgScanSpecification { componentSelector = 2
-                                             , dcEntropyCodingTable = 1
-                                             , acEntropyCodingTable = 1
-                                             }
-                      , JpgScanSpecification { componentSelector = 3
-                                             , dcEntropyCodingTable = 1
-                                             , acEntropyCodingTable = 1
-                                             }
-                      ]
+  !outputComponentCount = componentCount (undefined :: px)
 
-            , spectralSelection = (0, 63)
-            , successiveApproxHigh = 0
-            , successiveApproxLow  = 0
-            }
+  scanHeader = scanHeader'{ scanLength = fromIntegral $ calculateSize scanHeader' }
+  scanHeader' = JpgScanHeader
+      { scanLength = 0
+      , scanComponentCount = fromIntegral outputComponentCount
+      , scans = scanSpecificationOfColorSpace img
+      , spectralSelection = (0, 63)
+      , successiveApproxHigh = 0
+      , successiveApproxLow  = 0
+      }
 
-        hdr = hdr' { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr' }
-        hdr' = JpgFrameHeader { jpgFrameHeaderLength   = 0
-                              , jpgSamplePrecision     = 8
-                              , jpgHeight              = fromIntegral h
-                              , jpgWidth               = fromIntegral w
-                              , jpgImageComponentCount = outputComponentCount
-                              , jpgComponents          = [
-                                    JpgComponent { componentIdentifier      = 1
-                                                 , horizontalSamplingFactor = 2
-                                                 , verticalSamplingFactor   = 2
-                                                 , quantizationTableDest    = 0
-                                                 }
-                                  , JpgComponent { componentIdentifier      = 2
-                                                 , horizontalSamplingFactor = 1
-                                                 , verticalSamplingFactor   = 1
-                                                 , quantizationTableDest    = 1
-                                                 }
-                                  , JpgComponent { componentIdentifier      = 3
-                                                 , horizontalSamplingFactor = 1
-                                                 , verticalSamplingFactor   = 1
-                                                 , quantizationTableDest    = 1
-                                                 }
-                                  ]
-                              }
+  hdr = hdr' { jpgFrameHeaderLength   = fromIntegral $ calculateSize hdr' }
+  hdr' = JpgFrameHeader
+    { jpgFrameHeaderLength   = 0
+    , jpgSamplePrecision     = 8
+    , jpgHeight              = fromIntegral h
+    , jpgWidth               = fromIntegral w
+    , jpgImageComponentCount = fromIntegral outputComponentCount
+    , jpgComponents          = componentsOfColorSpace img
+    }
 
-        lumaQuant = scaleQuantisationMatrix (fromIntegral quality)
-                        defaultLumaQuantizationTable
-        chromaQuant = scaleQuantisationMatrix (fromIntegral quality)
-                            defaultChromaQuantizationTable
+  !maxSampling = maximumSubSamplingOf img
+  !horizontalMetaBlockCount = w `divUpward` (dctBlockSize * maxSampling)
+  !verticalMetaBlockCount = h `divUpward` (dctBlockSize * maxSampling)
+  !componentDef = encodingState (fromIntegral quality) img
 
-        zigzagedLumaQuant = zigZagReorderForwardv lumaQuant
-        zigzagedChromaQuant = zigZagReorderForwardv chromaQuant
-        quantTables = [ JpgQuantTableSpec { quantPrecision = 0, quantDestination = 0
-                                          , quantTable = zigzagedLumaQuant }
-                      , JpgQuantTableSpec { quantPrecision = 0, quantDestination = 1
-                                          , quantTable = zigzagedChromaQuant }
-                      ]
+  encodedImage = runST $ do
+    dc_table <- M.replicate outputComponentCount 0
+    block <- createEmptyMutableMacroBlock
+    workData <- createEmptyMutableMacroBlock
+    zigzaged <- createEmptyMutableMacroBlock
+    writeState <- newWriteStateRef
 
-        encodedImage = runST $ do
-            let horizontalMetaBlockCount =
-                    w `divUpward` (dctBlockSize * maxSampling)
-                verticalMetaBlockCount =
-                    h `divUpward` (dctBlockSize * maxSampling)
-                maxSampling = 2
-                lumaSamplingSize = ( maxSampling, maxSampling, zigzagedLumaQuant
-                                   , makeInverseTable defaultDcLumaHuffmanTree
-                                   , makeInverseTable defaultAcLumaHuffmanTree)
-                chromaSamplingSize = ( maxSampling - 1, maxSampling - 1, zigzagedChromaQuant
-                                     , makeInverseTable defaultDcChromaHuffmanTree
-                                     , makeInverseTable defaultAcChromaHuffmanTree)
-                componentDef = [lumaSamplingSize, chromaSamplingSize, chromaSamplingSize]
+    rasterMap horizontalMetaBlockCount verticalMetaBlockCount $ \mx my ->
+      V.forM_ componentDef $ \(EncoderState comp sizeX sizeY table dc ac) -> 
+        let !xSamplingFactor = maxSampling - sizeX + 1
+            !ySamplingFactor = maxSampling - sizeY + 1
+            !extractor = extractBlock img block xSamplingFactor ySamplingFactor outputComponentCount
+        in
+        rasterMap sizeX sizeY $ \subX subY -> do
+          let !blockY = my * sizeY + subY
+              !blockX = mx * sizeX + subX
+          prev_dc <- dc_table `M.unsafeRead` comp
+          extracted <- extractor comp blockX blockY
+          (dc_coeff, neo_block) <- encodeMacroBlock table workData zigzaged prev_dc extracted
+          (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
+          serializeMacroBlock writeState dc ac neo_block
 
-                imageComponentCount = length componentDef
-
-            dc_table <- M.replicate 3 0
-            block <- createEmptyMutableMacroBlock
-            workData <- createEmptyMutableMacroBlock
-            zigzaged <- createEmptyMutableMacroBlock
-            writeState <- newWriteStateRef
-
-            -- It's ugly, I know, be avoid allocation
-            let blockDecoder mx my = component $ zip [0..] componentDef
-                  where component [] = return ()
-                        component ((comp, (sizeX, sizeY, table, dc, ac)) : comp_rest) =
-                           rasterMap sizeX sizeY decoder >> component comp_rest
-                          where xSamplingFactor = maxSampling - sizeX + 1
-                                ySamplingFactor = maxSampling - sizeY + 1
-                                extractor = extractBlock img block xSamplingFactor ySamplingFactor imageComponentCount
-
-                                decoder subX subY = do
-                                  let blockY = my * sizeY + subY
-                                      blockX = mx * sizeX + subX
-                                  prev_dc <- dc_table `M.unsafeRead` comp
-                                  (dc_coeff, neo_block) <- extractor comp blockX blockY >>=
-                                                          encodeMacroBlock table workData zigzaged prev_dc
-                                  (dc_table `M.unsafeWrite` comp) $ fromIntegral dc_coeff
-                                  serializeMacroBlock writeState dc ac neo_block
-
-            rasterMap 
-                horizontalMetaBlockCount verticalMetaBlockCount
-                blockDecoder
-
-            finalizeBoolWriter writeState
+    finalizeBoolWriter writeState
 

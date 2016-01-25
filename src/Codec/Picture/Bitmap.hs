@@ -41,6 +41,7 @@ import Data.Binary.Get( Get
                       , getWord8
                       , getWord16le 
                       , getWord32le
+                      , getWord32be
                       , bytesRead
                       , skip
                       )
@@ -253,6 +254,34 @@ instance BmpEncodable PixelRGB8 where
               inner 0 0 initialIndex
               VS.unsafeFreeze buff
 
+decodeImageRGBA8 :: BmpInfoHeader -> (Int, Int, Int, Int) -> B.ByteString -> Image PixelRGBA8
+decodeImageRGBA8 (BmpInfoHeader { width = w, height = h }) (posR, posG, posB, posA) str = Image wi hi stArray where
+  wi = fromIntegral w
+  hi = abs $ fromIntegral h
+  stArray = runST $ do
+      arr <- M.new (fromIntegral $ w * abs h * 4)
+      if h > 0 then
+        foldM_ (readLine arr) 0 [0 .. hi - 1]
+      else
+        foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
+      VS.unsafeFreeze arr
+
+  stride = linePadding 32 wi -- will be 0
+
+  readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
+  readLine arr readIndex line = inner readIndex writeIndex where
+    lastIndex = wi * (hi - 1 - line + 1) * 4
+    writeIndex = wi * (hi - 1 - line) * 4
+
+    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+    inner readIdx writeIdx = do
+        -- 32-bit BMP pixels are BGRA
+        (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + posR))
+        (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + posG))
+        (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index` (readIdx + posB))
+        (arr `M.unsafeWrite` (writeIdx + 3)) (str `B.index` (readIdx + posA))
+        inner (readIdx + 4) (writeIdx + 4)
+
 decodeImageRGB8 :: BmpInfoHeader -> B.ByteString -> Image PixelRGB8
 decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
   wi = fromIntegral w
@@ -322,6 +351,8 @@ metadataOfHeader hdr =
 -- | Try to decode a bitmap image.
 -- Right now this function can output the following pixel types :
 --
+--    * PixelRGBA8
+--
 --    * PixelRGB8
 --
 --    * Pixel8
@@ -349,26 +380,48 @@ decodeBitmapWithMetadata str = flip runGetStrict str $ do
       paletteColorCount
         | colorCount bmpHeader == 0 = 2 ^ bpp
         | otherwise = fromIntegral $ colorCount bmpHeader
+      getData = do
+        readed' <- bytesRead
+        skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
+        getRemainingBytes
+      addMetadata i = (i, metadataOfHeader bmpHeader)
 
-  table <- if bpp > 8
-    then return V.empty
-    else V.replicateM paletteColorCount pixelGet 
-
-  readed' <- bytesRead
-
-  skip . fromIntegral $ dataOffset hdr - fromIntegral readed'
-  rest <- getRemainingBytes
-  let addMetadata i = (i, metadataOfHeader bmpHeader)
   case (bitPerPixel bmpHeader, planes  bmpHeader,
               bitmapCompression bmpHeader) of
-    -- (32, 1, 0) -> {- ImageRGBA8 <$>-} fail "Meuh"
-    (24, 1, 0) -> return . addMetadata . ImageRGB8 $ decodeImageRGB8 bmpHeader rest
-    ( 8, 1, 0) ->
-        let indexer v = table V.! fromIntegral v in
-        return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
+    (32, 1, 0) -> do
+      rest <- getData
+      return . addMetadata . ImageRGBA8 $ decodeImageRGBA8 bmpHeader (2, 1, 0, 3) rest
+      -- (2, 1, 0, 3) means BGRA pixel order
+    (32, 1, 3) -> do
+      posRed   <- getBitfield
+      posGreen <- getBitfield
+      posBlue  <- getBitfield
+      posAlpha <- getBitfield
+      rest     <- getData
+      return . addMetadata . ImageRGBA8 $
+        decodeImageRGBA8 bmpHeader (posRed, posGreen, posBlue, posAlpha) rest
+    (24, 1, 0) -> do
+      rest <- getData
+      return . addMetadata . ImageRGB8  $ decodeImageRGB8  bmpHeader rest
+    ( 8, 1, 0) -> do
+      table <- V.replicateM paletteColorCount pixelGet
+      rest <- getData
+      let indexer v = table V.! fromIntegral v
+      return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
 
     a          -> fail $ "Can't handle BMP file " ++ show a
 
+
+getBitfield :: Get Int
+getBitfield = do
+  w32 <- getWord32be
+  case w32 of
+    0xFF000000 -> return 0
+    0x00FF0000 -> return 1
+    0x0000FF00 -> return 2
+    0x000000FF -> return 3
+    _          -> fail $
+      "Codec.Picture.Bitmap.getBitfield: unsupported bitfield of " ++ show w32
 
 -- | Write an image in a file use the bitmap format.
 writeBitmap :: (BmpEncodable pixel)

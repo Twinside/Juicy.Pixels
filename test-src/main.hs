@@ -2,8 +2,11 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-unused-imports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 import Codec.Picture
-import Codec.Picture.Jpg( encodeJpeg, encodeJpegAtQualityWithMetadata )
+import Codec.Picture.Jpg( JpgEncodable 
+                        , encodeJpeg
+                        , encodeDirectJpegAtQualityWithMetadata )
 import Codec.Picture.Gif
 import Codec.Picture.Tiff
 import System.Environment
@@ -150,6 +153,8 @@ bmpValidTests :: [FilePath]
 bmpValidTests =
     ["simple_bitmap_24bits.bmp"
     ,"simple_bitmap_8bits.bmp"
+    ,"simple_bitmap_32bits.bmp"
+    ,"bitmap_32bits_type0.bmp"
     ,"eggyra0001.bmp"
     ,"smiley.bmp"
     ]
@@ -193,6 +198,11 @@ tiffValidTests =
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
 validationJpegEncode = encodeJpegAtQuality 100
+
+liberalJpegEncode :: (PixelBaseComponent px ~ Word8, JpgEncodable px)
+                  => Image px -> L.ByteString
+liberalJpegEncode =
+    encodeDirectJpegAtQualityWithMetadata 100 mempty
 
 eitherDo :: Either String (IO ()) -> IO ()
 eitherDo (Left str) = putStrLn str
@@ -294,11 +304,14 @@ imgToImg path = do
             let rgbimg :: Image PixelRGB8
                 rgbimg = convertImage img
                 png = encodePng rgbimg
+                jpg = encodeDirectJpegAtQualityWithMetadata 90 mempty img
                 tiff = encodeTiff img
             putStrLn $ "CMYK8 : " ++ path
             print met
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromCMYK8.png") png
+            putStrLn "-> JPG"
+            L.writeFile (path ++ "._fromCMYK8.jpg") jpg
             putStrLn "-> Gif"
             eitherDo $ writeColorReducedGifImage (path ++ "._fromCMYK8.gif") rgbimg
             putStrLn "-> Tiff"
@@ -306,6 +319,7 @@ imgToImg path = do
 
         Right (ImageRGB8 img, met) -> do
             let jpg = validationJpegEncode (convertImage img)
+                jpgRgb = liberalJpegEncode img
                 png = encodePng img
                 bmp = encodeBitmap img
                 tga = encodeTga img
@@ -316,6 +330,8 @@ imgToImg path = do
             L.writeFile (path ++ "._fromRGB8.bmp") bmp
             putStrLn "-> JPG"
             L.writeFile (path ++ "._fromRGB8.jpg") jpg
+            putStrLn "-> JPG (RGB)"
+            L.writeFile (path ++ ".RGB._fromRGB8.jpg") jpgRgb
             putStrLn "-> PNG"
             L.writeFile (path ++ "._fromRGB8.png") png
             putStrLn "-> Gif"
@@ -384,7 +400,7 @@ imgToImg path = do
 
         Right (ImageY8 img, met) -> do
             let bmp = encodeBitmap img
-                jpg = validationJpegEncode . convertImage $ (promoteImage img :: Image PixelRGB8)
+                jpg = liberalJpegEncode img
                 png = encodePng img
                 tiff = encodeTiff img
                 tga = encodeTiff img
@@ -515,7 +531,7 @@ metadataTest = do
   L.writeFile "tests/metadata.png" $
       encodePngWithMetadata metas dumbImage
   L.writeFile "tests/metadata.jpg" $
-      encodeJpegAtQualityWithMetadata 50 metas $ convertImage dumbImage
+      encodeDirectJpegAtQualityWithMetadata 50 metas $ (convertImage dumbImage :: Image PixelYCbCr8)
   L.writeFile "tests/metadata.bmp" $
       encodeBitmapWithMetadata metas dumbImage
 

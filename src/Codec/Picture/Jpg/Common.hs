@@ -23,11 +23,10 @@ module Codec.Picture.Jpg.Common
 import Control.Applicative( pure, (<$>) )
 #endif
 
-import Control.Monad( replicateM, when )
+import Control.Monad( when )
 import Control.Monad.ST( ST, runST )
 import Data.Bits( unsafeShiftL, unsafeShiftR, (.&.) )
 import Data.Int( Int16, Int32 )
-import Data.List( foldl' )
 import Data.Maybe( fromMaybe )
 import Data.Word( Word8 )
 import qualified Data.Vector.Storable as VS
@@ -174,8 +173,7 @@ zigZagReorder zigzaged block = do
 
 -- | Unpack an int of the given size encoded from MSB to LSB.
 unpackInt :: Int -> BoolReader s Int32
-unpackInt bitCount = packInt <$> replicateM bitCount getNextBitJpg
-
+unpackInt = getNextIntJpg
 
 {-# INLINE rasterMap #-}
 rasterMap :: (Monad m)
@@ -186,11 +184,6 @@ rasterMap width height f = liner 0
         liner y = columner 0
           where columner x | x >= width = liner (y + 1)
                 columner x = f x y >> columner (x + 1)
-
-packInt :: [Bool] -> Int32
-packInt = foldl' bitStep 0
-    where bitStep acc True = (acc `unsafeShiftL` 1) + 1
-          bitStep acc False = acc `unsafeShiftL` 1
 
 pixelClamp :: Int16 -> Word8
 pixelClamp n = fromIntegral . min 255 $ max 0 n

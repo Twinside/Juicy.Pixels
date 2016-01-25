@@ -52,6 +52,7 @@ Status
 
  - Bitmap (.bmp) (mainly used as a debug output format)
     * Reading
+        - 32bits (RGBA) images
         - 24bits (RGB) images
         - 8bits (greyscale & paletted) images
 
@@ -62,10 +63,12 @@ Status
 
     * Metadata (reading/writing): DPI information
 
- - Jpeg   (.jpg, .jpeg) 
+ - Jpeg   (.jpg, .jpeg)
     * Reading normal and interlaced baseline DCT image
         - YCbCr (default) CMYK/YCbCrK/RGB colorspaces
+
     * Writing non-interlaced JPG
+        - YCbCr (favored), Y, RGB & CMYK colorspaces
 
     * Metadata:
         - Reading and writing DpiX & DpiY from JFIF header.

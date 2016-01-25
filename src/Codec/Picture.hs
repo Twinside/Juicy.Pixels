@@ -1,7 +1,10 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- | Main module for image import/export into various image formats.
 --
 -- To use the library without thinking about it, look after 'decodeImage' and
@@ -22,6 +25,10 @@ module Codec.Picture (
                      , generateImage
                      , generateFoldImage
                      , withImage
+
+                      -- * RGB helper functions
+                     , convertRGB8
+                     , convertRGBA8
 
                      -- * Lens compatibility
                      , Traversal
@@ -138,6 +145,7 @@ module Codec.Picture (
 import Control.Applicative( (<$>) )
 #endif
 
+import Data.Bits( unsafeShiftR )
 import Control.DeepSeq( NFData, deepseq )
 import qualified Control.Exception as Exc ( catch, IOException )
 import Codec.Picture.Metadata( Metadatas )
@@ -200,6 +208,7 @@ import System.IO.MMap ( mmapFileByteString )
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+import qualified Data.Vector.Storable as VS
 
 -- | Return the first Right thing, accumulating error
 eitherLoad :: c -> [(String, c -> Either String b)] -> Either String b
@@ -263,12 +272,92 @@ readImage = withImageDecoder decodeImage
 readImageWithMetadata :: FilePath -> IO (Either String (DynamicImage, Metadatas))
 readImageWithMetadata = withImageDecoder decodeImageWithMetadata
 
+
 -- | If you want to decode an image in a bytestring without even thinking
 -- in term of format or whatever, this is the function to use. It will try
 -- to decode in each known format and if one decoding succeeds, it will return
 -- the decoded image in it's own colorspace.
 decodeImage :: B.ByteString -> Either String DynamicImage
 decodeImage = fmap fst . decodeImageWithMetadata 
+
+class Decimable px1 px2 where
+   decimateBitDepth :: Image px1 -> Image px2
+
+decimateWord16 :: ( Pixel px1, Pixel px2
+                  , PixelBaseComponent px1 ~ Pixel16
+                  , PixelBaseComponent px2 ~ Pixel8
+                  ) => Image px1 -> Image px2
+decimateWord16 (Image w h da) =
+  Image w h $ VS.map (\v -> fromIntegral $ v `unsafeShiftR` 8) da
+
+decimateFloat :: ( Pixel px1, Pixel px2
+                 , PixelBaseComponent px1 ~ PixelF
+                 , PixelBaseComponent px2 ~ Pixel8
+                 ) => Image px1 -> Image px2
+decimateFloat (Image w h da) =
+  Image w h $ VS.map (floor . (255*) . max 0 . min 1) da
+
+instance Decimable Pixel16 Pixel8 where
+   decimateBitDepth = decimateWord16
+
+instance Decimable PixelYA16 PixelYA8 where
+   decimateBitDepth = decimateWord16
+
+instance Decimable PixelRGB16 PixelRGB8 where
+   decimateBitDepth = decimateWord16
+
+instance Decimable PixelRGBA16 PixelRGBA8 where
+   decimateBitDepth = decimateWord16
+
+instance Decimable PixelCMYK16 PixelCMYK8 where
+   decimateBitDepth = decimateWord16
+
+instance Decimable PixelF Pixel8 where
+   decimateBitDepth = decimateFloat
+
+instance Decimable PixelRGBF PixelRGB8 where
+   decimateBitDepth = decimateFloat
+
+-- | Convert by any mean possible a dynamic image to an image
+-- in RGBA. The process can lose precision while converting from
+-- 16bits pixels or Floating point pixels.
+convertRGBA8 :: DynamicImage -> Image PixelRGBA8
+convertRGBA8 dynImage = case dynImage of
+  ImageY8     img -> promoteImage img
+  ImageY16    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageYF     img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageYA8    img -> promoteImage img
+  ImageYA16   img -> promoteImage (decimateBitDepth img :: Image PixelYA8)
+  ImageRGB8   img -> promoteImage img
+  ImageRGB16  img -> promoteImage (decimateBitDepth img :: Image PixelRGB8)
+  ImageRGBF   img -> promoteImage (decimateBitDepth img :: Image PixelRGB8)
+  ImageRGBA8  img -> promoteImage img
+  ImageRGBA16 img -> decimateBitDepth img
+  ImageYCbCr8 img -> promoteImage (convertImage img :: Image PixelRGB8)
+  ImageCMYK8  img -> promoteImage (convertImage img :: Image PixelRGB8)
+  ImageCMYK16 img ->
+    promoteImage (convertImage (decimateBitDepth img :: Image PixelCMYK8) :: Image PixelRGB8)
+
+-- | Convert by any mean possible a dynamic image to an image
+-- in RGB. The process can lose precision while converting from
+-- 16bits pixels or Floating point pixels. Any alpha layer will
+-- be dropped
+convertRGB8 :: DynamicImage -> Image PixelRGB8
+convertRGB8 dynImage = case dynImage of
+  ImageY8     img -> promoteImage img
+  ImageY16    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageYF     img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageYA8    img -> promoteImage img
+  ImageYA16   img -> promoteImage (decimateBitDepth img :: Image PixelYA8)
+  ImageRGB8   img -> img
+  ImageRGB16  img -> decimateBitDepth img
+  ImageRGBF   img -> decimateBitDepth img :: Image PixelRGB8
+  ImageRGBA8  img -> dropAlphaLayer img
+  ImageRGBA16 img -> dropAlphaLayer (decimateBitDepth img :: Image PixelRGBA8)
+  ImageYCbCr8 img -> convertImage img
+  ImageCMYK8  img -> convertImage img
+  ImageCMYK16 img -> convertImage (decimateBitDepth img :: Image PixelCMYK8)
+
 
 -- | Equivalent to 'decodeImage', but also provide potential metadatas
 -- present in the given file.
@@ -306,7 +395,7 @@ readGifImages = withImageDecoder decodeGifImages
 readJpeg :: FilePath -> IO (Either String DynamicImage)
 readJpeg = withImageDecoder decodeJpeg
 
--- | Try to load a .bmp file. The colorspace would be RGB or Y.
+-- | Try to load a .bmp file. The colorspace would be RGB, RGBA or Y.
 readBitmap :: FilePath -> IO (Either String DynamicImage)
 readBitmap = withImageDecoder decodeBitmap
 
