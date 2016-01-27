@@ -135,7 +135,7 @@ zigZagOrderForward :: MacroBlock Int
 zigZagOrderForward = VS.generate 64 inv
   where inv i = fromMaybe 0 $ VS.findIndex (i ==) zigZagOrder
 
-zigZagReorderForward :: (Storable a, Num a)
+zigZagReorderForward :: (Storable a)
                      => MutableMacroBlock s a
                      -> MutableMacroBlock s a
                      -> ST s (MutableMacroBlock s a)

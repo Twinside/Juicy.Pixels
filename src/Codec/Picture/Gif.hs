@@ -615,8 +615,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
             pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
         | otherwise = PixelRGB8 0 0 0
 
-gifAnimationApplyer :: forall px.
-                       (Pixel px, ColorConvertible PixelRGB8 px)
+gifAnimationApplyer :: forall px.  (ColorConvertible PixelRGB8 px)
                     => (Int, Int) -> Image px -> Image px
                     -> (Image px, Maybe GraphicControlExtension, Image px)
                     -> (Maybe GraphicControlExtension, GifImage)
