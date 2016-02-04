@@ -757,27 +757,18 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- | Decode a tiff encoded image while preserving the underlying
 -- pixel type (except for Y32 which is truncated to 16 bits).
 --
--- This function can output the following pixel types:
+-- This function can output the following images:
 --
--- * PixelY8
---
--- * PixelY16
---
--- * PixelYA8
---
--- * PixelYA16
---
--- * PixelRGB8
---
--- * PixelRGB16
---
--- * PixelRGBA8
---
--- * PixelRGBA16
---
--- * PixelCMYK8
---
--- * PixelCMYK16
+--  * 'ImageY8'
+--  * 'ImageY16'
+--  * 'ImageYA8'
+--  * 'ImageYA16'
+--  * 'ImageRGB8'
+--  * 'ImageRGB16'
+--  * 'ImageRGBA8'
+--  * 'ImageRGBA16'
+--  * 'ImageCMYK8'
+--  * 'ImageCMYK16'
 --
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff = fmap fst . decodeTiffWithMetadata 
@@ -785,8 +776,8 @@ decodeTiff = fmap fst . decodeTiffWithMetadata
 -- | Like 'decodeTiff' but also provides some metdata present
 -- in the Tiff file.
 --
--- The metadata extracted are the DpiX & DpiY information alongside
--- the EXIF informations.
+-- The metadata extracted are the 'Codec.Picture.Metadata.DpiX' &
+-- 'Codec.Picture.Metadata.DpiY' information alongside the EXIF informations.
 decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeTiffWithMetadata file = runGetStrict (getP file) file >>= go
   where

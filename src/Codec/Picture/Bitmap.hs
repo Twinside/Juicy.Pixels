@@ -349,13 +349,13 @@ metadataOfHeader hdr =
     dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
 
 -- | Try to decode a bitmap image.
--- Right now this function can output the following pixel types :
+-- Right now this function can output the following image:
 --
---    * PixelRGBA8
+--   - 'ImageY8'
 --
---    * PixelRGB8
+--   - 'ImageRGB8'
 --
---    * Pixel8
+--   - 'ImageRGBA8'
 --
 decodeBitmap :: B.ByteString -> Either String DynamicImage
 decodeBitmap = fmap fst . decodeBitmapWithMetadata
@@ -449,19 +449,19 @@ encodeBitmapWithMetadata metas =
   encodeBitmapWithPaletteAndMetadata metas (defaultPalette (undefined :: pixel))
 
 -- | Write a dynamic image in a .bmp image file if possible.
--- The same restriction as encodeDynamicBitmap apply.
+-- The same restriction as 'encodeDynamicBitmap' apply.
 writeDynamicBitmap :: FilePath -> DynamicImage -> IO (Either String Bool)
 writeDynamicBitmap path img = case encodeDynamicBitmap img of
         Left err -> return $ Left err
         Right b  -> L.writeFile path b >> return (Right True)
 
--- | Encode a dynamic image in bmp if possible, supported pixel type are :
+-- | Encode a dynamic image in BMP if possible, supported images are:
 --
---   - RGB8
+--   - 'ImageY8'
 --
---   - RGBA8
+--   - 'ImageRGB8'
 --
---   - Y8
+--   - 'ImageRGBA8'
 --
 encodeDynamicBitmap :: DynamicImage -> Either String L.ByteString
 encodeDynamicBitmap (ImageRGB8 img) = Right $ encodeBitmap img

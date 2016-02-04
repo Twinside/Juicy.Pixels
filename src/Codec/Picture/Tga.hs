@@ -441,13 +441,11 @@ validateTga _ = return ()
 -- | Transform a raw tga image to an image, without modifying
 -- the underlying pixel type.
 --
--- This function can output the following pixel types:
+-- This function can output the following images:
 --
---    * PixelY8
---
---    * PixelRGB8
---
---    * PixelRGBA8
+--  * 'ImageY8'
+--  * 'ImageRGB8'
+--  * 'ImageRGBA8'
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
 decodeTga byte = runGetStrict get byte >>= (fmap fst . unparse)

@@ -10,8 +10,8 @@
 -- To use the library without thinking about it, look after 'decodeImage' and
 -- 'readImage'.
 --
--- Generally, the read* functions read the images from a file and try to decode
--- it, and the decode* functions try to decode a bytestring.
+-- Generally, the @read*@ functions read the images from a file and try to decode
+-- it, and the @decode*@ functions try to decode a bytestring.
 --
 -- For an easy image writing use the 'saveBmpImage', 'saveJpgImage' & 'savePngImage'
 -- functions

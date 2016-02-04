@@ -535,22 +535,21 @@ colorSpaceOfComponentStr s = case s of
   [_,_,_,_] -> pure  JpgColorSpaceCMYK
   _ -> Nothing
 
--- | Try to decompress a jpeg file and decompress. The colorspace is still
--- YCbCr if you want to perform computation on the luma part. You can
--- convert it to RGB using 'convertImage' from the 'ColorSpaceConvertible'
--- typeclass.
+-- | Try to decompress and decode a jpeg file. The colorspace is still
+-- YCbCr if you want to perform computation on the luma part. You can convert it
+-- to RGB using 'convertImage' from the 'ColorSpaceConvertible' typeclass.
 --
--- This function can output the following pixel types :
+-- This function can output the following images:
 --
---    * PixelY8
+--  * 'ImageY8'
 --
---    * PixelYA8
+--  * 'ImageYA8'
 --
---    * PixelRGB8
+--  * 'ImageRGB8'
 --
---    * PixelCMYK8
+--  * 'ImageCMYK8'
 --
---    * PixelYCbCr8
+--  * 'ImageYCbCr8'
 --
 decodeJpeg :: B.ByteString -> Either String DynamicImage
 decodeJpeg = fmap fst . decodeJpegWithMetadata
@@ -559,9 +558,8 @@ decodeJpeg = fmap fst . decodeJpegWithMetadata
 --
 -- Extract the following metadatas from the JFIF bloc:
 --
---  * DpiX
---
---  * DpiY
+--  * 'Codec.Picture.Metadata.DpiX'
+--  * 'Codec.Picture.Metadata.DpiY' 
 --
 -- Exif metadata are also extracted if present.
 --
@@ -988,9 +986,9 @@ encodeJpegAtQualityWithMetadata = encodeDirectJpegAtQualityWithMetadata
 -- This function also allow to create JPEG files with the following color
 -- space:
 --
---  * Y (Pixel8) for greyscale.
---  * RGB (PixelRGB8) with no color downsampling on any plane
---  * CMYK (PixelCMYK8) with no color downsampling on any plane
+--  * Y ('Pixel8') for greyscale.
+--  * RGB ('PixelRGB8') with no color downsampling on any plane
+--  * CMYK ('PixelCMYK8') with no color downsampling on any plane
 --
 encodeDirectJpegAtQualityWithMetadata :: forall px. (JpgEncodable px)
                                       => Word8                -- ^ Quality factor

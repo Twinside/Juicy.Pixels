@@ -197,23 +197,16 @@ encodePalettedPngWithMetadata metas pal img
             h = imageHeight pal
             isTooBig v = fromIntegral v >= w
 
--- | Encode a dynamic image in bmp if possible, supported pixel type are :
+-- | Encode a dynamic image in PNG if possible, supported images are:
 --
---   - Y8
---
---   - Y16
---
---   - YA8
---
---   - YA16
---
---   - RGB8
---
---   - RGB16
---
---   - RGBA8
---
---   - RGBA16
+--   * 'ImageY8'
+--   * 'ImageY16'
+--   * 'ImageYA8'
+--   * 'ImageYA16'
+--   * 'ImageRGB8'
+--   * 'ImageRGB16'
+--   * 'ImageRGBA8'
+--   * 'ImageRGBA16'
 --
 encodeDynamicPng :: DynamicImage -> Either String Lb.ByteString
 encodeDynamicPng (ImageRGB8 img) = Right $ encodePng img
