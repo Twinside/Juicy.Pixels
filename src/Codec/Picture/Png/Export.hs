@@ -200,12 +200,19 @@ encodePalettedPngWithMetadata metas pal img
 -- | Encode a dynamic image in PNG if possible, supported images are:
 --
 --   * 'ImageY8'
+--
 --   * 'ImageY16'
+--
 --   * 'ImageYA8'
+--
 --   * 'ImageYA16'
+--
 --   * 'ImageRGB8'
+--
 --   * 'ImageRGB16'
+--
 --   * 'ImageRGBA8'
+--
 --   * 'ImageRGBA16'
 --
 encodeDynamicPng :: DynamicImage -> Either String Lb.ByteString

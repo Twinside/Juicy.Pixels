@@ -484,12 +484,19 @@ palette8 hdr palette transparency eimg = case (transparency, eimg) of
 -- This function can output the following images:
 --
 --  * 'ImageY8'
+--
 --  * 'ImageY16'
+--
 --  * 'ImageYA8'
+--
 --  * 'ImageYA16'
+--
 --  * 'ImageRGB8'
+--
 --  * 'ImageRGB16'
+--
 --  * 'ImageRGBA8'
+--
 --  * 'ImageRGBA16'
 --
 decodePng :: B.ByteString -> Either String DynamicImage

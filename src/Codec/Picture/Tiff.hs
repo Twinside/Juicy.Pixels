@@ -760,14 +760,23 @@ unpack _ _ = fail "Failure to unpack TIFF file"
 -- This function can output the following images:
 --
 --  * 'ImageY8'
+--
 --  * 'ImageY16'
+--
 --  * 'ImageYA8'
+--
 --  * 'ImageYA16'
+--
 --  * 'ImageRGB8'
+--
 --  * 'ImageRGB16'
+--
 --  * 'ImageRGBA8'
+--
 --  * 'ImageRGBA16'
+--
 --  * 'ImageCMYK8'
+--
 --  * 'ImageCMYK16'
 --
 decodeTiff :: B.ByteString -> Either String DynamicImage

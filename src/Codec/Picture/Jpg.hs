@@ -556,7 +556,7 @@ decodeJpeg = fmap fst . decodeJpegWithMetadata
 
 -- | Equivalent to 'decodeJpeg' but also extracts metadatas.
 --
--- Extract the following metadatas from the JFIF bloc:
+-- Extract the following metadatas from the JFIF block:
 --
 --  * 'Codec.Picture.Metadata.DpiX'
 --  * 'Codec.Picture.Metadata.DpiY' 

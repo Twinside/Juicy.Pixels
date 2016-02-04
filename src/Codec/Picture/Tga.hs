@@ -444,7 +444,9 @@ validateTga _ = return ()
 -- This function can output the following images:
 --
 --  * 'ImageY8'
+--
 --  * 'ImageRGB8'
+--
 --  * 'ImageRGBA8'
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
