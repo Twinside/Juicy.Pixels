@@ -481,23 +481,23 @@ palette8 hdr palette transparency eimg = case (transparency, eimg) of
 -- in the future.
 -- The resulting image let you manage the pixel types.
 --
--- This function can output the following pixel types:
+-- This function can output the following images:
 --
---    * PixelY8
+--  * 'ImageY8'
 --
---    * PixelY16
+--  * 'ImageY16'
 --
---    * PixelYA8
+--  * 'ImageYA8'
 --
---    * PixelYA16
+--  * 'ImageYA16'
 --
---    * PixelRGB8
+--  * 'ImageRGB8'
 --
---    * PixelRGB16
+--  * 'ImageRGB16'
 --
---    * PixelRGBA8
+--  * 'ImageRGBA8'
 --
---    * PixelRGBA16
+--  * 'ImageRGBA16'
 --
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng = fmap fst . decodePngWithMetadata

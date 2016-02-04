@@ -8,8 +8,8 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
--- | Module providing the basic types for image manipulation in the library.
--- Defining the types used to store all those _Juicy Pixels_
+-- | Module provides basic types for image manipulation in the library.
+-- Defined types are used to store all of those __Juicy Pixels__
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
                             Image( .. )
