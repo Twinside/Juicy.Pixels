@@ -8,8 +8,9 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
--- | Module providing the basic types for image manipulation in the library.
--- Defining the types used to store all those _Juicy Pixels_
+{-# LANGUAGE DeriveDataTypeable #-}
+-- | Module provides basic types for image manipulation in the library.
+-- Defined types are used to store all of those __Juicy Pixels__
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
                             Image( .. )
@@ -111,6 +112,7 @@ import Control.Monad.Primitive ( PrimMonad, PrimState )
 import Foreign.ForeignPtr( castForeignPtr )
 import Foreign.Storable ( Storable )
 import Data.Bits( unsafeShiftL, unsafeShiftR, (.|.), (.&.) )
+import Data.Typeable ( Typeable )
 import Data.Word( Word8, Word16, Word32, Word64 )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
@@ -145,6 +147,7 @@ data Image a = Image
       -- component within each pixel.
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
+    deriving (Typeable)
 
 -- | Type for the palette used in Gif & PNG files.
 type Palette = Image PixelRGB8
@@ -159,40 +162,51 @@ class ColorPlane pixel planeToken where
 
 -- | Define the plane for the red color component
 data PlaneRed = PlaneRed
+    deriving (Typeable)
 
 -- | Define the plane for the green color component
 data PlaneGreen = PlaneGreen
+    deriving (Typeable)
 
 -- | Define the plane for the blue color component
 data PlaneBlue = PlaneBlue
+    deriving (Typeable)
 
 -- | Define the plane for the alpha (transparency) component
 data PlaneAlpha = PlaneAlpha
+    deriving (Typeable)
 
 -- | Define the plane for the luma component
 data PlaneLuma = PlaneLuma
+    deriving (Typeable)
 
 -- | Define the plane for the Cr component
 data PlaneCr = PlaneCr
+    deriving (Typeable)
 
 -- | Define the plane for the Cb component
 data PlaneCb = PlaneCb
+    deriving (Typeable)
 
 -- | Define plane for the cyan component of the
 -- CMYK color space.
 data PlaneCyan = PlaneCyan
+    deriving (Typeable)
 
 -- | Define plane for the magenta component of the
 -- CMYK color space.
 data PlaneMagenta = PlaneMagenta
+    deriving (Typeable)
 
 -- | Define plane for the yellow component of the
 -- CMYK color space.
 data PlaneYellow = PlaneYellow
+    deriving (Typeable)
 
 -- | Define plane for the black component of
 -- the CMYK color space.
 data PlaneBlack = PlaneBlack
+    deriving (Typeable)
 
 -- | Extract a color plane from an image given a present plane in the image
 -- examples:
@@ -294,6 +308,7 @@ data MutableImage s a = MutableImage
       -- you should use the helpers functions.
     , mutableImageData   :: M.STVector s (PixelBaseComponent a)
     }
+    deriving (Typeable)
 
 -- | `O(n)` Yield an immutable copy of an image by making a copy of it
 freezeImage :: (Storable (PixelBaseComponent px), PrimMonad m)
@@ -372,6 +387,7 @@ data DynamicImage =
      | ImageCMYK8  (Image PixelCMYK8)
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
+    deriving (Typeable)
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of a dynamic image, you can use
@@ -468,7 +484,7 @@ type PixelF = Float
 --
 data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
                          {-# UNPACK #-} !Pixel8  -- Alpha value
-              deriving (Eq, Ord, Show)
+              deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 16bit Luminance (Y) and alpha (A) information.
 -- Values are stored in the following order:
@@ -479,7 +495,7 @@ data PixelYA8 = PixelYA8 {-# UNPACK #-} !Pixel8  -- Luminance
 --
 data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
                            {-# UNPACK #-} !Pixel16  -- Alpha value
-              deriving (Eq, Ord, Show)
+              deriving (Eq, Ord, Show, Typeable)
 
 -- | Classic pixel type storing 8bit red, green and blue (RGB) information.
 -- Values are stored in the following order:
@@ -493,7 +509,7 @@ data PixelYA16 = PixelYA16 {-# UNPACK #-} !Pixel16  -- Luminance
 data PixelRGB8 = PixelRGB8 {-# UNPACK #-} !Pixel8 -- Red
                            {-# UNPACK #-} !Pixel8 -- Green
                            {-# UNPACK #-} !Pixel8 -- Blue
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing value for the YCCK color space:
 --
@@ -509,7 +525,7 @@ data PixelYCbCrK8 = PixelYCbCrK8 {-# UNPACK #-} !Pixel8
                                  {-# UNPACK #-} !Pixel8
                                  {-# UNPACK #-} !Pixel8
                                  {-# UNPACK #-} !Pixel8
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 16bit red, green and blue (RGB) information.
 -- Values are stored in the following order:
@@ -523,7 +539,7 @@ data PixelYCbCrK8 = PixelYCbCrK8 {-# UNPACK #-} !Pixel8
 data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
                              {-# UNPACK #-} !Pixel16 -- Green
                              {-# UNPACK #-} !Pixel16 -- Blue
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Typeable)
 
 -- | HDR pixel type storing floating point 32bit red, green and blue (RGB) information.
 -- Same value range and comments apply as for 'PixelF'.
@@ -538,7 +554,7 @@ data PixelRGB16 = PixelRGB16 {-# UNPACK #-} !Pixel16 -- Red
 data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
                            {-# UNPACK #-} !PixelF -- Green
                            {-# UNPACK #-} !PixelF -- Blue
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 8bit luminance, blue difference and red difference (YCbCr) information.
 -- Values are stored in the following order:
@@ -552,7 +568,7 @@ data PixelRGBF = PixelRGBF {-# UNPACK #-} !PixelF -- Red
 data PixelYCbCr8 = PixelYCbCr8 {-# UNPACK #-} !Pixel8 -- Y luminance
                                {-# UNPACK #-} !Pixel8 -- Cb blue difference
                                {-# UNPACK #-} !Pixel8 -- Cr red difference
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 8bit cyan, magenta, yellow and black (CMYK) information.
 -- Values are stored in the following order:
@@ -569,7 +585,7 @@ data PixelCMYK8 = PixelCMYK8 {-# UNPACK #-} !Pixel8 -- Cyan
                              {-# UNPACK #-} !Pixel8 -- Magenta
                              {-# UNPACK #-} !Pixel8 -- Yellow
                              {-# UNPACK #-} !Pixel8 -- Black
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 16bit cyan, magenta, yellow and black (CMYK) information.
 -- Values are stored in the following order:
@@ -586,7 +602,7 @@ data PixelCMYK16 = PixelCMYK16 {-# UNPACK #-} !Pixel16 -- Cyan
                                {-# UNPACK #-} !Pixel16 -- Magenta
                                {-# UNPACK #-} !Pixel16 -- Yellow
                                {-# UNPACK #-} !Pixel16 -- Black
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Show, Typeable)
 
 
 -- | Classical pixel type storing 8bit red, green, blue and alpha (RGBA) information.
@@ -604,7 +620,7 @@ data PixelRGBA8 = PixelRGBA8 {-# UNPACK #-} !Pixel8 -- Red
                              {-# UNPACK #-} !Pixel8 -- Green
                              {-# UNPACK #-} !Pixel8 -- Blue
                              {-# UNPACK #-} !Pixel8 -- Alpha
-                deriving (Eq, Ord, Show)
+                deriving (Eq, Ord, Show, Typeable)
 
 -- | Pixel type storing 16bit red, green, blue and alpha (RGBA) information.
 -- Values are stored in the following order:
@@ -621,7 +637,7 @@ data PixelRGBA16 = PixelRGBA16 {-# UNPACK #-} !Pixel16 -- Red
                                {-# UNPACK #-} !Pixel16 -- Green
                                {-# UNPACK #-} !Pixel16 -- Blue
                                {-# UNPACK #-} !Pixel16 -- Alpha
-                deriving (Eq, Ord, Show)
+                deriving (Eq, Ord, Show, Typeable)
 
 -- | Definition of pixels used in images. Each pixel has a color space, and a representative
 -- component (Word8 or Float).

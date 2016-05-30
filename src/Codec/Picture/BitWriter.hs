@@ -80,7 +80,7 @@ initBoolStateJpg str =
    case B.uncons str of
      Nothing -> BoolState 0 0 B.empty
      Just (0xFF, rest) -> case B.uncons rest of
-            Nothing                  -> BoolState maxBound 0 B.empty
+            Nothing                  -> BoolState 7 0 B.empty
             Just (0x00, afterMarker) -> BoolState 7 0xFF afterMarker
             Just (_   , afterMarker) -> initBoolStateJpg afterMarker
      Just (v, rest) -> BoolState 7 v rest
@@ -178,9 +178,9 @@ getNextBit = do
 -- code (0xFF 0x00), thus should be only used in JPEG decoding.
 setDecodedStringJpg :: B.ByteString -> BoolReader s ()
 setDecodedStringJpg str = case B.uncons str of
-     Nothing        -> S.put $ BoolState maxBound 0 B.empty
+     Nothing        -> S.put $ BoolState 7 0 B.empty
      Just (0xFF, rest) -> case B.uncons rest of
-            Nothing                  -> S.put $ BoolState maxBound 0 B.empty
+            Nothing                  -> S.put $ BoolState 7 0 B.empty
             Just (0x00, afterMarker) -> -- trace "00" $ 
                 S.put $ BoolState 7 0xFF afterMarker
             Just (_   , afterMarker) -> setDecodedStringJpg afterMarker

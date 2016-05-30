@@ -168,10 +168,9 @@ decodeInfos = do
       c -> (:) <$> parsePair c <*> decodeInfos
 
 
--- | Decode an HDR (radiance) image, the resulting pixel
--- type can be :
+-- | Decode an HDR (radiance) image, the resulting image can be:
 --
---  * PixelRGBF
+--  * 'ImageRGBF'
 --
 decodeHDR :: B.ByteString -> Either String DynamicImage
 decodeHDR = fmap fst . decodeHDRWithMetadata

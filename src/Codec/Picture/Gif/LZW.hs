@@ -41,7 +41,7 @@ import Codec.Picture.BitWriter
 (..<-..) v idx = lift . (v .<-. idx)
 
 
-duplicateData :: (Show a, MonadTrans t, Storable a)
+duplicateData :: (MonadTrans t, Storable a)
               => M.STVector s a -> M.STVector s a
               -> Int -> Int -> Int -> t (ST s) ()
 duplicateData src dest sourceIndex size destIndex = lift $ aux sourceIndex destIndex

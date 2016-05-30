@@ -615,8 +615,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
             pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
         | otherwise = PixelRGB8 0 0 0
 
-gifAnimationApplyer :: forall px.
-                       (Pixel px, ColorConvertible PixelRGB8 px)
+gifAnimationApplyer :: forall px.  (ColorConvertible PixelRGB8 px)
                     => (Int, Int) -> Image px -> Image px
                     -> (Image px, Maybe GraphicControlExtension, Image px)
                     -> (Maybe GraphicControlExtension, GifImage)
@@ -671,24 +670,22 @@ decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
   where hdr = gifScreenDescriptor $ gifHeader img
 decodeFirstGifImage _ = Left "No image in gif file"
 
--- | Transform a raw gif image to an image, witout
--- modifying the pixels.
--- This function can output the following pixel types :
+-- | Transform a raw gif image to an image, without modifying the pixels. This
+-- function can output the following images:
 --
---  * PixelRGB8
+--  * 'ImageRGB8'
 --
---  * PixelRGBA8
+--  * 'ImageRGBA8'
 --
 decodeGif :: B.ByteString -> Either String DynamicImage
 decodeGif img = decode img >>= (fmap fst . decodeFirstGifImage)
 
--- | Transform a raw gif image to an image, witout
--- modifying the pixels.
--- This function can output the following pixel types :
+-- | Transform a raw gif image to an image, without modifying the pixels.  This
+-- function can output the following images:
 --
---  * PixelRGB8
+--  * 'ImageRGB8'
 --
---  * PixelRGBA8
+--  * 'ImageRGBA8'
 --
 -- Metadatas include Width & Height information.
 --

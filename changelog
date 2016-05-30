@@ -1,6 +1,10 @@
 Change log
 ==========
 
+v3.2.7.1 May 2016
+-----------------
+ * Fix: some wrongly infinitely looping JPEG decoding
+
 v3.2.7 January 2016
 -------------------
  * Addition: convertRGB8 and convertRGBA8 helper functions
