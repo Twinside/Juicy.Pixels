@@ -10,6 +10,7 @@
 -- Targa (*.tga) files.
 module Codec.Picture.Tga( decodeTga
                         , decodeTgaWithMetadata
+                        , decodeTgaWithPaletteAndMetadata
                         , TgaSaveable
                         , encodeTga
                         , writeTga
@@ -20,6 +21,7 @@ import Data.Monoid( mempty )
 import Control.Applicative( (<*>), pure, (<$>) )
 #endif
 
+import Control.Arrow( first )
 import Control.Monad.ST( ST, runST )
 import Data.Bits( (.&.)
                 , (.|.)
@@ -267,16 +269,18 @@ prepareUnpacker file f =
     32 -> pure . ImageRGBA8 . flipper $ f Depth32 file
     n  -> fail $ "Invalid bit depth (" ++ show n ++ ")"
 
-applyPalette :: (Pixel px)
-             => (Image px -> DynamicImage) -> Image px
-             -> DynamicImage
-             -> Either String DynamicImage
-applyPalette f palette (ImageY8 img) =
-  pure . f $ pixelMap (\v -> pixelAt palette (fromIntegral v) 0) img
-applyPalette _ _ _ =
-  fail "Bad colorspace for image"
+toPaletted :: (Pixel px)
+           => (Image Pixel8 -> Palette' px -> PalettedImage) -> Image px
+           -> DynamicImage
+           -> Either String PalettedImage
+toPaletted f palette (ImageY8 img) = pure $ f img pal where
+  pal = Palette' 
+    { _paletteSize = imageWidth palette
+    , _paletteData = imageData palette
+    }
+toPaletted _ _ _ = fail "Bad colorspace for image"
 
-unparse :: TgaFile -> Either String (DynamicImage, Metadatas)
+unparse :: TgaFile -> Either String (PalettedImage, Metadatas)
 unparse file =
   let hdr = _tgaFileHeader file
       imageType = _tgaHdrImageType hdr
@@ -300,18 +304,18 @@ unparse file =
   case imageType of
     ImageTypeNoData _ -> fail "No data detected in TGA file"
     ImageTypeTrueColor _ ->
-      fmap (, metas) $ prepareUnpacker file unpacker
+      fmap ((, metas) . TrueColorImage) $ prepareUnpacker file unpacker
     ImageTypeMonochrome _ ->
-      fmap (, metas) $ prepareUnpacker file unpacker
+      fmap ((, metas) . TrueColorImage) $ prepareUnpacker file unpacker
     ImageTypeColorMapped _ ->
       case decodedPalette of
         Left str -> Left str
-        Right (ImageY8 img, _) ->
-          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageY8 img
-        Right (ImageRGB8 img, _) ->
-          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageRGB8 img
-        Right (ImageRGBA8 img, _) ->
-          fmap (, metas) $ prepareUnpacker file unpacker >>= applyPalette ImageRGBA8 img
+        Right (TrueColorImage (ImageY8 img), _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= toPaletted PalettedY8 img
+        Right (TrueColorImage (ImageRGB8 img), _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= toPaletted PalettedRGB8 img
+        Right (TrueColorImage (ImageRGBA8 img), _) ->
+          fmap (, metas) $ prepareUnpacker file unpacker >>= toPaletted PalettedRGBA8 img
         Right _ -> fail "Unknown pixel type"
 
 writeRun :: (Pixel px)
@@ -450,11 +454,15 @@ validateTga _ = return ()
 --  * 'ImageRGBA8'
 --
 decodeTga :: B.ByteString -> Either String DynamicImage
-decodeTga byte = runGetStrict get byte >>= (fmap fst . unparse)
+decodeTga byte = fst <$> decodeTgaWithMetadata byte
 
 -- | Equivalent to decodeTga but also provide metadata
 decodeTgaWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodeTgaWithMetadata byte = runGetStrict get byte >>= unparse
+decodeTgaWithMetadata byte = first palettedToTrueColor <$> decodeTgaWithPaletteAndMetadata byte
+
+-- | Equivalent to decodeTga but with metdata and palette if any
+decodeTgaWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodeTgaWithPaletteAndMetadata byte = runGetStrict get byte >>= unparse
 
 -- | This typeclass determine if a pixel can be saved in the
 -- TGA format.

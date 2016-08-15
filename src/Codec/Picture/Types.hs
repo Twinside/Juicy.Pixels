@@ -16,7 +16,10 @@ module Codec.Picture.Types( -- * Types
                             Image( .. )
                           , MutableImage( .. )
                           , DynamicImage( .. )
+                          , PalettedImage( .. )
                           , Palette
+                          , Palette'( .. )
+                          , paletteAsImage
 
                             -- ** Image functions
                           , createMutableImage
@@ -65,6 +68,7 @@ module Codec.Picture.Types( -- * Types
 
                           , dynamicMap
                           , dynamicPixelMap
+                          , palettedToTrueColor
                           , dropAlphaLayer
                           , withImage
                           , zipPixelComponent3
@@ -388,6 +392,33 @@ data DynamicImage =
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
     deriving (Typeable)
+
+data Palette' px = Palette'
+  { _paletteSize :: !Int
+  , _paletteData :: !(V.Vector (PixelBaseComponent px))
+  }
+  deriving Typeable
+
+paletteAsImage :: Palette' px -> Image px
+paletteAsImage p = Image (_paletteSize p) 1 $ _paletteData p
+
+data PalettedImage
+    = TrueColorImage DynamicImage
+    | PalettedY8    (Image Pixel8) (Palette' Pixel8)
+    | PalettedRGB8  (Image Pixel8) (Palette' PixelRGB8)
+    | PalettedRGBA8 (Image Pixel8) (Palette' PixelRGBA8)
+    | PalettedRGB16 (Image Pixel8) (Palette' PixelRGB16)
+    deriving (Typeable)
+
+palettedToTrueColor :: PalettedImage -> DynamicImage
+palettedToTrueColor img = case img of
+  TrueColorImage d -> d
+  PalettedY8    i p -> ImageY8 $ toTrueColor 1 (_paletteData p) i
+  PalettedRGB8  i p -> ImageRGB8 $ toTrueColor 3 (_paletteData p) i
+  PalettedRGBA8 i p -> ImageRGBA8 $ toTrueColor 4 (_paletteData p) i
+  PalettedRGB16 i p -> ImageRGB16 $ toTrueColor 3 (_paletteData p) i
+  where 
+    toTrueColor c vec = pixelMap (unsafePixelAt vec . (c *) . fromIntegral)
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of a dynamic image, you can use
