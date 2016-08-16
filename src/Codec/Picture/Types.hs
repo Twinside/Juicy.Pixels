@@ -19,7 +19,6 @@ module Codec.Picture.Types( -- * Types
                           , PalettedImage( .. )
                           , Palette
                           , Palette'( .. )
-                          , palettedAsImage
 
                             -- ** Image functions
                           , createMutableImage
@@ -69,6 +68,7 @@ module Codec.Picture.Types( -- * Types
                           , dynamicMap
                           , dynamicPixelMap
                           , palettedToTrueColor
+                          , palettedAsImage
                           , dropAlphaLayer
                           , withImage
                           , zipPixelComponent3
@@ -393,25 +393,34 @@ data DynamicImage =
      | ImageCMYK16 (Image PixelCMYK16)
     deriving (Typeable)
 
+-- | Type used to expose a palette extracted during reading.
+-- Use palettedAsImage to convert it to a palette usable for
+-- writing.
 data Palette' px = Palette'
-  { _paletteSize :: !Int
+  { -- | Number of element in pixels.
+    _paletteSize :: !Int
+    -- | Real data used by the palette.
   , _paletteData :: !(V.Vector (PixelBaseComponent px))
   }
   deriving Typeable
 
--- | Apply the palete to a paletted image, giving back it's
--- corresponding
+-- | Convert a palette to an image. Used mainly for
+-- backward compatibility.
 palettedAsImage :: Palette' px -> Image px
 palettedAsImage p = Image (_paletteSize p) 1 $ _paletteData p
 
+-- | Describe an image and it's potential associated
+-- palette. If no palette is present, fallback to a
+-- DynamicImage
 data PalettedImage
-    = TrueColorImage DynamicImage
-    | PalettedY8    (Image Pixel8) (Palette' Pixel8)
-    | PalettedRGB8  (Image Pixel8) (Palette' PixelRGB8)
-    | PalettedRGBA8 (Image Pixel8) (Palette' PixelRGBA8)
-    | PalettedRGB16 (Image Pixel8) (Palette' PixelRGB16)
-    deriving (Typeable)
+  = TrueColorImage DynamicImage -- ^ Fallback
+  | PalettedY8    (Image Pixel8) (Palette' Pixel8)
+  | PalettedRGB8  (Image Pixel8) (Palette' PixelRGB8)
+  | PalettedRGBA8 (Image Pixel8) (Palette' PixelRGBA8)
+  | PalettedRGB16 (Image Pixel8) (Palette' PixelRGB16)
+  deriving (Typeable)
 
+-- | Flatten a PalettedImage to a DynamicImage
 palettedToTrueColor :: PalettedImage -> DynamicImage
 palettedToTrueColor img = case img of
   TrueColorImage d -> d

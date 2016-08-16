@@ -26,6 +26,7 @@ module Codec.Picture (
                      , generateImage
                      , generateFoldImage
                      , withImage
+                     , palettedToTrueColor
 
                       -- * RGB helper functions
                      , convertRGB8
