@@ -457,7 +457,7 @@ palette8 hdr palette transparency eimg = case (transparency, eimg) of
   ([c], Left img) ->
     Right . PalettedRGBA8 (Image w h img) $ addTransparencyToPalette palette c
   (_, Left img) ->
-    pure $ PalettedRGB8 (Image w h img) palette
+    return $ PalettedRGB8 (Image w h img) palette
   (_, Right _) ->
     Left "Invalid bit depth for paleted image"
   where
