@@ -1,6 +1,10 @@
 Change log
 ==========
 
+v3.2.8 August 2016
+------------------
+ * Added: possibility to retrieve the parsed palette.
+
 v3.2.7.2 June 2016
 ------------------
  * Fix: no more libjpeg warning when decoding Juicy.Pixels encoded images.
