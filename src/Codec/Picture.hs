@@ -21,6 +21,7 @@ module Codec.Picture (
                      , readImageWithMetadata
                      , decodeImage
                      , decodeImageWithMetadata
+                     , decodeImageWithPaletteAndMetadata
                      , pixelMap
                      , generateImage
                      , generateFoldImage
@@ -145,13 +146,14 @@ module Codec.Picture (
 import Control.Applicative( (<$>) )
 #endif
 
+import Control.Arrow( first )
 import Data.Bits( unsafeShiftR )
 import Control.DeepSeq( NFData, deepseq )
 import qualified Control.Exception as Exc ( catch, IOException )
 import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.Bitmap( BmpEncodable
                            , decodeBitmap
-                           , decodeBitmapWithMetadata
+                           , decodeBitmapWithPaletteAndMetadata
                            , writeBitmap, encodeBitmap
                            , encodeDynamicBitmap, writeDynamicBitmap )
 import Codec.Picture.Jpg( decodeJpeg
@@ -160,7 +162,7 @@ import Codec.Picture.Jpg( decodeJpeg
                         , encodeJpegAtQuality )
 import Codec.Picture.Png( PngSavable( .. )
                         , decodePng
-                        , decodePngWithMetadata
+                        , decodePngWithPaletteAndMetadata
                         , writePng
                         , encodeDynamicPng
                         , encodePalettedPng
@@ -170,7 +172,7 @@ import Codec.Picture.Png( PngSavable( .. )
 import Codec.Picture.Gif( GifDelay
                         , GifLooping( .. )
                         , decodeGif
-                        , decodeGifWithMetadata
+                        , decodeGifWithPaletteAndMetadata
                         , decodeGifImages
                         , encodeGifImage
                         , encodeGifImageWithPalette
@@ -187,13 +189,13 @@ import Codec.Picture.HDR( decodeHDR
                         , writeHDR
                         )
 import Codec.Picture.Tiff( decodeTiff
-                         , decodeTiffWithMetadata
+                         , decodeTiffWithPaletteAndMetadata
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff )
 import Codec.Picture.Tga( TgaSaveable
                         , decodeTga
-                        , decodeTgaWithMetadata
+                        , decodeTgaWithPaletteAndMetadata
                         , encodeTga
                         , writeTga
                         )
@@ -358,19 +360,24 @@ convertRGB8 dynImage = case dynImage of
   ImageCMYK8  img -> convertImage img
   ImageCMYK16 img -> convertImage (decimateBitDepth img :: Image PixelCMYK8)
 
+-- | Equivalent to 'decodeImage', but also provide potential metadatas
+-- present in the given file and the palettes if the format provides them.
+decodeImageWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodeImageWithPaletteAndMetadata str = eitherLoad str
+    [ ("Jpeg", fmap (first TrueColorImage) . decodeJpegWithMetadata)
+    , ("PNG", decodePngWithPaletteAndMetadata)
+    , ("Bitmap", decodeBitmapWithPaletteAndMetadata)
+    , ("GIF", decodeGifWithPaletteAndMetadata)
+    , ("HDR", fmap (first TrueColorImage) . decodeHDRWithMetadata)
+    , ("Tiff", decodeTiffWithPaletteAndMetadata)
+    , ("TGA", decodeTgaWithPaletteAndMetadata)
+    ]
 
 -- | Equivalent to 'decodeImage', but also provide potential metadatas
 -- present in the given file.
 decodeImageWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodeImageWithMetadata str = eitherLoad str
-    [ ("Jpeg", decodeJpegWithMetadata)
-    , ("PNG", decodePngWithMetadata)
-    , ("Bitmap", decodeBitmapWithMetadata)
-    , ("GIF", decodeGifWithMetadata)
-    , ("HDR", decodeHDRWithMetadata)
-    , ("Tiff", decodeTiffWithMetadata)
-    , ("TGA", decodeTgaWithMetadata)
-    ]
+decodeImageWithMetadata =
+    fmap (first palettedToTrueColor) . decodeImageWithPaletteAndMetadata
 
 -- | Helper function trying to load a png file from a file on disk.
 readPng :: FilePath -> IO (Either String DynamicImage)

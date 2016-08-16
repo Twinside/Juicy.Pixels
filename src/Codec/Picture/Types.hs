@@ -19,7 +19,7 @@ module Codec.Picture.Types( -- * Types
                           , PalettedImage( .. )
                           , Palette
                           , Palette'( .. )
-                          , paletteAsImage
+                          , palettedAsImage
 
                             -- ** Image functions
                           , createMutableImage
@@ -399,8 +399,10 @@ data Palette' px = Palette'
   }
   deriving Typeable
 
-paletteAsImage :: Palette' px -> Image px
-paletteAsImage p = Image (_paletteSize p) 1 $ _paletteData p
+-- | Apply the palete to a paletted image, giving back it's
+-- corresponding
+palettedAsImage :: Palette' px -> Image px
+palettedAsImage p = Image (_paletteSize p) 1 $ _paletteData p
 
 data PalettedImage
     = TrueColorImage DynamicImage

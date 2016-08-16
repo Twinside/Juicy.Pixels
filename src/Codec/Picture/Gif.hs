@@ -6,6 +6,7 @@
 module Codec.Picture.Gif ( -- * Reading
                            decodeGif
                          , decodeGifWithMetadata
+                         , decodeGifWithPaletteAndMetadata
                          , decodeGifImages
                          , getDelaysGifImages
 
@@ -26,6 +27,7 @@ module Codec.Picture.Gif ( -- * Reading
 import Control.Applicative( pure, (<*>), (<$>) )
 #endif
 
+import Control.Arrow( first )
 import Control.Monad( replicateM, replicateM_, unless )
 import Control.Monad.ST( runST )
 import Control.Monad.Trans.Class( lift )
@@ -570,7 +572,7 @@ hasTransparency :: Maybe GraphicControlExtension -> Bool
 hasTransparency Nothing = False
 hasTransparency (Just control) = gceTransparentFlag control
 
-decodeAllGifImages :: GifFile -> [DynamicImage]
+decodeAllGifImages :: GifFile -> [PalettedImage]
 decodeAllGifImages GifFile { gifImages = [] } = []
 decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
                                                    , gifScreenDescriptor = wholeDescriptor }
@@ -579,11 +581,17 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
       let backImage =
               generateImage (\_ _ -> backgroundColor) globalWidth globalHeight
           thisPalette = paletteOf palette firstImage
+          baseImage = decodeImage firstImage
           initState =
-            (thisPalette, firstControl, substituteColors thisPalette $ decodeImage firstImage)
+            (thisPalette, firstControl, substituteColors thisPalette baseImage)
           scanner = gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage
+          palette' = Palette'
+            { _paletteSize = imageWidth thisPalette
+            , _paletteData = imageData thisPalette
+            }
       in
-      [ImageRGB8 img | (_, _, img) <- scanl scanner initState rest]
+      PalettedRGB8 baseImage palette' :
+        [TrueColorImage $ ImageRGB8 img | (_, _, img) <- tail $ scanl scanner initState rest]
 
   | otherwise =
       let backImage :: Image PixelRGBA8
@@ -601,7 +609,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
           initState = (thisPalette, firstControl, decoded)
           scanner =
             gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage in
-      [ImageRGBA8 img | (_, _, img) <- scanl scanner initState rest]
+      [TrueColorImage $ ImageRGBA8 img | (_, _, img) <- scanl scanner initState rest]
 
     where 
       globalWidth = fromIntegral $ screenWidth wholeDescriptor
@@ -662,7 +670,7 @@ gifAnimationApplyer (globalWidth, globalHeight) globalPalette backgroundImage
           val = pixelAt thisPalette (fromIntegral code) 0
     pixeler x y = pixelAt oldImage x y
 
-decodeFirstGifImage :: GifFile -> Either String (DynamicImage, Metadatas)
+decodeFirstGifImage :: GifFile -> Either String (PalettedImage, Metadatas)
 decodeFirstGifImage img@GifFile { gifImages = (firstImage:_) } =
     case decodeAllGifImages img { gifImages = [firstImage] } of
       [] -> Left "No image after decoding"
@@ -678,7 +686,7 @@ decodeFirstGifImage _ = Left "No image in gif file"
 --  * 'ImageRGBA8'
 --
 decodeGif :: B.ByteString -> Either String DynamicImage
-decodeGif img = decode img >>= (fmap fst . decodeFirstGifImage)
+decodeGif img = decode img >>= (fmap (palettedToTrueColor . fst) . decodeFirstGifImage)
 
 -- | Transform a raw gif image to an image, without modifying the pixels.  This
 -- function can output the following images:
@@ -690,13 +698,18 @@ decodeGif img = decode img >>= (fmap fst . decodeFirstGifImage)
 -- Metadatas include Width & Height information.
 --
 decodeGifWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodeGifWithMetadata img = decode img >>= decodeFirstGifImage
+decodeGifWithMetadata img = first palettedToTrueColor <$> decodeGifWithPaletteAndMetadata img
 
+-- | Return the gif image with metadata and palette.
+-- The palette is only returned for the first image of an
+-- animation and has no transparency.
+decodeGifWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodeGifWithPaletteAndMetadata img = decode img >>= decodeFirstGifImage
 
 -- | Transform a raw gif to a list of images, representing
 -- all the images of an animation.
 decodeGifImages :: B.ByteString -> Either String [DynamicImage]
-decodeGifImages img = decodeAllGifImages <$> decode img
+decodeGifImages img = fmap palettedToTrueColor . decodeAllGifImages <$> decode img
 
 -- | Extract a list of frame delays from a raw gif.
 getDelaysGifImages :: B.ByteString -> Either String [GifDelay]

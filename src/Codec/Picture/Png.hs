@@ -412,7 +412,7 @@ paletteRGB4 = generateGreyscalePalette 4
 
 addTransparencyToPalette :: PngPalette -> Lb.ByteString -> Palette' PixelRGBA8
 addTransparencyToPalette pal transpBuffer = 
-  Palette' (_paletteSize pal) . imageData . pixelMapXY addOpacity $ paletteAsImage pal
+  Palette' (_paletteSize pal) . imageData . pixelMapXY addOpacity $ palettedAsImage pal
   where 
     maxi = fromIntegral $ Lb.length transpBuffer
     addOpacity ix _ (PixelRGB8 r g b) | ix < maxi =
