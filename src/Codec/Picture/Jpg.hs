@@ -353,7 +353,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
                          , coefficientRange =
                              ( fromIntegral selectionLow
                              , fromIntegral selectionHigh )
-                         , blockIndex = y * ySampling + x
+                         , blockIndex = y * xSampling + x
                          , blockMcuX = x
                          , blockMcuY = y
                          }, unpackerDecision compCount componentSubSampling)
