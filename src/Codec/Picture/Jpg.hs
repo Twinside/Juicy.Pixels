@@ -423,8 +423,8 @@ decodeImage frame quants lst outImage = do
         maxiW = maximum [fst $ subSampling c | (c,_) <- params]
         maxiH = maximum [snd $ subSampling c | (c,_) <- params]
 
-        imageBlockWidth = (imgWidth + 7) `div` 8
-        imageBlockHeight = (imgHeight + 7) `div` 8
+        imageBlockWidth = toBlockSize imgWidth
+        imageBlockHeight = toBlockSize imgHeight
 
         imageMcuWidth = (imageBlockWidth + (maxiW - 1)) `div` maxiW
         imageMcuHeight = (imageBlockHeight + (maxiH - 1)) `div` maxiH

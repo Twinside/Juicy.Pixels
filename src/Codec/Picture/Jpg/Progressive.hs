@@ -36,12 +36,9 @@ createMcuLineIndices param imgWidth mcuWidth =
  V.fromList $ VS.fromList <$> [indexSolo, indexMulti]
   where compW = fromIntegral $ horizontalSamplingFactor param
         compH = fromIntegral $ verticalSamplingFactor param
-        imageBlockSize = (imgWidth + 7) `div` 8
+        imageBlockSize = toBlockSize imgWidth
 
-        indexSolo =
-            [y * mcuWidth * compW + x
-                | y <- [0 .. compH - 1], x <- [0 .. imageBlockSize - 1]]
-
+        indexSolo = take (imageBlockSize * compH) [0 ..]
         indexMulti = 
             [(mcu + y * mcuWidth) * compW + x
                 | mcu <- [0 .. mcuWidth - 1]
@@ -195,13 +192,13 @@ prepareUnpacker lst = do
                  selection _      _      = decodeRefineAc
 
 data ComponentData s = ComponentData
-    { componentIndices    :: V.Vector (VS.Vector Int)
-    , componentBlocks     :: V.Vector (MutableMacroBlock s Int16)
-    , componentId         :: !Int
-    , componentBlockCount :: !Int
-    }
+  { componentIndices    :: V.Vector (VS.Vector Int)
+  , componentBlocks     :: V.Vector (MutableMacroBlock s Int16)
+  , componentId         :: !Int
+  , componentBlockCount :: !Int
+  }
 
--- | Iteration from to n in monadic context, without data
+-- | Iteration from 0 to n in monadic context, without data
 -- keeping.
 lineMap :: (Monad m) => Int -> (Int -> m ()) -> m ()
 {-# INLINE lineMap #-}
@@ -259,6 +256,8 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
             let componentNumber = componentIndex unpackParam
             writeIndex <- writeIndices `MS.read` componentNumber
             let componentData = allBlocks !! componentNumber
+                -- We get back the correct block indices for the number of component
+                -- in the current scope (precalculated)
                 indexVector =
                     componentIndices componentData ! indiceVector unpackParam
                 maxIndexLength = VS.length indexVector
@@ -305,14 +304,14 @@ progressiveUnpack (maxiW, maxiH) frame quants lst = do
         imgWidth = fromIntegral $ jpgWidth frame
         imgHeight = fromIntegral $ jpgHeight frame
 
-        imageBlockWidth = (imgWidth + 7) `div` 8
-        imageBlockHeight = (imgHeight + 7) `div` 8
+        imageBlockWidth = toBlockSize imgWidth
+        imageBlockHeight = toBlockSize imgHeight
 
-        imageMcuWidth = (imageBlockWidth + (maxiW - 1)) `div` maxiW
+        imageMcuWidth =  (imageBlockWidth + (maxiW - 1)) `div` maxiW
         imageMcuHeight = (imageBlockHeight + (maxiH - 1)) `div` maxiH
 
         allocateWorkingBlocks (ix, comp) = do
-            let blockCount = hSample * vSample * imageMcuWidth
+            let blockCount = hSample * vSample * imageMcuWidth * 2
             blocks <- V.replicateM blockCount createEmptyMutableMacroBlock
             return ComponentData 
                 { componentBlocks = blocks
