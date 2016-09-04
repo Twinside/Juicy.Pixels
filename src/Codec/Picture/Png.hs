@@ -21,6 +21,8 @@ module Codec.Picture.Png( -- * High level functions
 
                         , decodePng
                         , decodePngWithMetadata
+                        , decodePngWithPaletteAndMetadata
+
                         , writePng
                         , encodeDynamicPng
                         , encodePalettedPng
@@ -32,6 +34,7 @@ module Codec.Picture.Png( -- * High level functions
 import Control.Applicative( (<$>) )
 #endif
 
+import Control.Arrow( first )
 import Control.Monad( forM_, foldM_, when, void )
 import Control.Monad.ST( ST, runST )
 import Data.Monoid( (<>) )
@@ -389,7 +392,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         Right <$> V.unsafeFreeze imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette bits = Image (maxValue+1) 1 vec
+generateGreyscalePalette bits = Palette' (maxValue+1) vec
     where maxValue = 2 ^ bits - 1
           vec = V.fromListN ((fromIntegral maxValue + 1) * 3) $ concat pixels
           pixels = [[i, i, i] | n <- [0 .. maxValue]
@@ -407,43 +410,31 @@ paletteRGB1 = generateGreyscalePalette 1
 paletteRGB2 = generateGreyscalePalette 2
 paletteRGB4 = generateGreyscalePalette 4
 
-{-# INLINE bounds #-}
-bounds :: Storable a => V.Vector a -> (Int, Int)
-bounds v = (0, V.length v - 1)
-
-applyPalette :: PngPalette -> V.Vector Word8 -> V.Vector Word8
-applyPalette pal img = V.fromListN ((initSize + 1) * 3) pixels
-    where (_, initSize) = bounds img
-          pixels = concat [[r, g, b] | ipx <- V.toList img
-                                     , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0]
-
-applyPaletteWithTransparency :: PngPalette -> Lb.ByteString -> V.Vector Word8
-                             -> V.Vector Word8
-applyPaletteWithTransparency pal transpBuffer img = V.fromListN ((initSize + 1) * 4) pixels
-    where (_, initSize) = bounds img
-          maxi = Lb.length transpBuffer
-          pixels = concat
-            [ [r, g, b, opacity]
-                  | ipx <- V.toList img
-                  , let PixelRGB8 r g b = pixelAt pal (fromIntegral ipx) 0
-                        opacity | fromIntegral ipx < maxi = Lb.index transpBuffer $ fromIntegral ipx
-                                | otherwise = 255]
+addTransparencyToPalette :: PngPalette -> Lb.ByteString -> Palette' PixelRGBA8
+addTransparencyToPalette pal transpBuffer = 
+  Palette' (_paletteSize pal) . imageData . pixelMapXY addOpacity $ palettedAsImage pal
+  where 
+    maxi = fromIntegral $ Lb.length transpBuffer
+    addOpacity ix _ (PixelRGB8 r g b) | ix < maxi =
+      PixelRGBA8 r g b $ Lb.index transpBuffer (fromIntegral ix)
+    addOpacity _ _ (PixelRGB8 r g b) = PixelRGBA8 r g b 255
 
 unparse :: PngIHdr -> Maybe PngPalette -> [Lb.ByteString] -> PngImageType
-        -> B.ByteString -> Either String DynamicImage
+        -> B.ByteString -> Either String PalettedImage
 unparse ihdr _ t PngGreyscale bytes
-    | bitDepth ihdr == 1 = unparse ihdr (Just paletteRGB1) t PngIndexedColor bytes
-    | bitDepth ihdr == 2 = unparse ihdr (Just paletteRGB2) t PngIndexedColor bytes
-    | bitDepth ihdr == 4 = unparse ihdr (Just paletteRGB4) t PngIndexedColor bytes
-    | otherwise = toImage ihdr ImageY8 ImageY16 $ runST $ deinterlacer ihdr bytes
+  | bitDepth ihdr == 1 = unparse ihdr (Just paletteRGB1) t PngIndexedColor bytes
+  | bitDepth ihdr == 2 = unparse ihdr (Just paletteRGB2) t PngIndexedColor bytes
+  | bitDepth ihdr == 4 = unparse ihdr (Just paletteRGB4) t PngIndexedColor bytes
+  | otherwise =
+      fmap TrueColorImage . toImage ihdr ImageY8 ImageY16 $ runST $ deinterlacer ihdr bytes
 
 unparse _ Nothing _ PngIndexedColor  _ = Left "no valid palette found"
 unparse ihdr _ _ PngTrueColour          bytes =
-  toImage ihdr ImageRGB8 ImageRGB16 $ runST $ deinterlacer ihdr bytes
+  fmap TrueColorImage . toImage ihdr ImageRGB8 ImageRGB16 $ runST $ deinterlacer ihdr bytes
 unparse ihdr _ _ PngGreyscaleWithAlpha  bytes =
-  toImage ihdr ImageYA8 ImageYA16 $ runST $ deinterlacer ihdr bytes
+  fmap TrueColorImage . toImage ihdr ImageYA8 ImageYA16 $ runST $ deinterlacer ihdr bytes
 unparse ihdr _ _ PngTrueColourWithAlpha bytes =
-  toImage ihdr ImageRGBA8 ImageRGBA16 $ runST $ deinterlacer ihdr bytes
+  fmap TrueColorImage . toImage ihdr ImageRGBA8 ImageRGBA16 $ runST $ deinterlacer ihdr bytes
 unparse ihdr (Just plte) transparency PngIndexedColor bytes =
   palette8 ihdr plte transparency $ runST $ deinterlacer ihdr bytes
 
@@ -461,13 +452,12 @@ toImage hdr const1 const2 lr = Right $ case lr of
     h = fromIntegral $ height hdr
 
 palette8 :: PngIHdr -> PngPalette -> [Lb.ByteString] -> Either (V.Vector Word8) t
-         -> Either String DynamicImage
+         -> Either String PalettedImage
 palette8 hdr palette transparency eimg = case (transparency, eimg) of
   ([c], Left img) ->
-    Right . ImageRGBA8 . Image w h
-          $ applyPaletteWithTransparency palette c img
+    Right . PalettedRGBA8 (Image w h img) $ addTransparencyToPalette palette c
   (_, Left img) ->
-    Right . ImageRGB8 . Image w h $ applyPalette palette img
+    return $ PalettedRGB8 (Image w h img) palette
   (_, Right _) ->
     Left "Invalid bit depth for paleted image"
   where
@@ -502,10 +492,14 @@ palette8 hdr palette transparency eimg = case (transparency, eimg) of
 decodePng :: B.ByteString -> Either String DynamicImage
 decodePng = fmap fst . decodePngWithMetadata
 
+-- | Decode a PNG file with, possibly, separated palette.
+decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
+decodePngWithMetadata b = first palettedToTrueColor <$> decodePngWithPaletteAndMetadata b
+
 -- | Same as 'decodePng' but also extract meta datas present
 -- in the files.
-decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodePngWithMetadata byte =  do
+decodePngWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodePngWithPaletteAndMetadata byte =  do
   rawImg <- runGetStrict get byte
   let ihdr = header rawImg
       metadatas =

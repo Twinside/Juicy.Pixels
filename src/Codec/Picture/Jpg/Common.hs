@@ -17,6 +17,7 @@ module Codec.Picture.Jpg.Common
     , rasterMap
     , decodeMacroBlock
     , decodeRestartInterval
+    , toBlockSize
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -53,12 +54,21 @@ data JpgUnpackerParameter = JpgUnpackerParameter
     , coefficientRange     :: !(Int, Int)
     , successiveApprox     :: !(Int, Int)
     , readerIndex          :: {-# UNPACK #-} !Int
+      -- | When in progressive mode, we can have many
+      -- color in a scan are only one. The indices changes
+      -- on this fact, when mixed, there is whole 
+      -- MCU for all color components, spanning multiple
+      -- block lines. With only one color component we use
+      -- the normal raster order.
     , indiceVector         :: {-# UNPACK #-} !Int
     , blockIndex           :: {-# UNPACK #-} !Int
     , blockMcuX            :: {-# UNPACK #-} !Int
     , blockMcuY            :: {-# UNPACK #-} !Int
     }
     deriving Show
+
+toBlockSize :: Int -> Int
+toBlockSize v = (v + 7) `div` 8
 
 decodeRestartInterval :: BoolReader s Int32
 decodeRestartInterval = return (-1) {-  do
@@ -195,9 +205,9 @@ pixelClamp n = fromIntegral . min 255 $ max 0 n
 unpackMacroBlock :: Int    -- ^ Component count
                  -> Int -- ^ Width coefficient
                  -> Int -- ^ Height coefficient
+                 -> Int -- ^ Component index
                  -> Int -- ^ x
                  -> Int -- ^ y
-                 -> Int    -- ^ Component index
                  -> MutableImage s PixelYCbCr8
                  -> MutableMacroBlock s Int16
                  -> ST s ()

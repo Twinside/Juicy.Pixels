@@ -16,7 +16,9 @@ module Codec.Picture.Types( -- * Types
                             Image( .. )
                           , MutableImage( .. )
                           , DynamicImage( .. )
+                          , PalettedImage( .. )
                           , Palette
+                          , Palette'( .. )
 
                             -- ** Image functions
                           , createMutableImage
@@ -65,6 +67,8 @@ module Codec.Picture.Types( -- * Types
 
                           , dynamicMap
                           , dynamicPixelMap
+                          , palettedToTrueColor
+                          , palettedAsImage
                           , dropAlphaLayer
                           , withImage
                           , zipPixelComponent3
@@ -388,6 +392,44 @@ data DynamicImage =
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
     deriving (Typeable)
+
+-- | Type used to expose a palette extracted during reading.
+-- Use palettedAsImage to convert it to a palette usable for
+-- writing.
+data Palette' px = Palette'
+  { -- | Number of element in pixels.
+    _paletteSize :: !Int
+    -- | Real data used by the palette.
+  , _paletteData :: !(V.Vector (PixelBaseComponent px))
+  }
+  deriving Typeable
+
+-- | Convert a palette to an image. Used mainly for
+-- backward compatibility.
+palettedAsImage :: Palette' px -> Image px
+palettedAsImage p = Image (_paletteSize p) 1 $ _paletteData p
+
+-- | Describe an image and it's potential associated
+-- palette. If no palette is present, fallback to a
+-- DynamicImage
+data PalettedImage
+  = TrueColorImage DynamicImage -- ^ Fallback
+  | PalettedY8    (Image Pixel8) (Palette' Pixel8)
+  | PalettedRGB8  (Image Pixel8) (Palette' PixelRGB8)
+  | PalettedRGBA8 (Image Pixel8) (Palette' PixelRGBA8)
+  | PalettedRGB16 (Image Pixel8) (Palette' PixelRGB16)
+  deriving (Typeable)
+
+-- | Flatten a PalettedImage to a DynamicImage
+palettedToTrueColor :: PalettedImage -> DynamicImage
+palettedToTrueColor img = case img of
+  TrueColorImage d -> d
+  PalettedY8    i p -> ImageY8 $ toTrueColor 1 (_paletteData p) i
+  PalettedRGB8  i p -> ImageRGB8 $ toTrueColor 3 (_paletteData p) i
+  PalettedRGBA8 i p -> ImageRGBA8 $ toTrueColor 4 (_paletteData p) i
+  PalettedRGB16 i p -> ImageRGB16 $ toTrueColor 3 (_paletteData p) i
+  where 
+    toTrueColor c vec = pixelMap (unsafePixelAt vec . (c *) . fromIntegral)
 
 -- | Helper function to help extract information from dynamic
 -- image. To get the width of a dynamic image, you can use

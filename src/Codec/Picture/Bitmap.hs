@@ -11,6 +11,7 @@ module Codec.Picture.Bitmap( -- * Functions
                            , encodeBitmapWithMetadata
                            , decodeBitmap
                            , decodeBitmapWithMetadata
+                           , decodeBitmapWithPaletteAndMetadata
                            , encodeDynamicBitmap 
                            , encodeBitmapWithPaletteAndMetadata
                            , writeDynamicBitmap 
@@ -23,10 +24,10 @@ import Data.Monoid( mempty )
 import Control.Applicative( (<$>) )
 #endif
 
-import Control.Monad( when, foldM_, forM_ )
+import Control.Arrow( first )
+import Control.Monad( replicateM, when, foldM_, forM_ )
 import Control.Monad.ST ( ST, runST )
 import Data.Maybe( fromMaybe )
-import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 import Data.Binary( Binary( .. ) )
@@ -333,13 +334,13 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
       inner (readIdx + 1) (writeIdx + 1)
 
 
-pixelGet :: Get PixelRGB8
+pixelGet :: Get [Word8]
 pixelGet = do
     b <- getWord8
     g <- getWord8
     r <- getWord8
     _ <- getWord8
-    return $ PixelRGB8 r g b
+    return $ [r, g, b]
 
 metadataOfHeader :: BmpInfoHeader -> Metadatas
 metadataOfHeader hdr = 
@@ -362,7 +363,12 @@ decodeBitmap = fmap fst . decodeBitmapWithMetadata
 
 -- | Same as 'decodeBitmap' but also extracts metadata.
 decodeBitmapWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodeBitmapWithMetadata str = flip runGetStrict str $ do
+decodeBitmapWithMetadata byte =
+  first palettedToTrueColor <$> decodeBitmapWithPaletteAndMetadata byte
+
+-- | Same as 'decodeBitmap' but also extracts metadata and provide separated palette.
+decodeBitmapWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodeBitmapWithPaletteAndMetadata str = flip runGetStrict str $ do
   hdr      <- get :: Get BmpHeader
   bmpHeader <- get :: Get BmpInfoHeader
 
@@ -390,7 +396,8 @@ decodeBitmapWithMetadata str = flip runGetStrict str $ do
               bitmapCompression bmpHeader) of
     (32, 1, 0) -> do
       rest <- getData
-      return . addMetadata . ImageRGBA8 $ decodeImageRGBA8 bmpHeader (2, 1, 0, 3) rest
+      return . addMetadata . TrueColorImage . ImageRGBA8 
+             $ decodeImageRGBA8 bmpHeader (2, 1, 0, 3) rest
       -- (2, 1, 0, 3) means BGRA pixel order
     (32, 1, 3) -> do
       posRed   <- getBitfield
@@ -398,16 +405,20 @@ decodeBitmapWithMetadata str = flip runGetStrict str $ do
       posBlue  <- getBitfield
       posAlpha <- getBitfield
       rest     <- getData
-      return . addMetadata . ImageRGBA8 $
+      return . addMetadata . TrueColorImage . ImageRGBA8 $
         decodeImageRGBA8 bmpHeader (posRed, posGreen, posBlue, posAlpha) rest
     (24, 1, 0) -> do
       rest <- getData
-      return . addMetadata . ImageRGB8  $ decodeImageRGB8  bmpHeader rest
+      return . addMetadata . TrueColorImage . ImageRGB8  $ 
+        decodeImageRGB8  bmpHeader rest
     ( 8, 1, 0) -> do
-      table <- V.replicateM paletteColorCount pixelGet
+      table <- replicateM paletteColorCount pixelGet
       rest <- getData
-      let indexer v = table V.! fromIntegral v
-      return . addMetadata . ImageRGB8 . pixelMap indexer $ decodeImageY8 bmpHeader rest
+      let palette = Palette'
+            { _paletteSize = paletteColorCount
+            , _paletteData = VS.fromListN (paletteColorCount * 3) $ concat table
+            }
+      return . addMetadata $ PalettedRGB8 (decodeImageY8 bmpHeader rest) palette
 
     a          -> fail $ "Can't handle BMP file " ++ show a
 

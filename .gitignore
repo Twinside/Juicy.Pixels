@@ -1,4 +1,5 @@
 dist
+.stack-work
 tags
 *.o
 *.hi

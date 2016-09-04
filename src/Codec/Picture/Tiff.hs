@@ -27,6 +27,7 @@
 --
 module Codec.Picture.Tiff( decodeTiff
                          , decodeTiffWithMetadata
+                         , decodeTiffWithPaletteAndMetadata
                          , TiffSaveable
                          , encodeTiff
                          , writeTiff
@@ -37,6 +38,7 @@ import Control.Applicative( (<$>), (<*>), pure )
 import Data.Monoid( mempty )
 #endif
 
+import Control.Arrow( first )
 import Control.Monad( when, foldM_, unless, forM_ )
 import Control.Monad.ST( ST, runST )
 import Control.Monad.Writer.Strict( execWriter, tell, Writer )
@@ -630,7 +632,13 @@ instance BinaryParam B.ByteString TiffInfo where
                      >>= predictorOfConstant)
         <*> pure (extractTiffMetadata cleaned)
 
-unpack :: B.ByteString -> TiffInfo -> Either String DynamicImage
+palette16Of :: Image PixelRGB16 -> Palette' PixelRGB16
+palette16Of p = Palette'
+    { _paletteSize = imageWidth p
+    , _paletteData = imageData p
+    }
+
+unpack :: B.ByteString -> TiffInfo -> Either String PalettedImage
 -- | while mandatory some images don't put correct
 -- rowperstrip. So replacing 0 with actual image height.
 unpack file nfo@TiffInfo { tiffRowPerStrip = 0 } =
@@ -641,74 +649,60 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffPaleted
                          , tiffPalette = Just p
                          }
   | lst == V.singleton 8 && format == [TiffSampleUint] =
-      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
-          gathered :: Image Pixel8
-          gathered = gatherStrips (0 :: Word8) file nfo
-      in
-      pure . ImageRGB16 $ applyPalette gathered
-
+      pure . PalettedRGB16 (gatherStrips (0 :: Word8) file nfo) $ palette16Of p
   | lst == V.singleton 4 && format == [TiffSampleUint] =
-      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
-          gathered :: Image Pixel8
-          gathered = gatherStrips Pack4 file nfo
-      in
-      pure . ImageRGB16 $ applyPalette gathered
-
+      pure . PalettedRGB16 (gatherStrips Pack4 file nfo) $ palette16Of p
   | lst == V.singleton 2 && format == [TiffSampleUint] =
-      let applyPalette = pixelMap (\v -> pixelAt p (fromIntegral v) 0)
-          gathered :: Image Pixel8
-          gathered = gatherStrips Pack2 file nfo
-      in
-      pure . ImageRGB16 $ applyPalette gathered
+      pure . PalettedRGB16 (gatherStrips Pack2 file nfo) $ palette16Of p
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffCMYK
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
-        pure . ImageCMYK8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageCMYK8 $ gatherStrips (0 :: Word8) file nfo
 
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
-        pure . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
+        pure . TrueColorImage . ImageCMYK16 $ gatherStrips (0 :: Word16) file nfo
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
     img <- unpack file (nfo { tiffColorspace = TiffMonochrome })
     case img of
-      ImageY8 i -> pure . ImageY8 $ pixelMap (maxBound -) i
-      ImageY16 i -> pure . ImageY16 $ pixelMap (maxBound -) i
-      ImageYA8 i -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
-                    in pure . ImageYA8 $ pixelMap negative i
-      ImageYA16 i -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
-                     in pure . ImageYA16 $ pixelMap negative i
+      TrueColorImage (ImageY8 i) -> pure . TrueColorImage . ImageY8 $ pixelMap (maxBound -) i
+      TrueColorImage (ImageY16 i) -> pure . TrueColorImage . ImageY16 $ pixelMap (maxBound -) i
+      TrueColorImage (ImageYA8 i) -> let negative (PixelYA8 y a) = PixelYA8 (maxBound - y) a
+                    in pure . TrueColorImage . ImageYA8 $ pixelMap negative i
+      TrueColorImage (ImageYA16 i) -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
+                     in pure . TrueColorImage . ImageYA16 $ pixelMap negative i
       _ -> fail "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.singleton 2 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
+        pure . TrueColorImage . ImageY8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.singleton 4 && all (TiffSampleUint ==) format =
-        pure . ImageY8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
+        pure . TrueColorImage . ImageY8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.singleton 8 && all (TiffSampleUint ==) format =
-        pure . ImageY8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageY8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.singleton 12 && all (TiffSampleUint ==) format =
-        pure . ImageY16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
+        pure . TrueColorImage . ImageY16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
-        pure . ImageY16 $ gatherStrips (0 :: Word16) file nfo
+        pure . TrueColorImage . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
         let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
             img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
         in
-        pure . ImageY16 $ pixelMap toWord16 img
+        pure . TrueColorImage . ImageY16 $ pixelMap toWord16 img
   | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
+        pure . TrueColorImage . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageYA8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
+        pure . TrueColorImage . ImageYA8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8] && all (TiffSampleUint ==) format =
-        pure . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageYA8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [12, 12] && all (TiffSampleUint ==) format =
-        pure . ImageYA16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
+        pure . TrueColorImage . ImageYA16 . pixelMap (colorMap expand12to16) $ gatherStrips Pack12 file nfo
   | lst == V.fromList [16, 16] && all (TiffSampleUint ==) format =
-        pure . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
+        pure . TrueColorImage . ImageYA16 $ gatherStrips (0 :: Word16) file nfo
     where
       expand12to16 x = x `unsafeShiftL` 4 + x `unsafeShiftR` (12 - 4)
 
@@ -717,7 +711,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffYCbCr
                          , tiffPlaneConfiguration = PlanarConfigContig
                          , tiffSampleFormat = format }
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
-    pure . ImageYCbCr8 $ gatherStrips cbcrConf  file nfo
+    pure . TrueColorImage . ImageYCbCr8 $ gatherStrips cbcrConf  file nfo
       where defaulting 0 = 2
             defaulting n = n
 
@@ -734,23 +728,23 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffRGB
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   | lst == V.fromList [2, 2, 2] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
+        pure . TrueColorImage . ImageRGB8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4, 4] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
+        pure . TrueColorImage . ImageRGB8 . pixelMap (colorMap (0x11 *)) $ gatherStrips Pack4 file nfo
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [8, 8, 8, 8] && all (TiffSampleUint ==) format =
-        pure . ImageRGBA8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageRGBA8 $ gatherStrips (0 :: Word8) file nfo
   | lst == V.fromList [16, 16, 16] && all (TiffSampleUint ==) format =
-        pure . ImageRGB16 $ gatherStrips (0 :: Word16) file nfo
+        pure . TrueColorImage . ImageRGB16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.fromList [16, 16, 16, 16] && all (TiffSampleUint ==) format =
-        pure . ImageRGBA16 $ gatherStrips (0 :: Word16) file nfo
+        pure . TrueColorImage . ImageRGBA16 $ gatherStrips (0 :: Word16) file nfo
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
                          , tiffSampleFormat = format }
   -- some files are a little bit borked...
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
-        pure . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
+        pure . TrueColorImage . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
 
 unpack _ _ = fail "Failure to unpack TIFF file"
 
@@ -788,7 +782,11 @@ decodeTiff = fmap fst . decodeTiffWithMetadata
 -- The metadata extracted are the 'Codec.Picture.Metadata.DpiX' &
 -- 'Codec.Picture.Metadata.DpiY' information alongside the EXIF informations.
 decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
-decodeTiffWithMetadata file = runGetStrict (getP file) file >>= go
+decodeTiffWithMetadata str = first palettedToTrueColor <$> decodeTiffWithPaletteAndMetadata str
+
+-- | Decode TIFF and provide separated palette and metadata
+decodeTiffWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
+decodeTiffWithPaletteAndMetadata file = runGetStrict (getP file) file >>= go
   where
     go tinfo = (, tiffMetadatas tinfo) <$> unpack file tinfo
     
