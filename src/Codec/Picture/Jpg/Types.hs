@@ -444,16 +444,8 @@ putFrame (JpgHuffmanTable tables) =
     put JpgHuffmanTableMarker >> put (TableList $ map fst tables)
 putFrame (JpgIntervalRestart size) =
     put JpgRestartInterval >> put (RestartInterval size)
-putFrame (JpgScanBlob hdr blob) = do
-    put JpgStartOfScan
-    put hdr
-    putLazyByteString blob
-    putWord8 0 -- AKA the libjpeg pleaser, for some unknown reason
-               -- libjpeg raise a warning "invalid end of data segment".
-               -- so dumbly pad, seems to make the warning go away (and
-               -- I don't want to invest that much time looking for that).
-               --
-               -- Ok this is a crummy fix....
+putFrame (JpgScanBlob hdr blob) =
+    put JpgStartOfScan >> put hdr >> putLazyByteString blob
 putFrame (JpgScans kind hdr) =
     put kind >> put hdr
 
