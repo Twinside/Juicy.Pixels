@@ -888,8 +888,8 @@ instance JpgEncodable PixelYCbCr8 where
         }
 
 instance JpgEncodable PixelRGB8 where
-  additionalBlocks _ = [] where
-    _adobe14 = JpgAdobeApp14
+  additionalBlocks _ = [JpgAdobeAPP14 adobe14] where
+    adobe14 = JpgAdobeApp14
         { _adobeDctVersion = 100
         , _adobeFlag0      = 0
         , _adobeFlag1      = 0
