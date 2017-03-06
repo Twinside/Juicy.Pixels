@@ -5,6 +5,7 @@ v3.2.8.1 March 2016
 -------------------
 
  * Fix: proper flushing of jpeg writing, avoiding warning from libjpeg.
+ * Fix: RGB jpeg get an Adobe's APP14 block to help MacOS & Photoshop reading
 
 v3.2.8 September 2016
 ---------------------
