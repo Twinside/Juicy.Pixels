@@ -212,6 +212,7 @@ newWriteStateRef = do
 
 finalizeBoolWriter :: BoolWriteStateRef s -> ST s L.ByteString
 finalizeBoolWriter st = do
+    flushLeftBits' st
     forceBufferFlushing' st
     L.fromChunks <$> readSTRef (bwsBufferList st)
 
@@ -260,6 +261,13 @@ pushByte' st v = do
     vec <- readSTRef (bwsCurrBuffer st)
     M.write vec idx v
     writeSTRef (bwsWrittenWords st) $ idx + 1
+
+flushLeftBits' :: BoolWriteStateRef s -> ST s ()
+flushLeftBits' st = do
+    currCount <- readSTRef $ bwsBitReaded st
+    when (currCount > 0) $ do
+      currWord <- readSTRef $ bwsBitAcc st
+      pushByte' st $ currWord `unsafeShiftL` (8 - currCount)
 
 -- | Append some data bits to a Put monad.
 writeBits' :: BoolWriteStateRef s

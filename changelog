@@ -1,14 +1,22 @@
 Change log
 ==========
 
+v3.2.8.1 March 2016
+-------------------
+
+ * Fix: proper flushing of jpeg writing, avoiding warning from libjpeg.
+ * Fix: RGB jpeg get an Adobe's APP14 block to help MacOS & Photoshop reading
+
 v3.2.8 September 2016
 ---------------------
+
  * Added: possibility to retrieve the parsed palette.
  * Fix: Fixing problem of progressive Jpeg decoding when
 		block height is different of block width (#)
 
 v3.2.7.2 June 2016
 ------------------
+
  * Fix: no more libjpeg warning when decoding Juicy.Pixels encoded images.
 
 v3.2.7.1 May 2016
