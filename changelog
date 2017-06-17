@@ -1,6 +1,11 @@
 Change log
 ==========
 
+v3.2.8.2 June 2017
+------------------
+
+ * Fix: usage of fail in Either monad, giving an unwanted exception
+
 v3.2.8.1 March 2016
 -------------------
 
