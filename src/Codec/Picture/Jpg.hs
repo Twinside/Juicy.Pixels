@@ -483,10 +483,9 @@ gatherImageKind lst = case [k | JpgScans k _ <- lst, isDctSpecifier k] of
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
 gatherScanInfo img = head [(a, b) | JpgScans a b <- jpgFrame img]
 
-dynamicOfColorSpace :: (Monad m)
-                    => Maybe JpgColorSpace -> Int -> Int -> VS.Vector Word8
-                    -> m DynamicImage
-dynamicOfColorSpace Nothing _ _ _ = fail "Unknown color space"
+dynamicOfColorSpace :: Maybe JpgColorSpace -> Int -> Int -> VS.Vector Word8
+                    -> Either String DynamicImage
+dynamicOfColorSpace Nothing _ _ _ = Left "Unknown color space"
 dynamicOfColorSpace (Just color) w h imgData = case color of
   JpgColorSpaceCMYK -> return . ImageCMYK8 $ Image w h imgData
   JpgColorSpaceYCCK ->
@@ -496,7 +495,7 @@ dynamicOfColorSpace (Just color) w h imgData = case color of
   JpgColorSpaceRGB -> return . ImageRGB8 $ Image w h imgData
   JpgColorSpaceYA -> return . ImageYA8 $ Image w h imgData
   JpgColorSpaceY -> return . ImageY8 $ Image w h imgData
-  colorSpace -> fail $ "Wrong color space : " ++ show colorSpace
+  colorSpace -> Left $ "Wrong color space : " ++ show colorSpace
 
 colorSpaceOfAdobe :: Int -> JpgAdobeApp14 -> Maybe JpgColorSpace
 colorSpaceOfAdobe compCount app = case (compCount, _adobeTransform app) of

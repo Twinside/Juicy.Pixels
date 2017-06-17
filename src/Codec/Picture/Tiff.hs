@@ -673,7 +673,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochromeWhite0 } = do
                     in pure . TrueColorImage . ImageYA8 $ pixelMap negative i
       TrueColorImage (ImageYA16 i) -> let negative (PixelYA16 y a) = PixelYA16 (maxBound - y) a
                      in pure . TrueColorImage . ImageYA16 $ pixelMap negative i
-      _ -> fail "Unsupported color type used with colorspace MonochromeWhite0"
+      _ -> Left "Unsupported color type used with colorspace MonochromeWhite0"
 
 unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
                          , tiffBitsPerSample = lst
@@ -746,7 +746,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . TrueColorImage . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
 
-unpack _ _ = fail "Failure to unpack TIFF file"
+unpack _ _ = Left "Failure to unpack TIFF file"
 
 -- | Decode a tiff encoded image while preserving the underlying
 -- pixel type (except for Y32 which is truncated to 16 bits).

@@ -85,7 +85,7 @@ isRleEncoded v = case v of
   ImageTypeTrueColor   yn -> yn
   ImageTypeMonochrome  yn -> yn
 
-imageTypeOfCode :: Monad m => Word8 -> m TgaImageType
+imageTypeOfCode :: Word8 -> Get TgaImageType
 imageTypeOfCode v = case v .&. 3 of
     0 -> return $ ImageTypeNoData isEncoded
     1 -> return $ ImageTypeColorMapped isEncoded
@@ -267,7 +267,7 @@ prepareUnpacker file f =
     16 -> pure . ImageRGBA8 . flipper $ f Depth15 file
     24 -> pure . ImageRGB8 . flipper $ f Depth24 file
     32 -> pure . ImageRGBA8 . flipper $ f Depth32 file
-    n  -> fail $ "Invalid bit depth (" ++ show n ++ ")"
+    n  -> Left $ "Invalid bit depth (" ++ show n ++ ")"
 
 toPaletted :: (Pixel px)
            => (Image Pixel8 -> Palette' px -> PalettedImage) -> Image px
@@ -278,7 +278,7 @@ toPaletted f palette (ImageY8 img) = pure $ f img pal where
     { _paletteSize = imageWidth palette
     , _paletteData = imageData palette
     }
-toPaletted _ _ _ = fail "Bad colorspace for image"
+toPaletted _ _ _ = Left "Bad colorspace for image"
 
 unparse :: TgaFile -> Either String (PalettedImage, Metadatas)
 unparse file =
@@ -302,7 +302,7 @@ unparse file =
         }
   in
   case imageType of
-    ImageTypeNoData _ -> fail "No data detected in TGA file"
+    ImageTypeNoData _ -> Left "No data detected in TGA file"
     ImageTypeTrueColor _ ->
       fmap ((, metas) . TrueColorImage) $ prepareUnpacker file unpacker
     ImageTypeMonochrome _ ->
@@ -316,7 +316,7 @@ unparse file =
           fmap (, metas) $ prepareUnpacker file unpacker >>= toPaletted PalettedRGB8 img
         Right (TrueColorImage (ImageRGBA8 img), _) ->
           fmap (, metas) $ prepareUnpacker file unpacker >>= toPaletted PalettedRGBA8 img
-        Right _ -> fail "Unknown pixel type"
+        Right _ -> Left "Unknown pixel type"
 
 writeRun :: (Pixel px)
          => M.STVector s (PixelBaseComponent px) -> Int -> px -> Int
@@ -436,7 +436,7 @@ flipImage desc img
     !wMax = w - 1
     !hMax = h - 1
 
-validateTga :: (Monad m) => TgaHeader -> m ()
+validateTga :: TgaHeader -> Get ()
 validateTga hdr
     | _tgaHdrWidth hdr <= 0 = fail "Width is null or negative"
     | _tgaHdrHeight hdr <= 0 = fail "Height is null or negative"
