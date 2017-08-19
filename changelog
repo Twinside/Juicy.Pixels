@@ -1,6 +1,12 @@
 Change log
 ==========
 
+v3.2.9.3 August 2017
+------------------
+
+ * Fix: Jpeg loading of extended sequential jpg, not sure of all
+		the implications, works with the sample
+
 v3.2.8.2 June 2017
 ------------------
 

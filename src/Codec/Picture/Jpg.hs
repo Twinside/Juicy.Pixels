@@ -475,9 +475,11 @@ gatherImageKind :: [JpgFrame] -> Maybe JpgImageKind
 gatherImageKind lst = case [k | JpgScans k _ <- lst, isDctSpecifier k] of
     [JpgBaselineDCTHuffman] -> Just BaseLineDCT
     [JpgProgressiveDCTHuffman] -> Just ProgressiveDCT
+    [JpgExtendedSequentialDCTHuffman] -> Just BaseLineDCT
     _ -> Nothing
   where isDctSpecifier JpgProgressiveDCTHuffman = True
         isDctSpecifier JpgBaselineDCTHuffman = True
+        isDctSpecifier JpgExtendedSequentialDCTHuffman = True
         isDctSpecifier _ = False
 
 gatherScanInfo :: JpgImage -> (JpgFrameKind, JpgFrameHeader)
