@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 import Codec.Picture
 import Codec.Picture.Jpg( JpgEncodable 
+                        , decodeJpegWithMetadata
                         , encodeJpeg
                         , encodeDirectJpegAtQualityWithMetadata )
 import Codec.Picture.Gif
@@ -26,6 +27,7 @@ import Codec.Picture.HDR
 import Codec.Picture.Bitmap( encodeBitmapWithMetadata )
 import Codec.Picture.Png( encodePalettedPngWithMetadata )
 import qualified Codec.Picture.Metadata as Met
+import qualified Codec.Picture.Metadata.Exif as Met
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
@@ -521,8 +523,8 @@ gifTest = ["Gif_pixel_cube.gif"
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
-metadataTest :: IO ()
-metadataTest = do
+metadataWriteTest :: IO ()
+metadataWriteTest = do
   let dumbImage = generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
       mi = Met.insert
       metas = mi Met.Author "It's a me"
@@ -539,10 +541,33 @@ metadataTest = do
   L.writeFile "tests/metadata.bmp" $
       encodeBitmapWithMetadata metas dumbImage
 
+metadataReadTest :: IO ()
+metadataReadTest = do
+  image <- B.readFile "tests/jpeg/10x8-samsung-s8.jpg"
+  case decodeJpegWithMetadata image of
+      Left err -> putStrLn err
+      Right (_, meta) -> checkMeta meta
+  where
+    -- The insert order is important as there is no Eq instance (yet)
+    metas = Met.insert Met.DpiY 72 $
+            Met.insert Met.DpiX 72 $
+            Met.insert Met.Height 3024 $
+            Met.insert Met.Width 4032 $
+            Met.insert (Met.Exif Met.TagLightSource) (Met.ExifLong 0) $
+            Met.insert (Met.Exif Met.TagFlash) (Met.ExifShort 0) $
+            Met.insert Met.Software "G955FXXU1AQJ1\NUL" $
+            Met.insert Met.Format Met.SourceTiff $
+            Met.empty
+    checkMeta meta = if (show meta) == (show metas)
+                     then return ()
+                     else putStrLn $ "Erroneous metadata parsed from file" ++ (show meta) ++ " vs " ++ (show metas)
+
+
 testSuite :: IO ()
 testSuite = do
     putStrLn ">>>> Metadata test"
-    metadataTest
+    metadataWriteTest
+    metadataReadTest
     putStrLn ">>>> Gif animation test"
     gifAnimationTest 
     putStrLn ">>>> Valid instances"
