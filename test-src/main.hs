@@ -19,7 +19,7 @@ import Data.Monoid
 import Data.Word( Word8 )
 import Control.Monad( forM_, liftM )
 import System.FilePath
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
@@ -551,13 +551,16 @@ metadataReadTest = do
     -- The insert order is important as there is no Eq instance (yet)
     metas = Met.insert Met.DpiY 72 $
             Met.insert Met.DpiX 72 $
+            Met.insert (Met.Exif Met.TagModel) (Met.ExifString $ B.pack "SM-G955F\NUL") $
             Met.insert Met.Height 3024 $
+            Met.insert (Met.Exif Met.TagOrientation) (Met.ExifShort 6) $
             Met.insert Met.Width 4032 $
             Met.insert (Met.Exif Met.TagLightSource) (Met.ExifLong 0) $
             Met.insert (Met.Exif Met.TagFlash) (Met.ExifShort 0) $
             Met.insert Met.Software "G955FXXU1AQJ1\NUL" $
             Met.insert Met.Format Met.SourceTiff $
             Met.empty
+
     checkMeta meta = if (show meta) == (show metas)
                      then return ()
                      else putStrLn $ "Erroneous metadata parsed from file" ++ (show meta) ++ " vs " ++ (show metas)

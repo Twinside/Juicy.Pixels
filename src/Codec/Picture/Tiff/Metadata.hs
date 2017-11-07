@@ -22,43 +22,48 @@ extractTiffStringMetadata = Met.insert Met.Format Met.SourceTiff . foldMap go wh
   exif ifd =
     Met.singleton (Met.Exif $ ifdIdentifier ifd) $ ifdExtended ifd
   inserter acc (k, v) = Met.insert (Met.Exif k) v acc
+  exifShort ifd =
+    Met.singleton (Met.Exif $ ifdIdentifier ifd) . (ExifShort . fromIntegral) $ ifdOffset ifd
 
+  go :: ImageFileDirectory -> Metadatas
   go ifd = case (ifdIdentifier ifd, ifdExtended ifd) of
-    (TagUnknown _, _) -> exif ifd
-    (TagCopyright, ExifString v) -> strMeta Met.Copyright v
     (TagArtist, ExifString v) -> strMeta Met.Author v
-    (TagDocumentName, ExifString v) -> strMeta Met.Title v
-    (TagSoftware, ExifString v) -> strMeta Met.Software v
-    (TagImageDescription, ExifString v) -> strMeta Met.Description v
-    (TagCompression, _) -> mempty
-    (TagImageWidth, _) -> Met.singleton Met.Width . fromIntegral $ ifdOffset ifd
-    (TagImageLength, _) -> Met.singleton Met.Height . fromIntegral $ ifdOffset ifd
-    (TagXResolution, _) -> mempty
-    (TagYResolution, _) -> mempty
-    (TagResolutionUnit, _) -> mempty
-    (TagRowPerStrip, _) -> mempty
-    (TagStripByteCounts, _) -> mempty
-    (TagStripOffsets, _) -> mempty
     (TagBitsPerSample, _) -> mempty
     (TagColorMap, _) -> mempty
-    (TagTileWidth, _) -> mempty
-    (TagTileLength, _) -> mempty
-    (TagTileOffset, _) -> mempty
-    (TagTileByteCount, _) -> mempty
-    (TagSamplesPerPixel, _) -> mempty
-    (TagYCbCrCoeff, _) -> mempty
-    (TagYCbCrSubsampling, _) -> mempty
-    (TagYCbCrPositioning, _) -> mempty
-    (TagJpegProc, _) -> mempty
+    (TagCompression, _) -> mempty
+    (TagCopyright, ExifString v) -> strMeta Met.Copyright v
+    (TagDocumentName, ExifString v) -> strMeta Met.Title v
+    (TagExifOffset, ExifIFD lst) -> F.foldl' inserter mempty lst
+    (TagImageDescription, ExifString v) -> strMeta Met.Description v
+    (TagImageLength, _) -> Met.singleton Met.Height . fromIntegral $ ifdOffset ifd
+    (TagImageWidth, _) -> Met.singleton Met.Width . fromIntegral $ ifdOffset ifd
+    (TagJPEGACTables, _) -> mempty
+    (TagJPEGDCTables, _) -> mempty
     (TagJPEGInterchangeFormat, _) -> mempty
     (TagJPEGInterchangeFormatLength, _) -> mempty
-    (TagJPEGRestartInterval, _) -> mempty
     (TagJPEGLosslessPredictors, _) -> mempty
     (TagJPEGPointTransforms, _) -> mempty
     (TagJPEGQTables, _) -> mempty
-    (TagJPEGDCTables, _) -> mempty
-    (TagJPEGACTables, _) -> mempty
-    (TagExifOffset, ExifIFD lst) -> F.foldl' inserter mempty lst
+    (TagJPEGRestartInterval, _) -> mempty
+    (TagJpegProc, _) -> mempty
+    (TagModel, v) -> Met.singleton (Met.Exif TagModel) v
+    (TagOrientation, _) -> exifShort ifd
+    (TagResolutionUnit, _) -> mempty
+    (TagRowPerStrip, _) -> mempty
+    (TagSamplesPerPixel, _) -> mempty
+    (TagSoftware, ExifString v) -> strMeta Met.Software v
+    (TagStripByteCounts, _) -> mempty
+    (TagStripOffsets, _) -> mempty
+    (TagTileByteCount, _) -> mempty
+    (TagTileLength, _) -> mempty
+    (TagTileOffset, _) -> mempty
+    (TagTileWidth, _) -> mempty
+    (TagUnknown _, _) -> exif ifd
+    (TagXResolution, _) -> mempty
+    (TagYCbCrCoeff, _) -> mempty
+    (TagYCbCrPositioning, _) -> mempty
+    (TagYCbCrSubsampling, _) -> mempty
+    (TagYResolution, _) -> mempty
     _ -> mempty
 
 byTag :: ExifTag -> ImageFileDirectory -> Bool
