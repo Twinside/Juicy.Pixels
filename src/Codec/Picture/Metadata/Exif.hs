@@ -55,6 +55,8 @@ data ExifTag
   | TagModel
   | TagDateTime
   | TagGPSInfo
+  | TagLightSource -- ^ Short
+  | TagFlash -- ^ Short
 
   | TagJpegProc
   | TagJPEGInterchangeFormat
@@ -124,6 +126,8 @@ tagOfWord16 v = case v of
   33432 -> TagCopyright
   34665 -> TagExifOffset
   34853 -> TagGPSInfo
+  37384 -> TagLightSource
+  37385 -> TagFlash
   vv -> TagUnknown vv
 
 -- | Convert a tag to it's corresponding value.
@@ -179,6 +183,8 @@ word16OfTag t = case t of
   TagCopyright -> 33432
   TagExifOffset -> 34665
   TagGPSInfo -> 34853
+  TagLightSource -> 37384
+  TagFlash -> 37385
   (TagUnknown v) -> v
 
 -- | Possible data held by an Exif tag
