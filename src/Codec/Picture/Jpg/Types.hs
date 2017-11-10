@@ -60,6 +60,7 @@ import Data.Binary.Put( Put
                       , putWord16be
                       , putLazyByteString
                       , putByteString
+                      , runPut
                       )
 
 import Codec.Picture.InternalHelper
@@ -431,9 +432,7 @@ putFrame (JpgAdobeAPP14 adobe) =
     put (JpgAppSegment 14) >> putWord16be 14 >> put adobe
 putFrame (JpgJFIF jfif) =
     put (JpgAppSegment 0) >> putWord16be (14+2) >> put jfif
-putFrame (JpgExif _exif) =
-    return () -- TODO
-    {-put (JpgAppSegment 0) >> put exif-}
+putFrame (JpgExif exif) = putExif exif
 putFrame (JpgAppFrame appCode str) =
     put (JpgAppSegment appCode) >> putWord16be (fromIntegral $ B.length str) >> put str
 putFrame (JpgExtension appCode str) =
@@ -496,6 +495,22 @@ parseExif str lst
     go = case runGetStrict (getP tiff) tiff of
       Left _err -> lst
       Right (_hdr :: TiffHeader, ifds) -> JpgExif ifds : lst
+
+putExif :: [ImageFileDirectory] -> Put
+putExif ifds = putAll where
+  hdr = TiffHeader
+    { hdrEndianness = EndianBig
+    , hdrOffset = 8
+    }
+
+  exifBlob = runPut $ do
+    putByteString $ BC.pack "Exif\0\0"
+    putP BC.empty (hdr, ifds)
+
+  putAll = do
+    put (JpgAppSegment 1)
+    putWord16be (fromIntegral $ L.length exifBlob)
+    putLazyByteString exifBlob
 
 parseFrames :: Get [JpgFrame]
 parseFrames = do

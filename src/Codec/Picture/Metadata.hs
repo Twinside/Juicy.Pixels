@@ -34,6 +34,7 @@ module Codec.Picture.Metadata( -- * Types
                              , mkSizeMetadata
                              , basicMetadata
                              , simpleMetadata
+                             , extractExifMetas
 
                                -- * Conversion functions
                              , dotsPerMeterToDotPerInch
@@ -193,6 +194,16 @@ delete k = Metadatas . go . getMetadatas where
   go (el@(k2 :=> _) : rest) = case keyEq k k2 of
     Nothing -> el : go rest
     Just Refl -> rest
+
+-- | Extract all Exif specific metadatas
+extractExifMetas :: Metadatas -> [(ExifTag, ExifData)]
+extractExifMetas = go . getMetadatas where
+  go :: [Elem Keys] -> [(ExifTag, ExifData)]
+  go [] = []
+  go ((k :=> v) : rest) =
+    case k of
+      Exif t -> (t, v) : go rest
+      _ -> go rest
 
 -- | Search a metadata with the given key.
 lookup :: Keys a -> Metadatas -> Maybe a

@@ -17,7 +17,7 @@ import Data.Char( toLower )
 import Data.List( isInfixOf )
 import Data.Monoid
 import Data.Word( Word8 )
-import Control.Monad( forM_, liftM )
+import Control.Monad( forM_, liftM, when )
 import System.FilePath
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as L
@@ -546,6 +546,15 @@ metadataReadTest = do
   image <- B.readFile "tests/jpeg/10x8-samsung-s8.jpg"
   case decodeJpegWithMetadata image of
       Left err -> putStrLn err
+      Right (ImageYCbCr8 img, meta) -> do
+        putStrLn "===== Storing Jpeg metadata"
+        print meta
+        let encoded = encodeDirectJpegAtQualityWithMetadata 90 meta img
+        L.writeFile "tests/metadata_extif.jpg" encoded
+        let Right (_, remeta) = decodeJpegWithMetadata image
+        putStrLn "========= Reparsed metas"
+        print remeta
+          
       Right (_, meta) -> checkMeta meta
   where
     -- The insert order is important as there is no Eq instance (yet)
@@ -561,35 +570,36 @@ metadataReadTest = do
             Met.insert Met.Format Met.SourceTiff $
             Met.empty
 
-    checkMeta meta = if (show meta) == (show metas)
-                     then return ()
-                     else putStrLn $ "Erroneous metadata parsed from file" ++ (show meta) ++ " vs " ++ (show metas)
-
+    checkMeta meta = do
+      let sm = show meta
+          sms = show metas
+      when (sm /= sms) $
+        putStrLn $ "Erroneous metadata parsed from file" ++ sm ++ " vs " ++ sms
 
 testSuite :: IO ()
 testSuite = do
     putStrLn ">>>> Metadata test"
     metadataWriteTest
     metadataReadTest
-    putStrLn ">>>> Gif animation test"
-    gifAnimationTest 
-    putStrLn ">>>> Valid instances"
-    toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
-    toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
-    toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
-                                        128 128
-    planeSeparationRGB8Test 
-    planeSeparationRGBA8Test 
-    planeSeparationYA8Test 
+    {-putStrLn ">>>> Gif animation test"-}
+    {-gifAnimationTest -}
+    {-putStrLn ">>>> Valid instances"-}
+    {-toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16-}
+    {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
+    {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
+                                        {-128 128-}
+    {-planeSeparationRGB8Test -}
+    {-planeSeparationRGBA8Test -}
+    {-planeSeparationYA8Test -}
 
-    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
-    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
-    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
-    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
-    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
-    mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests
+    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
+    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
+    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
+    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
+    {-mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests-}
+    {-mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests-}
 
 jpegToPng :: IO ()
 jpegToPng = do

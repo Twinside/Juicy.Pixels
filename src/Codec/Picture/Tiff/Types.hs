@@ -317,6 +317,8 @@ setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
                      + ifdElementCount * ifdSize
                      + ifdCountSize + nextOffsetSize
 
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifUndefined b }) =
+            (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExifString b }) =
             (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExifLongs v })
@@ -364,8 +366,8 @@ unpackSampleFormat v = case v of
   vv -> fail $ "Undefined data format (" ++ show vv ++ ")"
 
 data ImageFileDirectory = ImageFileDirectory
-  { ifdIdentifier :: !ExifTag
-  , ifdType       :: !IfdType
+  { ifdIdentifier :: !ExifTag -- Word16
+  , ifdType       :: !IfdType -- Word16
   , ifdCount      :: !Word32
   , ifdOffset     :: !Word32
   , ifdExtended   :: !ExifData
@@ -379,7 +381,7 @@ instance BinaryParam Endianness ImageFileDirectory where
         where getE :: (BinaryParam Endianness a) => Get a
               getE = getP endianness
 
-  putP endianness ifd =do
+  putP endianness ifd = do
     let putE :: (BinaryParam Endianness a) => a -> Put
         putE = putP endianness
     putE $ ifdIdentifier ifd
