@@ -567,7 +567,7 @@ ifdMultiShort endian tag v = tell . pure $ ImageFileDirectory
                     EndianBig -> (V.head v `unsafeShiftL` 16, ExifNone)
 
 instance BinaryParam B.ByteString TiffInfo where
-  putP rawData nfo = putP rawData (tiffHeader nfo, list) where
+  putP rawData nfo = putP rawData (tiffHeader nfo, [list]) where
     endianness = hdrEndianness $ tiffHeader nfo
 
     ifdShort = ifdSingleShort endianness
@@ -599,9 +599,10 @@ instance BinaryParam B.ByteString TiffInfo where
            ifdShorts TagYCbCrSubsampling subSampling
 
   getP rawData = do
-    (hdr, cleaned) <- getP rawData
+    (hdr, cleanedFull :: [[ImageFileDirectory]]) <- getP rawData
 
-    let dataFind str tag = findIFDData str tag cleaned
+    let cleaned = concat cleanedFull
+        dataFind str tag = findIFDData str tag cleaned
         dataDefault def tag = findIFDDefaultData def tag cleaned
         extFind str tag = findIFDExt str tag cleaned
         extDefault def tag = findIFDExtDefaultData def tag cleaned

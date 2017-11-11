@@ -33,6 +33,8 @@ import Control.Applicative( pure, (<*>), (<$>) )
 import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
+import Data.List( partition )
+import Data.Monoid( (<>) )
 import Foreign.Storable ( Storable )
 import Data.Vector.Unboxed( (!) )
 import qualified Data.Vector as V
@@ -66,6 +68,8 @@ import Data.Binary.Put( Put
 import Codec.Picture.InternalHelper
 import Codec.Picture.Jpg.DefaultTable
 import Codec.Picture.Tiff.Types
+import Codec.Picture.Tiff.Metadata( exifOffsetIfd )
+import Codec.Picture.Metadata.Exif
 
 {-import Debug.Trace-}
 import Text.Printf
@@ -494,7 +498,8 @@ parseExif str lst
     tiff = B.drop (B.length exifHeader) str
     go = case runGetStrict (getP tiff) tiff of
       Left _err -> lst
-      Right (_hdr :: TiffHeader, ifds) -> JpgExif ifds : lst
+      Right (_hdr :: TiffHeader, []) -> lst
+      Right (_hdr :: TiffHeader, ifds : _) -> JpgExif ifds : lst
 
 putExif :: [ImageFileDirectory] -> Put
 putExif ifds = putAll where
@@ -503,13 +508,17 @@ putExif ifds = putAll where
     , hdrOffset = 8
     }
 
+  ifdList = case partition (isInIFD0 . ifdIdentifier) ifds of
+    (ifd0, []) -> [ifd0]
+    (ifd0, ifdExif) -> [ifd0 <> pure exifOffsetIfd, ifdExif]
+  
   exifBlob = runPut $ do
     putByteString $ BC.pack "Exif\0\0"
-    putP BC.empty (hdr, ifds)
+    putP BC.empty (hdr, ifdList)
 
   putAll = do
     put (JpgAppSegment 1)
-    putWord16be (fromIntegral $ L.length exifBlob)
+    putWord16be . fromIntegral $ L.length exifBlob + 2
     putLazyByteString exifBlob
 
 parseFrames :: Get [JpgFrame]

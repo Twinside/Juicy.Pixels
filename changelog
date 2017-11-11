@@ -1,6 +1,13 @@
 Change log
 ==========
 
+v3.2.9 November 2017
+----------------------
+
+ * Fix: Adding correct import of Exif Flash for Jpeg (thanks to Alexander Kjeldaas)
+ * Feature: Jpg Exif writing
+
+
 v3.2.8.3 August 2017
 ------------------
 

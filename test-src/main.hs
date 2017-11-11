@@ -581,25 +581,25 @@ testSuite = do
     putStrLn ">>>> Metadata test"
     metadataWriteTest
     metadataReadTest
-    {-putStrLn ">>>> Gif animation test"-}
-    {-gifAnimationTest -}
-    {-putStrLn ">>>> Valid instances"-}
-    {-toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16-}
-    {-toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16-}
-    {-toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)-}
-                                        {-128 128-}
-    {-planeSeparationRGB8Test -}
-    {-planeSeparationRGBA8Test -}
-    {-planeSeparationYA8Test -}
+    putStrLn ">>>> Gif animation test"
+    gifAnimationTest 
+    putStrLn ">>>> Valid instances"
+    toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
+    toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
+    toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
+                                        128 128
+    planeSeparationRGB8Test 
+    planeSeparationRGBA8Test 
+    planeSeparationYA8Test 
 
-    {-mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
-    {-mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)-}
-    {-mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest-}
-    {-mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest-}
-    {-mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests-}
-    {-mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests-}
+    mapM_ (imgToImg . (("tests" </> "bmp") </>)) bmpValidTests
+    mapM_ (imgToImg . (("tests" </> "pngsuite") </>)) ("huge.png" : validTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (imgToImg . (("tests" </> "jpeg") </>)) ("huge.jpg" : jpegValidTests)
+    mapM_ (radianceToBitmap . (("tests" </> "radiance") </>)) radianceTest
+    mapM_ (gifToImg . (("tests" </> "gif") </>)) gifTest
+    mapM_ (imgToImg . (("tests" </> "tiff") </>)) tiffValidTests
+    mapM_ (imgToImg . (("tests" </> "tga") </>)) tgaValidTests
 
 jpegToPng :: IO ()
 jpegToPng = do

@@ -5,6 +5,8 @@ module Codec.Picture.Metadata.Exif ( ExifTag( .. )
 
                                    , tagOfWord16
                                    , word16OfTag
+
+                                   , isInIFD0
                                    ) where
 
 import Control.DeepSeq( NFData( .. ) )
@@ -186,6 +188,11 @@ word16OfTag t = case t of
   TagLightSource -> 37384
   TagFlash -> 37385
   (TagUnknown v) -> v
+
+isInIFD0 :: ExifTag -> Bool
+isInIFD0 t = word16OfTag t <= lastTag || isRedirectTag where
+  lastTag = word16OfTag TagCopyright
+  isRedirectTag = t `elem` [TagExifOffset, TagGPSInfo]
 
 -- | Possible data held by an Exif tag
 data ExifData

@@ -2,6 +2,7 @@
 module Codec.Picture.Tiff.Metadata
     ( extractTiffMetadata
     , encodeTiffStringMetadata
+    , exifOffsetIfd
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -24,6 +25,15 @@ import qualified Data.Vector.Generic as V
 import Codec.Picture.Tiff.Types
 import Codec.Picture.Metadata( extractExifMetas )
 import Codec.Picture.Metadata.Exif
+
+exifOffsetIfd :: ImageFileDirectory
+exifOffsetIfd = ImageFileDirectory
+  { ifdIdentifier = TagExifOffset
+  , ifdCount = 1
+  , ifdType = TypeLong
+  , ifdOffset = 0
+  , ifdExtended = ExifNone
+  }
 
 typeOfData :: ExifData -> IfdType
 typeOfData d = case d of
@@ -170,6 +180,7 @@ extractTiffStringMetadata = Met.insert Met.Format Met.SourceTiff . foldMap go wh
     (TagJPEGRestartInterval, _) -> mempty
     (TagJpegProc, _) -> mempty
     (TagModel, v) -> Met.singleton (Met.Exif TagModel) v
+    (TagMake, v) -> Met.singleton (Met.Exif TagMake) v
     (TagOrientation, _) -> exifShort ifd
     (TagResolutionUnit, _) -> mempty
     (TagRowPerStrip, _) -> mempty

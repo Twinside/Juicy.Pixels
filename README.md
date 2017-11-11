@@ -71,7 +71,8 @@ Status
 
     * Metadata:
         - Reading and writing DpiX & DpiY from JFIF header.
-        - Reading EXIF metadata.
+        - Reading & writing EXIF metadata. No GPS information
+          can be written now.
 
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.

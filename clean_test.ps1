@@ -41,6 +41,7 @@ rm tests/radiance/*.tga
 
 rm tests/rgb*.png
 rm tests/ya*.png
+rm tests/metadata*
 
 rm Gifanim.gif
 
