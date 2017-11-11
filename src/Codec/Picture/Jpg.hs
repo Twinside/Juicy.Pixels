@@ -999,8 +999,12 @@ encodeDirectJpegAtQualityWithMetadata :: forall px. (JpgEncodable px)
 encodeDirectJpegAtQualityWithMetadata quality metas img = encode finalImage where
   !w = imageWidth img
   !h = imageHeight img
+  !exifMeta = case encodeTiffStringMetadata metas of
+     [] -> []
+     lst -> [JpgExif lst]
   finalImage = JpgImage $
       encodeMetadatas metas ++
+      exifMeta ++
       additionalBlocks img ++
       [ JpgQuantTable $ quantTableSpec img (fromIntegral quality)
       , JpgScans JpgBaselineDCTHuffman hdr

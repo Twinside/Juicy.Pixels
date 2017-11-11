@@ -31,7 +31,7 @@ module Codec.Picture.Tiff.Types
 import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
-import Control.Monad( when, replicateM, )
+import Control.Monad( forM_, when, replicateM, )
 import Data.Bits( (.&.), unsafeShiftR )
 import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
@@ -51,7 +51,7 @@ import Data.List( sortBy, mapAccumL )
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import Data.Int( Int32 )
-import Data.Word( Word16, Word32 )
+import Data.Word( Word8, Word16, Word32 )
 
 import Codec.Picture.Metadata.Exif
 {-import Debug.Trace-}
@@ -203,6 +203,11 @@ predictorOfConstant 1 = pure PredictorNone
 predictorOfConstant 2 = pure PredictorHorizontalDifferencing
 predictorOfConstant v = fail $ "Unknown predictor (" ++ show v ++ ")"
 
+paddWrite :: B.ByteString -> Put
+paddWrite str = putByteString str >> padding where
+  zero = 0 :: Word8
+  padding = when (odd (B.length str)) $ put zero
+
 instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
   putP (endianness, _, _) = dump
     where
@@ -210,8 +215,8 @@ instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
       dump (ExifLong _) = pure ()
       dump (ExifShort _) = pure ()
       dump (ExifIFD _) = pure ()
-      dump (ExifString bstr) = putByteString bstr
-      dump (ExifUndefined bstr) = putByteString bstr
+      dump (ExifString bstr) = paddWrite bstr
+      dump (ExifUndefined bstr) = paddWrite bstr
       -- wrong if length == 2
       dump (ExifShorts shorts) = V.mapM_ (putP endianness) shorts
       dump (ExifLongs longs) = V.mapM_ (putP endianness) longs
@@ -307,8 +312,8 @@ orderIfdByTag = sortBy comparer where
 
 -- | Given an official offset and a list of IFD, update the offset information
 -- of the IFD with extended data.
-setupIfdOffsets :: Word32 -> [ImageFileDirectory] -> [ImageFileDirectory]
-setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
+setupIfdOffsets :: Word32 -> [ImageFileDirectory] -> (Word32, [ImageFileDirectory])
+setupIfdOffsets initialOffset lst = mapAccumL updater startExtended lst
   where ifdElementCount = fromIntegral $ length lst
         ifdSize = 12
         ifdCountSize = 2
@@ -317,8 +322,16 @@ setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
                      + ifdElementCount * ifdSize
                      + ifdCountSize + nextOffsetSize
 
+        paddedSize blob = fromIntegral $ blobLength + padding where
+          blobLength = B.length blob
+          padding = if odd blobLength then 1 else 0
+
+        updater ix ifd@(ImageFileDirectory { ifdIdentifier = TagExifOffset }) =
+            (ix, ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifUndefined b }) =
+            (ix + paddedSize b, ifd { ifdOffset = ix } )
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExifString b }) =
-            (ix + fromIntegral (B.length b), ifd { ifdOffset = ix } )
+            (ix + paddedSize b, ifd { ifdOffset = ix } )
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExifLongs v })
             | V.length v > 1 = ( ix + fromIntegral (V.length v * 4)
                                , ifd { ifdOffset = ix } )
@@ -327,14 +340,18 @@ setupIfdOffsets initialOffset lst = snd $ mapAccumL updater startExtended lst
                              , ifd { ifdOffset = ix })
         updater ix ifd = (ix, ifd)
 
-instance BinaryParam B.ByteString (TiffHeader, [ImageFileDirectory]) where
+instance BinaryParam B.ByteString (TiffHeader, [[ImageFileDirectory]]) where
   putP rawData (hdr, ifds) = do
     put hdr
     putByteString rawData
     let endianness = hdrEndianness hdr
-        list = setupIfdOffsets (hdrOffset hdr) $ orderIfdByTag ifds
-    putP endianness list
-    mapM_ (\ifd -> putP (endianness, (0::Int), ifd) $ ifdExtended ifd) list
+        (_, offseted) = mapAccumL
+            (\ix ifd -> setupIfdOffsets ix $ orderIfdByTag ifd)
+            (hdrOffset hdr)
+            ifds
+    forM_ offseted $ \list -> do
+        putP endianness list
+        mapM_ (\field -> putP (endianness, (0::Int), field) $ ifdExtended field) list
 
   getP raw = do
     hdr <- get
@@ -344,9 +361,9 @@ instance BinaryParam B.ByteString (TiffHeader, [ImageFileDirectory]) where
         byOffset = sortBy (compare `on` ifdOffset)
         cleanIfds = fmap (cleanImageFileDirectory endian)
 
-    ifd <- cleanIfds . byOffset <$> getP endian
+    ifd <-  cleanIfds . byOffset <$> getP endian
     cleaned <- fetchExtended endian (B.length raw) ifd
-    return (hdr, cleaned)
+    return (hdr, [cleaned])
 
 data TiffSampleFormat
   = TiffSampleUint
@@ -364,8 +381,8 @@ unpackSampleFormat v = case v of
   vv -> fail $ "Undefined data format (" ++ show vv ++ ")"
 
 data ImageFileDirectory = ImageFileDirectory
-  { ifdIdentifier :: !ExifTag
-  , ifdType       :: !IfdType
+  { ifdIdentifier :: !ExifTag -- Word16
+  , ifdType       :: !IfdType -- Word16
   , ifdCount      :: !Word32
   , ifdOffset     :: !Word32
   , ifdExtended   :: !ExifData
@@ -379,7 +396,7 @@ instance BinaryParam Endianness ImageFileDirectory where
         where getE :: (BinaryParam Endianness a) => Get a
               getE = getP endianness
 
-  putP endianness ifd =do
+  putP endianness ifd = do
     let putE :: (BinaryParam Endianness a) => a -> Put
         putE = putP endianness
     putE $ ifdIdentifier ifd
@@ -393,6 +410,7 @@ instance BinaryParam Endianness [ImageFileDirectory] where
     rez <- replicateM (fromIntegral count) $ getP endianness
     _ <- getP endianness :: Get Word32
     pure rez
+
 
   putP endianness lst = do
     let count = fromIntegral $ length lst :: Word16

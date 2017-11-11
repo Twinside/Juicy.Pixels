@@ -1,7 +1,6 @@
 ![Juicy logo](https://raw.github.com/Twinside/Juicy.Pixels/master/docimages/juicy.png)
 
 
-[![Build Status](https://travis-ci.org/Twinside/Juicy.Pixels.png?branch=master)](https://travis-ci.org/Twinside/Juicy.Pixels)
 [![Hackage](https://img.shields.io/hackage/v/JuicyPixels.svg)](http://hackage.haskell.org/package/JuicyPixels)
 
 Juicy.Pixels
@@ -72,7 +71,8 @@ Status
 
     * Metadata:
         - Reading and writing DpiX & DpiY from JFIF header.
-        - Reading EXIF metadata.
+        - Reading & writing EXIF metadata. No GPS information
+          can be written now.
 
  - Gif (.gif)
     * Reading single image & animated Gif image, handles interlaced images.

@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 import Codec.Picture
 import Codec.Picture.Jpg( JpgEncodable 
+                        , decodeJpegWithMetadata
                         , encodeJpeg
                         , encodeDirectJpegAtQualityWithMetadata )
 import Codec.Picture.Gif
@@ -16,9 +17,9 @@ import Data.Char( toLower )
 import Data.List( isInfixOf )
 import Data.Monoid
 import Data.Word( Word8 )
-import Control.Monad( forM_, liftM )
+import Control.Monad( forM_, liftM, when )
 import System.FilePath
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Types
 import Codec.Picture.Saving
@@ -26,6 +27,7 @@ import Codec.Picture.HDR
 import Codec.Picture.Bitmap( encodeBitmapWithMetadata )
 import Codec.Picture.Png( encodePalettedPngWithMetadata )
 import qualified Codec.Picture.Metadata as Met
+import qualified Codec.Picture.Metadata.Exif as Met
 import qualified Data.Vector.Storable as V
 
 import Control.Applicative( (<$>) )
@@ -521,8 +523,8 @@ gifTest = ["Gif_pixel_cube.gif"
 radianceTest :: [FilePath]
 radianceTest = [ "sunrise.hdr", "free_009.hdr"]
 
-metadataTest :: IO ()
-metadataTest = do
+metadataWriteTest :: IO ()
+metadataWriteTest = do
   let dumbImage = generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
       mi = Met.insert
       metas = mi Met.Author "It's a me"
@@ -539,10 +541,46 @@ metadataTest = do
   L.writeFile "tests/metadata.bmp" $
       encodeBitmapWithMetadata metas dumbImage
 
+metadataReadTest :: IO ()
+metadataReadTest = do
+  image <- B.readFile "tests/jpeg/10x8-samsung-s8.jpg"
+  case decodeJpegWithMetadata image of
+      Left err -> putStrLn err
+      Right (ImageYCbCr8 img, meta) -> do
+        putStrLn "===== Storing Jpeg metadata"
+        print meta
+        let encoded = encodeDirectJpegAtQualityWithMetadata 90 meta img
+        L.writeFile "tests/metadata_extif.jpg" encoded
+        let Right (_, remeta) = decodeJpegWithMetadata image
+        putStrLn "========= Reparsed metas"
+        print remeta
+          
+      Right (_, meta) -> checkMeta meta
+  where
+    -- The insert order is important as there is no Eq instance (yet)
+    metas = Met.insert Met.DpiY 72 $
+            Met.insert Met.DpiX 72 $
+            Met.insert (Met.Exif Met.TagModel) (Met.ExifString $ B.pack "SM-G955F\NUL") $
+            Met.insert Met.Height 3024 $
+            Met.insert (Met.Exif Met.TagOrientation) (Met.ExifShort 6) $
+            Met.insert Met.Width 4032 $
+            Met.insert (Met.Exif Met.TagLightSource) (Met.ExifLong 0) $
+            Met.insert (Met.Exif Met.TagFlash) (Met.ExifShort 0) $
+            Met.insert Met.Software "G955FXXU1AQJ1\NUL" $
+            Met.insert Met.Format Met.SourceTiff $
+            Met.empty
+
+    checkMeta meta = do
+      let sm = show meta
+          sms = show metas
+      when (sm /= sms) $
+        putStrLn $ "Erroneous metadata parsed from file" ++ sm ++ " vs " ++ sms
+
 testSuite :: IO ()
 testSuite = do
     putStrLn ">>>> Metadata test"
-    metadataTest
+    metadataWriteTest
+    metadataReadTest
     putStrLn ">>>> Gif animation test"
     gifAnimationTest 
     putStrLn ">>>> Valid instances"
