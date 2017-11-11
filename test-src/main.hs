@@ -576,6 +576,14 @@ metadataReadTest = do
       when (sm /= sms) $
         putStrLn $ "Erroneous metadata parsed from file" ++ sm ++ " vs " ++ sms
 
+palettedPngCreation :: IO ()
+palettedPngCreation = L.writeFile "tests/paleted_alpha.png" encoded
+  where
+    Right encoded = encodePalettedPngWithMetadata mempty palette img
+    img = generateImage (\x _y -> fromIntegral x) 256 128
+    palette :: Image PixelRGBA8
+    palette = generateImage (\x _y -> PixelRGBA8 255 128 128 (255 - fromIntegral x)) 256 1
+
 testSuite :: IO ()
 testSuite = do
     putStrLn ">>>> Metadata test"
@@ -588,6 +596,7 @@ testSuite = do
     toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
     toJpg "test" $ generateImage (\x y -> PixelRGB8 (fromIntegral x) (fromIntegral y) 255)
                                         128 128
+    palettedPngCreation
     planeSeparationRGB8Test 
     planeSeparationRGBA8Test 
     planeSeparationYA8Test 

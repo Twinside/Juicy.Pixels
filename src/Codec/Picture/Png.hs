@@ -17,7 +17,8 @@
 --
 -- The loader has been validated against the pngsuite (http://www.libpng.org/pub/png/pngsuite.html)
 module Codec.Picture.Png( -- * High level functions
-                          PngSavable( .. )
+                          PngSavable( .. ),
+                          PngPaletteSaveable( .. )
 
                         , decodePng
                         , decodePngWithMetadata

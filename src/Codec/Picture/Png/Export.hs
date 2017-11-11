@@ -6,11 +6,10 @@
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
 module Codec.Picture.Png.Export( PngSavable( .. )
+                               , PngPaletteSaveable( .. )
                                , writePng
                                , encodeDynamicPng
                                , writeDynamicPng
-                               , encodePalettedPng
-                               , encodePalettedPngWithMetadata
                                ) where
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
@@ -34,6 +33,42 @@ import Codec.Picture.Png.Type
 import Codec.Picture.Png.Metadata
 import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.VectorByteConversion( blitVector, toByteString )
+
+-- | Encode a paletted image into a png if possible.
+class PngPaletteSaveable a where
+  -- | Encode a paletted image as a color indexed 8-bit PNG.
+  -- the palette must have between 1 and 256 values in it.
+  -- Accepts `PixelRGB8` and `PixelRGBA8` as palette pixel type
+  encodePalettedPng :: Image a -> Image Pixel8 -> Either String Lb.ByteString
+  encodePalettedPng = encodePalettedPngWithMetadata mempty
+
+  -- | Equivalent to 'encodePalettedPng' but allow writing of metadatas.
+  -- See `encodePngWithMetadata` for the details of encoded metadatas
+  -- Accepts `PixelRGB8` and `PixelRGBA8` as palette pixel type
+  encodePalettedPngWithMetadata :: Metadatas -> Image a -> Image Pixel8 -> Either String Lb.ByteString
+
+instance PngPaletteSaveable PixelRGB8 where
+  encodePalettedPngWithMetadata metas pal img
+      | w <= 0 || w > 256 || h /= 1 = Left "Invalid palette"
+      | VS.any isTooBig $ imageData img =
+          Left "Image contains indexes absent from the palette"
+      | otherwise = Right $ genericEncodePng (Just pal) Nothing PngIndexedColor metas img
+        where w = imageWidth pal
+              h = imageHeight pal
+              isTooBig v = fromIntegral v >= w
+
+instance PngPaletteSaveable PixelRGBA8 where
+  encodePalettedPngWithMetadata metas pal img
+      | w <= 0 || w > 256 || h /= 1 = Left "Invalid palette"
+      | VS.any isTooBig $ imageData img =
+          Left "Image contains indexes absent from the palette"
+      | otherwise = Right $ genericEncodePng (Just opaquePalette) (Just alphaPal) PngIndexedColor metas img
+    where
+      w = imageWidth pal
+      h = imageHeight pal
+      opaquePalette = dropAlphaLayer pal
+      alphaPal = imageData $ extractComponent PlaneAlpha pal
+      isTooBig v = fromIntegral v >= w
 
 -- | Encode an image into a png if possible.
 class PngSavable a where
@@ -126,41 +161,63 @@ preparePalette pal = PngRawChunk
   , chunkCRC    = pngComputeCrc [pLTESignature, binaryData]
   , chunkData   = binaryData
   }
-   where binaryData = Lb.fromChunks [toByteString $ imageData pal]
+  where binaryData = Lb.fromChunks [toByteString $ imageData pal]
+
+preparePaletteAlpha :: VS.Vector Pixel8 -> PngRawChunk
+preparePaletteAlpha alphaPal = PngRawChunk
+  { chunkLength = fromIntegral $ VS.length alphaPal
+  , chunkType   = tRNSSignature
+  , chunkCRC    = pngComputeCrc [tRNSSignature, binaryData]
+  , chunkData   = binaryData
+  }
+  where binaryData = Lb.fromChunks [toByteString alphaPal]
+
+type PaletteAlpha = VS.Vector Pixel8
 
 genericEncodePng :: forall px. (Pixel px, PixelBaseComponent px ~ Word8)
-                 => Maybe Palette -> PngImageType -> Metadatas -> Image px
+                 => Maybe Palette
+                 -> Maybe PaletteAlpha
+                 -> PngImageType -> Metadatas -> Image px
                  -> Lb.ByteString
-genericEncodePng palette imgKind metas
+genericEncodePng palette palAlpha imgKind metas
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr
                      , chunks = encodeMetadatas metas
-                              <> prependPalette palette
-                                    [ prepareIDatChunk imgEncodedData
-                                    , endChunk]}
-    where hdr = preparePngHeader image imgKind 8
-          zero = B.singleton 0
-          compCount = componentCount (undefined :: px)
+                              <> paletteChunk
+                              <> transpChunk
+                              <> [ prepareIDatChunk imgEncodedData
+                                 , endChunk
+                                 ]}
+  where
+    hdr = preparePngHeader image imgKind 8
+    zero = B.singleton 0
+    compCount = componentCount (undefined :: px)
 
-          prependPalette Nothing l = l
-          prependPalette (Just p) l = preparePalette p : l
+    paletteChunk = case palette of
+      Nothing -> []
+      Just p -> [preparePalette p]
 
-          lineSize = compCount * w
-          encodeLine line = blitVector arr (line * lineSize) lineSize
-          imgEncodedData = Z.compress . Lb.fromChunks
-                        $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
+    transpChunk = case palAlpha of
+      Nothing -> []
+      Just p -> [preparePaletteAlpha p]
+
+    lineSize = compCount * w
+    encodeLine line = blitVector arr (line * lineSize) lineSize
+    imgEncodedData = Z.compress
+        . Lb.fromChunks
+        $ concat [[zero, encodeLine line] | line <- [0 .. h - 1]]
 
 instance PngSavable PixelRGBA8 where
-  encodePngWithMetadata = genericEncodePng Nothing PngTrueColourWithAlpha
+  encodePngWithMetadata = genericEncodePng Nothing Nothing PngTrueColourWithAlpha
 
 instance PngSavable PixelRGB8 where
-  encodePngWithMetadata = genericEncodePng Nothing PngTrueColour
+  encodePngWithMetadata = genericEncodePng Nothing Nothing PngTrueColour
 
 instance PngSavable Pixel8 where
-  encodePngWithMetadata = genericEncodePng Nothing PngGreyscale
+  encodePngWithMetadata = genericEncodePng Nothing Nothing PngGreyscale
 
 instance PngSavable PixelYA8 where
-  encodePngWithMetadata = genericEncodePng Nothing PngGreyscaleWithAlpha
+  encodePngWithMetadata = genericEncodePng Nothing Nothing PngGreyscaleWithAlpha
 
 instance PngSavable PixelYA16 where
   encodePngWithMetadata = genericEncode16BitsPng PngGreyscaleWithAlpha
@@ -180,22 +237,6 @@ writeDynamicPng :: FilePath -> DynamicImage -> IO (Either String Bool)
 writeDynamicPng path img = case encodeDynamicPng img of
         Left err -> return $ Left err
         Right b  -> Lb.writeFile path b >> return (Right True)
-
--- | Encode a paletted image as a color indexed 8-bit PNG.
--- the palette must have between 1 and 256 values in it.
-encodePalettedPng :: Palette -> Image Pixel8 -> Either String Lb.ByteString
-encodePalettedPng = encodePalettedPngWithMetadata mempty
-
--- | Equivalent to 'encodePalettedPng' but allow writing of metadatas.
-encodePalettedPngWithMetadata :: Metadatas -> Palette -> Image Pixel8 -> Either String Lb.ByteString
-encodePalettedPngWithMetadata metas pal img
-    | w <= 0 || w > 256 || h /= 1 = Left "Invalid palette"
-    | VS.any isTooBig $ imageData img =
-        Left "Image contains indexes absent from the palette"
-    | otherwise = Right $ genericEncodePng (Just pal) PngIndexedColor metas img
-      where w = imageWidth pal
-            h = imageHeight pal
-            isTooBig v = fromIntegral v >= w
 
 -- | Encode a dynamic image in PNG if possible, supported images are:
 --

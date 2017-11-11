@@ -41,6 +41,8 @@ Status
         - 16bits greyscale (non interleaved)
         - 16bits RGB (non interleaved)
         - 16bits RGBA (non interleaved)
+        - 8bits RGB paletted image
+        - 8bits RGBA paletted image
 
     * Metadata (reading/writing)
         * in a tEXT chunk: 'Title', 'Description', 'Author', 'Copyright',
