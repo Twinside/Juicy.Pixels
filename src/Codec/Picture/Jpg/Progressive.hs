@@ -38,7 +38,15 @@ createMcuLineIndices param imgWidth mcuWidth =
         compH = fromIntegral $ verticalSamplingFactor param
         imageBlockSize = toBlockSize imgWidth
 
-        indexSolo = take (imageBlockSize * compH) [0 ..]
+        -- if the displayed MCU block is only displayed in half (like with
+        -- width 500 then we loose one macroblock of the MCU at the end of
+        -- the line. Previous implementation which naïvely used full mcu
+        -- was wrong. Only taking into account visible macroblocks
+        indexSolo = [base + x
+            | y <- [0 .. compH - 1]
+            , let base = y * mcuWidth * compW
+            , x <- [0 .. imageBlockSize - 1]]
+
         indexMulti = 
             [(mcu + y * mcuWidth) * compW + x
                 | mcu <- [0 .. mcuWidth - 1]

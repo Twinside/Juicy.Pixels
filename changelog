@@ -1,6 +1,12 @@
 Change log
 ==========
 
+v3.2.9.2 December 2017
+----------------------
+
+ * Fix: Progressive jpeg decoding when number of blocks of the MCU
+		is below line size
+
 v3.2.9.1 November 2017
 ----------------------
 
