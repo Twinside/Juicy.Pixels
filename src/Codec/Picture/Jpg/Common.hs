@@ -55,7 +55,7 @@ data JpgUnpackerParameter = JpgUnpackerParameter
     , successiveApprox     :: !(Int, Int)
     , readerIndex          :: {-# UNPACK #-} !Int
       -- | When in progressive mode, we can have many
-      -- color in a scan are only one. The indices changes
+      -- color in a scan or only one. The indices changes
       -- on this fact, when mixed, there is whole 
       -- MCU for all color components, spanning multiple
       -- block lines. With only one color component we use
