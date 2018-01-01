@@ -47,7 +47,7 @@ createMcuLineIndices param imgWidth mcuWidth =
             , let base = y * mcuWidth * compW
             , x <- [0 .. imageBlockSize - 1]]
 
-        indexMulti = 
+        indexMulti =
             [(mcu + y * mcuWidth) * compW + x
                 | mcu <- [0 .. mcuWidth - 1]
                 , y <- [0 .. compH - 1]
@@ -137,7 +137,7 @@ decodeRefineAc params _ block eobrun
                    performEobRun $ idx + 1
           else
             performEobRun $ idx + 1
-                   
+
         unpack idx | idx > maxIndex = pure 0
         unpack idx = do
             rrrrssss <- decodeRrrrSsss $ acHuffmanTree params
@@ -151,7 +151,7 @@ decodeRefineAc params _ block eobrun
                   let newEobRun = (1 `unsafeShiftL` r) + lowBits - 1
                   performEobRun idx
                   pure newEobRun
-                         
+
               (  r, _) -> do
                   val <- getBitVal
                   idx' <- updateCoeffs (fromIntegral r) idx
