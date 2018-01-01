@@ -1,6 +1,11 @@
 Change log
 ==========
 
+v3.2.9.3 December 2017
+----------------------
+
+ * Fix: remove bad invisible unicde char
+
 v3.2.9.2 December 2017
 ----------------------
 
