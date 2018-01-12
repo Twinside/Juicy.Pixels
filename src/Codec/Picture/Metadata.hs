@@ -171,7 +171,12 @@ newtype Metadatas = Metadatas
 
 instance Monoid Metadatas where
   mempty = empty
+#if !MIN_VERSION_base(4,11,0)
   mappend = union
+#else
+instance Semigroup Metadatas where
+  (<>) = union
+#endif
 
 -- | Right based union
 union :: Metadatas -> Metadatas -> Metadatas
