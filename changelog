@@ -4,6 +4,7 @@ Change log
 v3.2.9.4 Januear 2018
 ----------------------
 
+ * Compat for GHC-8.4 (pull request)
  * Fix: a character in latin1 which was still around. Whatever.
         So tired of this.
 
