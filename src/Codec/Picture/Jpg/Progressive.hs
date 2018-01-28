@@ -40,7 +40,7 @@ createMcuLineIndices param imgWidth mcuWidth =
 
         -- if the displayed MCU block is only displayed in half (like with
         -- width 500 then we loose one macroblock of the MCU at the end of
-        -- the line. Previous implementation which naïvely used full mcu
+        -- the line. Previous implementation which naively used full mcu
         -- was wrong. Only taking into account visible macroblocks
         indexSolo = [base + x
             | y <- [0 .. compH - 1]
