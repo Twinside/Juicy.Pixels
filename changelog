@@ -1,6 +1,13 @@
 Change log
 ==========
 
+v3.2.9.4 Januear 2018
+----------------------
+
+ * Fix: a character in latin1 which was still around. Whatever.
+        So tired of this.
+
+
 v3.2.9.3 December 2017
 ----------------------
 
