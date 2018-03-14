@@ -1,7 +1,12 @@
 Change log
 ==========
 
-v3.2.9.4 Januear 2018
+v3.2.9.5 March 2018
+-------------------
+ 
+ * Fix: uniform color quantization
+
+v3.2.9.4 January 2018
 ----------------------
 
  * Compat for GHC-8.4 (pull request)
