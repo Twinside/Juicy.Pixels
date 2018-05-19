@@ -1,15 +1,17 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 -- | Module provides basic types for image manipulation in the library.
+
+{-# LANGUAGE BangPatterns           #-}
+{-# LANGUAGE CPP                    #-}
+{-# LANGUAGE DeriveDataTypeable     #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE Rank2Types             #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeSynonymInstances   #-}
+{-# LANGUAGE UndecidableInstances   #-}
 -- Defined types are used to store all of those __Juicy Pixels__
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
@@ -152,6 +154,12 @@ data Image a = Image
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
     deriving (Typeable)
+
+instance (Eq (PixelBaseComponent a), Storable (PixelBaseComponent a))
+    => Eq (Image a) where
+  a == b = imageWidth  a == imageWidth  b &&
+           imageHeight a == imageHeight b &&
+           imageData   a == imageData   b
 
 -- | Type for the palette used in Gif & PNG files.
 type Palette = Image PixelRGB8
@@ -391,7 +399,7 @@ data DynamicImage =
      | ImageCMYK8  (Image PixelCMYK8)
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
-    deriving (Typeable)
+    deriving (Eq, Typeable)
 
 -- | Type used to expose a palette extracted during reading.
 -- Use palettedAsImage to convert it to a palette usable for
