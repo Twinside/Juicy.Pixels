@@ -294,6 +294,7 @@ imgToImg path = do
             eitherDo $ writeColorReducedGifImage (path ++ "._fromYCbCr8.gif") rgb
 
         Right (ImageYF _, _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageY32 _, _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageRGBF _, _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageCMYK16 img, met) -> do
             let rgbimg :: Image PixelRGB16

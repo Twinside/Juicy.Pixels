@@ -293,6 +293,13 @@ decimateWord16 :: ( Pixel px1, Pixel px2
 decimateWord16 (Image w h da) =
   Image w h $ VS.map (\v -> fromIntegral $ v `unsafeShiftR` 8) da
 
+decimateWord32 :: ( Pixel px1, Pixel px2
+                  , PixelBaseComponent px1 ~ Pixel32
+                  , PixelBaseComponent px2 ~ Pixel8
+                  ) => Image px1 -> Image px2
+decimateWord32 (Image w h da) =
+  Image w h $ VS.map (\v -> fromIntegral $ v `unsafeShiftR` 24) da
+
 decimateFloat :: ( Pixel px1, Pixel px2
                  , PixelBaseComponent px1 ~ PixelF
                  , PixelBaseComponent px2 ~ Pixel8
@@ -302,6 +309,9 @@ decimateFloat (Image w h da) =
 
 instance Decimable Pixel16 Pixel8 where
    decimateBitDepth = decimateWord16
+
+instance Decimable Pixel32 Pixel8 where
+   decimateBitDepth = decimateWord32
 
 instance Decimable PixelYA16 PixelYA8 where
    decimateBitDepth = decimateWord16
@@ -321,13 +331,14 @@ instance Decimable PixelF Pixel8 where
 instance Decimable PixelRGBF PixelRGB8 where
    decimateBitDepth = decimateFloat
 
--- | Convert by any mean possible a dynamic image to an image
+-- | Convert by any means possible a dynamic image to an image
 -- in RGBA. The process can lose precision while converting from
 -- 16bits pixels or Floating point pixels.
 convertRGBA8 :: DynamicImage -> Image PixelRGBA8
 convertRGBA8 dynImage = case dynImage of
   ImageY8     img -> promoteImage img
   ImageY16    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageY32    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
   ImageYF     img -> promoteImage (decimateBitDepth img :: Image Pixel8)
   ImageYA8    img -> promoteImage img
   ImageYA16   img -> promoteImage (decimateBitDepth img :: Image PixelYA8)
@@ -341,7 +352,7 @@ convertRGBA8 dynImage = case dynImage of
   ImageCMYK16 img ->
     promoteImage (convertImage (decimateBitDepth img :: Image PixelCMYK8) :: Image PixelRGB8)
 
--- | Convert by any mean possible a dynamic image to an image
+-- | Convert by any means possible a dynamic image to an image
 -- in RGB. The process can lose precision while converting from
 -- 16bits pixels or Floating point pixels. Any alpha layer will
 -- be dropped
@@ -349,6 +360,7 @@ convertRGB8 :: DynamicImage -> Image PixelRGB8
 convertRGB8 dynImage = case dynImage of
   ImageY8     img -> promoteImage img
   ImageY16    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
+  ImageY32    img -> promoteImage (decimateBitDepth img :: Image Pixel8)
   ImageYF     img -> promoteImage (decimateBitDepth img :: Image Pixel8)
   ImageYA8    img -> promoteImage img
   ImageYA16   img -> promoteImage (decimateBitDepth img :: Image PixelYA8)

@@ -377,6 +377,8 @@ data DynamicImage =
        ImageY8    (Image Pixel8)
        -- | A greyscale image with 16bit components
      | ImageY16   (Image Pixel16)
+       -- | A greyscale image with 32bit components
+     | ImageY32   (Image Pixel32)
        -- | A greyscale HDR image
      | ImageYF    (Image PixelF)
        -- | An image in greyscale with an alpha channel.
@@ -450,6 +452,7 @@ dynamicMap :: (forall pixel . (Pixel pixel) => Image pixel -> a)
            -> DynamicImage -> a
 dynamicMap f (ImageY8    i) = f i
 dynamicMap f (ImageY16   i) = f i
+dynamicMap f (ImageY32   i) = f i
 dynamicMap f (ImageYF    i) = f i
 dynamicMap f (ImageYA8   i) = f i
 dynamicMap f (ImageYA16  i) = f i
@@ -482,6 +485,7 @@ dynamicPixelMap f = aux
   where
     aux (ImageY8    i) = ImageY8 (f i)
     aux (ImageY16   i) = ImageY16 (f i)
+    aux (ImageY32   i) = ImageY32 (f i)
     aux (ImageYF    i) = ImageYF (f i)
     aux (ImageYA8   i) = ImageYA8 (f i)
     aux (ImageYA16  i) = ImageYA16 (f i)
@@ -497,6 +501,7 @@ dynamicPixelMap f = aux
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
     rnf (ImageY16 img)    = rnf img
+    rnf (ImageY32 img)    = rnf img
     rnf (ImageYF img)     = rnf img
     rnf (ImageYA8 img)    = rnf img
     rnf (ImageYA16 img)   = rnf img
