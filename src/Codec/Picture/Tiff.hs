@@ -725,6 +725,7 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.singleton 32 && all (TiffSampleFloat ==) format =
         let img = gatherStrips (0 :: Float) file nfo :: Image PixelF
         in pure $ TrueColorImage $ ImageYF $ img
+  | lst == V.singleton 64 = Left "Failure to unpack TIFF file, 64-bit samples unsupported."
   | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
         pure . TrueColorImage . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
