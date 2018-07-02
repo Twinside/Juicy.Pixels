@@ -13,6 +13,8 @@ module Codec.Picture.Gif ( -- * Reading
                            -- * Writing
                          , GifDelay
                          , GifLooping( .. )
+                         , DisposalMethod ( .. )
+                         , encodeComplexGifImage
                          , encodeGifImage
                          , encodeGifImageWithPalette
                          , encodeGifImages
@@ -432,7 +434,7 @@ putPalette size pal = do
 data GifHeader = GifHeader
   { gifVersion          :: GifVersion
   , gifScreenDescriptor :: LogicalScreenDescriptor
-  , gifGlobalMap        :: !Palette
+  , gifGlobalMap        :: Maybe Palette
   }
 
 instance Binary GifHeader where
@@ -440,7 +442,9 @@ instance Binary GifHeader where
       put $ gifVersion v
       let descr = gifScreenDescriptor v
       put descr
-      putPalette (fromIntegral $ colorTableSize descr) $ gifGlobalMap v
+      case gifGlobalMap v of
+        Just palette -> putPalette (fromIntegral $ colorTableSize descr) palette
+        Nothing      -> return ()
 
     get = do
         version    <- get
@@ -448,9 +452,9 @@ instance Binary GifHeader where
         
         palette <- 
           if hasGlobalMap screenDesc then
-            getPalette $ colorTableSize screenDesc
+            return <$> getPalette (colorTableSize screenDesc)
           else
-            return greyPalette
+            return Nothing
 
         return GifHeader
             { gifVersion = version
@@ -579,7 +583,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
   | not (hasTransparency firstControl) =
       let backImage =
               generateImage (\_ _ -> backgroundColor) globalWidth globalHeight
-          thisPalette = paletteOf palette firstImage
+          thisPalette = paletteOf globalPalette firstImage
           baseImage = decodeImage firstImage
           initState =
             (thisPalette, firstControl, substituteColors thisPalette baseImage)
@@ -598,7 +602,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
             generateImage (\_ _ -> transparentBackground) globalWidth globalHeight
 
           thisPalette :: Image PixelRGBA8
-          thisPalette = paletteOf (promoteImage palette) firstImage
+          thisPalette = paletteOf (promoteImage globalPalette) firstImage
 
           transparentCode = transparentColorOf firstControl
           decoded = 
@@ -610,16 +614,17 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
             gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage in
       [TrueColorImage $ ImageRGBA8 img | (_, _, img) <- scanl scanner initState rest]
 
-    where 
+    where
       globalWidth = fromIntegral $ screenWidth wholeDescriptor
       globalHeight = fromIntegral $ screenHeight wholeDescriptor
+      globalPalette = maybe greyPalette id palette
 
       transparentBackground = PixelRGBA8 r g b 0
           where PixelRGB8 r g b = backgroundColor
 
       backgroundColor
         | hasGlobalMap wholeDescriptor =
-            pixelAt palette (fromIntegral $ backgroundIndex wholeDescriptor) 0
+            pixelAt globalPalette (fromIntegral $ backgroundIndex wholeDescriptor) 0
         | otherwise = PixelRGB8 0 0 0
 
 gifAnimationApplyer :: forall px.  (ColorConvertible PixelRGB8 px)
@@ -720,6 +725,11 @@ greyPalette = generateImage toGrey 256 1
   where toGrey x _ = PixelRGB8 ix ix ix
            where ix = fromIntegral x
 
+checkImagesInBounds :: Int -> Int -> [(Int, Int, a, b, c, d, Image Pixel8)] -> Bool
+checkImagesInBounds width height imageList = all isInBounds imageList
+  where isInBounds (xOff, yOff, _, _, _, _, img) =
+          xOff + imageWidth img <= width && yOff + imageHeight img <= height
+
 checkGifImageSizes :: [(a, b, Image px)] -> Bool
 checkGifImageSizes [] = False
 checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
@@ -729,22 +739,118 @@ checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
          checkDimension (_,_,Image { imageWidth = w, imageHeight = h }) =
              w == width && h == height
 
-checkPaletteValidity :: [(Palette, a, b)] -> Bool
-checkPaletteValidity [] = False
-checkPaletteValidity lst =
-    and [h == 1 && w > 0 && w <= 256 | (p, _, _) <- lst
-                                     , let w = imageWidth p
-                                           h = imageHeight p ]
+checkPaletteValidity :: [(a, b, Maybe Palette, c, d, e, f)] -> Bool
+checkPaletteValidity lst = all isPaletteValid lst
+  where
+    isPaletteValid (_, _, Nothing, _, _, _, _) = True
+    isPaletteValid (_, _, Just p,  _, _, _, _) = let w = imageWidth p
+                                                     h = imageHeight p
+                                                 in h == 1 && w > 0 && w <= 256
 
-areIndexAbsentFromPalette :: (Palette, a, Image Pixel8) -> Bool
-areIndexAbsentFromPalette (palette, _, img) = V.any isTooBig $ imageData img
+areIndexAbsentFromPalette :: Maybe Palette -> (a, b, Maybe Palette, c, d, e, Image Pixel8) -> Bool
+areIndexAbsentFromPalette Nothing (_, _, Nothing, _, _, _, _) = True -- No palette at all
+areIndexAbsentFromPalette _ (_, _, Just palette, _, _, _, img) = V.any isTooBig $ imageData img
   where paletteElemCount = imageWidth palette
         isTooBig v = fromIntegral v >= paletteElemCount
+areIndexAbsentFromPalette (Just palette) (_, _, Nothing, _, _, _, img) = V.any isTooBig $ imageData img
+  where paletteElemCount = imageWidth palette
+        isTooBig v = fromIntegral v >= paletteElemCount
+
+checkIndexInPalette :: Maybe Palette -> Maybe Palette -> Maybe Int -> Bool
+checkIndexInPalette _             _            Nothing   = True
+checkIndexInPalette Nothing       Nothing      (Just _)  = False
+checkIndexInPalette _             (Just local) (Just ix) = ix < imageWidth local
+checkIndexInPalette (Just global) _            (Just ix) = ix < imageWidth global
 
 computeMinimumLzwKeySize :: Palette -> Int
 computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
   where go k | 2 ^ k >= itemCount = k
              | otherwise = go $ k + 1
+
+-- | Encode a complex gif to a bytestring.
+--
+-- * Every palette must have between one and 256 colors.
+--
+encodeComplexGifImage :: Int -> Int -> Maybe Palette -> Maybe Int -> GifLooping
+                      -> [(Int, Int, Maybe Palette, Maybe Int, GifDelay, DisposalMethod, Image Pixel8)]
+                      -> Either String L.ByteString
+encodeComplexGifImage _     _      _             _          _       []        = Left "No images in list"
+encodeComplexGifImage width height globalPalette background _       imageList
+  | not $ checkImagesInBounds width height imageList =
+    Left $ "Gif images out of screen bounds: " ++ show [ nth :: Int
+                                                       | ((xOff, yOff, _, _, _, _, img), nth) <- zip imageList [0..]
+                                                       , xOff + imageWidth img > width ||
+                                                         yOff + imageHeight img > height ]
+  | not $ checkPaletteValidity imageList =
+    Left $ "Invalid palette size " ++ concat [ maybe "-" (show . imageWidth) pal ++ " "
+                                             | (_, _, pal, _, _, _, _) <- imageList ]
+  | any (areIndexAbsentFromPalette globalPalette) imageList =
+    Left "Image contains indexes absent from palette"
+  | not $ checkIndexInPalette globalPalette globalPalette background =
+    Left "Gif background index absent from global palette"
+  | not $ and [ checkIndexInPalette globalPalette localPalette transparent
+              | (_, _, localPalette, transparent, _, _, _) <- imageList ] =
+    Left "Gif transparent index absent from palette"
+encodeComplexGifImage width height globalPalette background looping imageList = Right $ encode allFile
+  where
+    allFile = GifFile
+      { gifHeader = GifHeader
+        { gifVersion          = version
+        , gifScreenDescriptor = logicalScreen
+        , gifGlobalMap        = globalPalette
+        }
+      , gifImages           = toSerialize
+      , gifLoopingBehaviour = looping
+      }
+
+    version = case imageList of
+      [] -> GIF87a
+      [_] -> GIF87a
+      _:_:_ -> GIF89a
+
+    logicalScreen = LogicalScreenDescriptor
+      { screenWidth        = fromIntegral width
+      , screenHeight       = fromIntegral height
+      , backgroundIndex    = maybe 0 fromIntegral background
+      , hasGlobalMap       = maybe False (const True) globalPalette
+      , colorResolution    = 8
+      , isColorTableSorted = False
+      , colorTableSize     = maybe 0 (fromIntegral . computeMinimumLzwKeySize) globalPalette
+      }
+
+    toSerialize = [(controlExtension delay transparent disposal, GifImage
+                     { imgDescriptor = imageDescriptor left top localPalette img
+                     , imgLocalPalette = localPalette
+                     , imgLzwRootSize = fromIntegral lzwKeySize
+                     , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
+                     })
+                  | (left, top, localPalette, transparent, delay, disposal, img) <- imageList
+                  , let palette = case (globalPalette, localPalette) of
+                          (_, Just local)        -> local
+                          (Just global, Nothing) -> global
+                          (Nothing, Nothing)     -> error "No palette for image" -- redundant, we guard for this
+                  , let lzwKeySize = computeMinimumLzwKeySize palette
+                  ]
+
+    controlExtension 0     Nothing     DisposalAny = Nothing
+    controlExtension delay transparent disposal    = Just GraphicControlExtension
+      { gceDisposalMethod        = disposal
+      , gceUserInputFlag         = False
+      , gceTransparentFlag       = maybe False (const True) transparent
+      , gceDelay                 = fromIntegral delay
+      , gceTransparentColorIndex = maybe 0 fromIntegral transparent
+      }
+
+    imageDescriptor left top localPalette img = ImageDescriptor
+      { gDescPixelsFromLeft         = fromIntegral left
+      , gDescPixelsFromTop          = fromIntegral top
+      , gDescImageWidth             = fromIntegral $ imageWidth img
+      , gDescImageHeight            = fromIntegral $ imageHeight img
+      , gDescHasLocalMap            = maybe False (const True) localPalette
+      , gDescIsInterlaced           = False
+      , gDescIsImgDescriptorSorted  = False
+      , gDescLocalColorTableSize    = maybe 0 (fromIntegral . computeMinimumLzwKeySize) localPalette
+      }
 
 -- | Encode a gif animation to a bytestring.
 --
@@ -757,66 +863,14 @@ encodeGifImages :: GifLooping -> [(Palette, GifDelay, Image Pixel8)]
 encodeGifImages _ [] = Left "No image in list"
 encodeGifImages _ imageList
     | not $ checkGifImageSizes imageList = Left "Gif images have different size"
-    | not $ checkPaletteValidity imageList =
-        Left $ "Invalid palette size " ++ concat [show (imageWidth pal) ++ " "| (pal, _, _) <- imageList ]
-    | any areIndexAbsentFromPalette imageList = Left "Image contains indexes absent from the palette"
-encodeGifImages looping imageList@((firstPalette, _,firstImage):_) = Right $ encode allFile
+encodeGifImages looping imageList@((firstPalette, _,firstImage):_) =
+  encodeComplexGifImage (imageWidth firstImage) (imageHeight firstImage) (Just firstPalette) Nothing looping imageList'
   where
-    version = case imageList of
-      [] -> GIF87a
-      [_] -> GIF87a
-      _:_:_ -> GIF89a
-
-    allFile = GifFile
-        { gifHeader = GifHeader
-            { gifVersion = version
-            , gifScreenDescriptor = logicalScreen
-            , gifGlobalMap = firstPalette
-            }
-        , gifImages = toSerialize
-        , gifLoopingBehaviour = looping
-        }
-
-    logicalScreen = LogicalScreenDescriptor
-        { screenWidth        = fromIntegral $ imageWidth firstImage
-        , screenHeight       = fromIntegral $ imageHeight firstImage
-        , backgroundIndex    = 0
-        , hasGlobalMap       = True
-        , colorResolution    = 8
-        , isColorTableSorted = False
-        , colorTableSize     = 8
-        }
+    imageList' = [(0, 0, localPalette, Nothing, delay, DisposalAny, image)
+                 | (palette, delay, image) <- imageList
+                 , let localPalette = if paletteEqual palette then Nothing else Just palette ]
 
     paletteEqual p = imageData firstPalette == imageData p
-
-    controlExtension 0 =  Nothing
-    controlExtension delay = Just GraphicControlExtension
-        { gceDisposalMethod        = DisposalAny
-        , gceUserInputFlag         = False
-        , gceTransparentFlag       = False
-        , gceDelay                 = fromIntegral delay
-        , gceTransparentColorIndex = 0
-        }
-
-    toSerialize = [(controlExtension delay, GifImage
-        { imgDescriptor = imageDescriptor lzwKeySize (paletteEqual palette) img
-        , imgLocalPalette = Just palette
-        , imgLzwRootSize = fromIntegral lzwKeySize
-        , imgData = B.concat . L.toChunks . lzwEncode lzwKeySize $ imageData img
-        }) | (palette, delay, img) <- imageList
-           , let lzwKeySize = computeMinimumLzwKeySize palette
-           ]
-
-    imageDescriptor paletteSize palEqual img = ImageDescriptor
-        { gDescPixelsFromLeft         = 0
-        , gDescPixelsFromTop          = 0
-        , gDescImageWidth             = fromIntegral $ imageWidth img
-        , gDescImageHeight            = fromIntegral $ imageHeight img
-        , gDescHasLocalMap            = paletteSize > 0 && not palEqual
-        , gDescIsInterlaced           = False
-        , gDescIsImgDescriptorSorted  = False
-        , gDescLocalColorTableSize    = if palEqual then 0 else fromIntegral paletteSize
-        }
 
 -- | Encode a greyscale image to a bytestring.
 encodeGifImage :: Image Pixel8 -> L.ByteString
