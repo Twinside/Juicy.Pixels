@@ -158,7 +158,7 @@ instance Binary LogicalScreenDescriptor where
           tableSizeField = (colorTableSize v - 1) .&. 7
 
           colorResolutionField =
-            ((colorResolution v - 1) .&. 7) `unsafeShiftL` 5
+            ((colorResolution v - 1) .&. 7) `unsafeShiftL` 4
 
           packedField = globalMapField
                      .|. colorTableSortedField
@@ -179,7 +179,7 @@ instance Binary LogicalScreenDescriptor where
             { screenWidth           = w
             , screenHeight          = h
             , hasGlobalMap          = packedField `testBit` 7
-            , colorResolution       = (packedField `unsafeShiftR` 5) .&. 0x7 + 1
+            , colorResolution       = (packedField `unsafeShiftR` 4) .&. 0x7 + 1
             , isColorTableSorted    = packedField `testBit` 3
             , colorTableSize        = (packedField .&. 0x7) + 1
             , backgroundIndex       = backgroundColorIndex
