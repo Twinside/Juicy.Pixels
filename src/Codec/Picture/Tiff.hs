@@ -614,6 +614,10 @@ instance BinaryParam B.ByteString TiffInfo where
                                   $ tiffColorspace nfo
       ifdShort TagPlanarConfiguration
               . constantToPlaneConfiguration $ tiffPlaneConfiguration nfo
+      ifdMultiLong TagSampleFormat
+                                  . V.fromList
+                                  . map packSampleFormat
+                                  $ tiffSampleFormat nfo
       ifdShort TagCompression . packCompression
                                     $ tiffCompression nfo
       ifdMultiLong TagStripOffsets $ tiffOffsets nfo
@@ -790,6 +794,10 @@ unpack _ _ = Left "Failure to unpack TIFF file"
 --
 --  * 'ImageY16'
 --
+--  * 'ImageY32'
+--
+--  * 'ImageYF'
+--
 --  * 'ImageYA8'
 --
 --  * 'ImageYA16'
@@ -835,6 +843,9 @@ class (Pixel px) => TiffSaveable px where
   subSamplingInfo   :: px -> V.Vector Word32
   subSamplingInfo _ = V.empty
 
+  sampleFormat :: px -> [TiffSampleFormat]
+  sampleFormat _ = [TiffSampleUint]
+
 instance TiffSaveable Pixel8 where
   colorSpaceOfPixel _ = TiffMonochrome
 
@@ -843,6 +854,10 @@ instance TiffSaveable Pixel16 where
 
 instance TiffSaveable Pixel32 where
   colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelF where
+  colorSpaceOfPixel _ = TiffMonochrome
+  sampleFormat _      = [TiffSampleFloat]
 
 instance TiffSaveable PixelYA8 where
   colorSpaceOfPixel _ = TiffMonochrome
@@ -906,7 +921,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffSampleCount        = fromIntegral sampleCount
             , tiffRowPerStrip        = fromIntegral $ imageHeight img
             , tiffPlaneConfiguration = PlanarConfigContig
-            , tiffSampleFormat       = [TiffSampleUint]
+            , tiffSampleFormat       = sampleFormat (undefined :: px)
             , tiffBitsPerSample      = V.replicate intSampleCount bitPerSample
             , tiffCompression        = CompressionNone
             , tiffStripSize          = V.singleton imageSize

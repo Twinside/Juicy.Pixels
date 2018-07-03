@@ -13,6 +13,7 @@ import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
+import Data.Bits ( unsafeShiftR )
 import Data.Char( toLower )
 import Data.List( isInfixOf )
 import Data.Monoid
@@ -127,7 +128,7 @@ jpegValidTests = [ "bad_decode.jpg"
                  , "bad.jpg"
                  , "richys-groceries.jpg"
                  ]
- 
+
 tgaValidTests :: [FilePath]
 tgaValidTests =
     [ "CBW8.TGA"
@@ -201,6 +202,8 @@ tiffValidTests =
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
     ,"horizontal-difference-lzw.tiff" -- produced by "Grab" on Mac OS X
+    ,"rad_YF.tif"
+    ,"rad_Y32.tif"
     ]
 
 validationJpegEncode :: Image PixelYCbCr8 -> L.ByteString
@@ -293,8 +296,26 @@ imgToImg path = do
             putStrLn "-> Gif"
             eitherDo $ writeColorReducedGifImage (path ++ "._fromYCbCr8.gif") rgb
 
-        Right (ImageYF _, _) -> putStrLn "don't handle HDR image in imgToImg"
-        Right (ImageY32 _, _) -> putStrLn "don't handle HDR image in imgToImg"
+        Right (ImageYF img, met) -> do
+            let png16  = encodePng $ fromFloatTo16 img
+                tiff32 = encodeTiff $ fromFloatTo32 img
+            putStrLn $ "Float : " ++ path
+            print met
+            putStrLn "-> PNG (16)"
+            L.writeFile (path ++ "._fromYF.png") png16
+            putStrLn "-> Tiff (32)"
+            L.writeFile (path ++ "._fromYF.tiff") tiff32
+
+        Right (ImageY32 img, met) -> do
+            let png16     = encodePng $ from32To16 img
+                tiffFloat = encodeTiff $ from32ToFloat img
+            putStrLn $ "Y32 : " ++ path
+            print met
+            putStrLn "-> PNG (16)"
+            L.writeFile (path ++ "._fromY32.png") png16
+            putStrLn "-> Tiff (Float)"
+            L.writeFile (path ++ "._fromY32.tiff") tiffFloat
+
         Right (ImageRGBF _, _) -> putStrLn "don't handle HDR image in imgToImg"
         Right (ImageCMYK16 img, met) -> do
             let rgbimg :: Image PixelRGB16
@@ -455,6 +476,18 @@ toStandardDef img = pixelMap pixelConverter img
           where r = fix rf
                 g = fix gf
                 b = fix bf
+
+fromFloatTo32 :: Image PixelF -> Image Pixel32
+fromFloatTo32 = pixelMap (\f -> floor (f * (fromIntegral (maxBound :: Word32))))
+
+fromFloatTo16 :: Image PixelF -> Image Pixel16
+fromFloatTo16 = pixelMap (\f -> floor (f * (fromIntegral (maxBound :: Word16))))
+
+from32ToFloat :: Image Pixel32 -> Image PixelF
+from32ToFloat = pixelMap (\w -> fromIntegral w / 4294967296.0)
+
+from32To16 :: Image Pixel32 -> Image Pixel16
+from32To16 = pixelMap (fromIntegral . (`unsafeShiftR` 16))
 
 radianceToBitmap :: FilePath -> IO ()
 radianceToBitmap path = do
