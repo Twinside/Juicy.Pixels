@@ -18,6 +18,7 @@ module Codec.Picture.Tiff.Types
     , planarConfgOfConstant
     , constantToPlaneConfiguration
     , unpackSampleFormat
+    , packSampleFormat
     , word16OfTag
     , unpackPhotometricInterpretation
     , packPhotometricInterpretation
@@ -368,7 +369,7 @@ instance BinaryParam B.ByteString (TiffHeader, [[ImageFileDirectory]]) where
 data TiffSampleFormat
   = TiffSampleUint
   | TiffSampleInt
-  | TiffSampleDouble
+  | TiffSampleFloat
   | TiffSampleUnknown
   deriving Eq
 
@@ -376,9 +377,15 @@ unpackSampleFormat :: Word32 -> Get TiffSampleFormat
 unpackSampleFormat v = case v of
   1 -> pure TiffSampleUint
   2 -> pure TiffSampleInt
-  3 -> pure TiffSampleDouble
+  3 -> pure TiffSampleFloat
   4 -> pure TiffSampleUnknown
   vv -> fail $ "Undefined data format (" ++ show vv ++ ")"
+
+packSampleFormat :: TiffSampleFormat -> Word32
+packSampleFormat TiffSampleUint    = 1
+packSampleFormat TiffSampleInt     = 2
+packSampleFormat TiffSampleFloat   = 3
+packSampleFormat TiffSampleUnknown = 4
 
 data ImageFileDirectory = ImageFileDirectory
   { ifdIdentifier :: !ExifTag -- Word16

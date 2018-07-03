@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE CPP #-}
 -- | Module implementing TIFF decoding.
 --
@@ -88,6 +89,8 @@ data TiffInfo = TiffInfo
   }
 
 unLong :: String -> ExifData -> Get (V.Vector Word32)
+unLong _ (ExifLong v)   = pure $ V.singleton v
+unLong _ (ExifShort v)  = pure $ V.singleton (fromIntegral v)
 unLong _ (ExifShorts v) = pure $ V.map fromIntegral v
 unLong _ (ExifLongs v) = pure v
 unLong errMessage _ = fail errMessage
@@ -303,6 +306,33 @@ instance Unpackable Word32 where
               (outVec `M.write` writeIndex) finalValue
 
               looperBe (writeIndex + stride) (readIndex + 4)
+
+instance Unpackable Float where
+  type StorageType Float = Float
+
+  offsetStride _ _ _ = (0, 1)
+  outAlloc _ = M.new
+  allocTempBuffer _ _ s = M.new $ s * 4
+  mergeBackTempBuffer :: forall s. Float
+                      -> Endianness
+                      -> M.STVector s Word8
+                      -> Int
+                      -> Int
+                      -> Word32
+                      -> Int
+                      -> M.STVector s (StorageType Float)
+                      -> ST s ()
+  mergeBackTempBuffer _ endianness tempVec lineSize index size stride outVec =
+        let outVecWord32 :: M.STVector s Word32
+            outVecWord32 = M.unsafeCast outVec
+        in mergeBackTempBuffer (0 :: Word32)
+                               endianness
+                               tempVec
+                               lineSize
+                               index
+                               size
+                               stride
+                               outVecWord32
 
 data Pack4 = Pack4
 
@@ -584,6 +614,10 @@ instance BinaryParam B.ByteString TiffInfo where
                                   $ tiffColorspace nfo
       ifdShort TagPlanarConfiguration
               . constantToPlaneConfiguration $ tiffPlaneConfiguration nfo
+      ifdMultiLong TagSampleFormat
+                                  . V.fromList
+                                  . map packSampleFormat
+                                  $ tiffSampleFormat nfo
       ifdShort TagCompression . packCompression
                                     $ tiffCompression nfo
       ifdMultiLong TagStripOffsets $ tiffOffsets nfo
@@ -690,10 +724,12 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   | lst == V.singleton 16 && all (TiffSampleUint ==) format =
         pure . TrueColorImage . ImageY16 $ gatherStrips (0 :: Word16) file nfo
   | lst == V.singleton 32 && all (TiffSampleUint ==) format =
-        let toWord16 v = fromIntegral $ v `unsafeShiftR` 16
-            img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
-        in
-        pure . TrueColorImage . ImageY16 $ pixelMap toWord16 img
+        let img = gatherStrips (0 :: Word32) file nfo :: Image Pixel32
+        in pure $ TrueColorImage $ ImageY32 $ img
+  | lst == V.singleton 32 && all (TiffSampleFloat ==) format =
+        let img = gatherStrips (0 :: Float) file nfo :: Image PixelF
+        in pure $ TrueColorImage $ ImageYF $ img
+  | lst == V.singleton 64 = Left "Failure to unpack TIFF file, 64-bit samples unsupported."
   | lst == V.fromList [2, 2] && all (TiffSampleUint ==) format =
         pure . TrueColorImage . ImageYA8 . pixelMap (colorMap (0x55 *)) $ gatherStrips Pack2 file nfo
   | lst == V.fromList [4, 4] && all (TiffSampleUint ==) format =
@@ -758,6 +794,10 @@ unpack _ _ = Left "Failure to unpack TIFF file"
 --
 --  * 'ImageY16'
 --
+--  * 'ImageY32'
+--
+--  * 'ImageYF'
+--
 --  * 'ImageYA8'
 --
 --  * 'ImageYA16'
@@ -803,11 +843,21 @@ class (Pixel px) => TiffSaveable px where
   subSamplingInfo   :: px -> V.Vector Word32
   subSamplingInfo _ = V.empty
 
+  sampleFormat :: px -> [TiffSampleFormat]
+  sampleFormat _ = [TiffSampleUint]
+
 instance TiffSaveable Pixel8 where
   colorSpaceOfPixel _ = TiffMonochrome
 
 instance TiffSaveable Pixel16 where
   colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable Pixel32 where
+  colorSpaceOfPixel _ = TiffMonochrome
+
+instance TiffSaveable PixelF where
+  colorSpaceOfPixel _ = TiffMonochrome
+  sampleFormat _      = [TiffSampleFloat]
 
 instance TiffSaveable PixelYA8 where
   colorSpaceOfPixel _ = TiffMonochrome
@@ -871,7 +921,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffSampleCount        = fromIntegral sampleCount
             , tiffRowPerStrip        = fromIntegral $ imageHeight img
             , tiffPlaneConfiguration = PlanarConfigContig
-            , tiffSampleFormat       = [TiffSampleUint]
+            , tiffSampleFormat       = sampleFormat (undefined :: px)
             , tiffBitsPerSample      = V.replicate intSampleCount bitPerSample
             , tiffCompression        = CompressionNone
             , tiffStripSize          = V.singleton imageSize

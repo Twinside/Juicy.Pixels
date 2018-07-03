@@ -16,7 +16,7 @@ import Data.Monoid( mempty )
 #endif
 
 import Data.Bits( unsafeShiftR )
-import Data.Word( Word8, Word16 )
+import Data.Word( Word8, Word16, Word32 )
 import qualified Data.ByteString.Lazy as L
 import Codec.Picture.Bitmap
 import Codec.Picture.Jpg
@@ -51,6 +51,22 @@ from16to8 Image { imageWidth = w, imageHeight = h
    where transformed = V.map toWord8 arr
          toWord8 v = fromIntegral (v `unsafeShiftR` 8)
 
+from32to8 :: ( PixelBaseComponent source ~ Word32
+             , PixelBaseComponent dest ~ Word8 )
+          => Image source -> Image dest
+from32to8 Image { imageWidth = w, imageHeight = h
+                , imageData = arr } = Image w h transformed
+   where transformed = V.map toWord8 arr
+         toWord8 v = fromIntegral (v `unsafeShiftR` 24)
+
+from32to16 :: ( PixelBaseComponent source ~ Word32
+             , PixelBaseComponent dest ~ Word16 )
+          => Image source -> Image dest
+from32to16 Image { imageWidth = w, imageHeight = h
+                , imageData = arr } = Image w h transformed
+   where transformed = V.map toWord16 arr
+         toWord16 v = fromIntegral (v `unsafeShiftR` 16)
+
 from16toFloat :: ( PixelBaseComponent source ~ Word16
                  , PixelBaseComponent dest ~ Float )
           => Image source -> Image dest
@@ -84,7 +100,10 @@ imageToRadiance (ImageY16    img) =
   imageToRadiance . ImageRGBF $ pixelMap toRgbf img
     where toRgbf v = PixelRGBF val val val
             where val = fromIntegral v / 65536.0
-
+imageToRadiance (ImageY32    img) =
+  imageToRadiance . ImageRGBF $ pixelMap toRgbf img
+    where toRgbf v = PixelRGBF val val val
+            where val = fromIntegral v / 4294967296.0
 imageToRadiance (ImageYA16   img) =
   imageToRadiance . ImageRGBF $ pixelMap toRgbf img
     where toRgbf (PixelYA16 v _) = PixelRGBF val val val
@@ -118,6 +137,7 @@ imageToJpg quality dynImage =
         ImageYA8    img -> encodeWithMeta $ dropAlphaLayer img
         ImageY16    img -> imageToJpg quality . ImageY8 $ from16to8 img
         ImageYA16   img -> imageToJpg quality . ImageYA8 $ from16to8 img
+        ImageY32    img -> imageToJpg quality . ImageY8 $ from32to8 img
         ImageRGB16  img -> imageToJpg quality . ImageRGB8 $ from16to8 img
         ImageRGBA16 img -> imageToJpg quality . ImageRGBA8 $ from16to8 img
 
@@ -135,6 +155,7 @@ imageToPng (ImageY8     img) = encodePng img
 imageToPng (ImageYF     img) = encodePng $ greyScaleToStandardDef img
 imageToPng (ImageYA8    img) = encodePng img
 imageToPng (ImageY16    img) = encodePng img
+imageToPng (ImageY32    img) = imageToPng . ImageY16 $ from32to16 img
 imageToPng (ImageYA16   img) = encodePng img
 imageToPng (ImageRGB16  img) = encodePng img
 imageToPng (ImageRGBA16 img) = encodePng img
@@ -153,6 +174,7 @@ imageToTiff (ImageY8     img) = encodeTiff img
 imageToTiff (ImageYF     img) = encodeTiff $ greyScaleToStandardDef img
 imageToTiff (ImageYA8    img) = encodeTiff $ dropAlphaLayer img
 imageToTiff (ImageY16    img) = encodeTiff img
+imageToTiff (ImageY32    img) = encodeTiff img
 imageToTiff (ImageYA16   img) = encodeTiff $ dropAlphaLayer img
 imageToTiff (ImageRGB16  img) = encodeTiff img
 imageToTiff (ImageRGBA16 img) = encodeTiff img
@@ -171,6 +193,7 @@ imageToBitmap (ImageY8     img) = encodeBitmap img
 imageToBitmap (ImageYF     img) = encodeBitmap $ greyScaleToStandardDef img
 imageToBitmap (ImageYA8    img) = encodeBitmap (promoteImage img :: Image PixelRGBA8)
 imageToBitmap (ImageY16    img) = imageToBitmap . ImageY8 $ from16to8 img
+imageToBitmap (ImageY32    img) = imageToBitmap . ImageY8 $ from32to8 img
 imageToBitmap (ImageYA16   img) = imageToBitmap . ImageYA8 $ from16to8 img
 imageToBitmap (ImageRGB16  img) = imageToBitmap . ImageRGB8 $ from16to8 img
 imageToBitmap (ImageRGBA16 img) = imageToBitmap . ImageRGBA8 $ from16to8 img
@@ -191,6 +214,7 @@ imageToGif (ImageY8     img) = Right $ encodeGifImage img
 imageToGif (ImageYF     img) = imageToGif . ImageY8 $ greyScaleToStandardDef img
 imageToGif (ImageYA8    img) = imageToGif . ImageY8 $ dropAlphaLayer img
 imageToGif (ImageY16    img) = imageToGif . ImageY8 $ from16to8 img
+imageToGif (ImageY32    img) = imageToGif . ImageY8 $ from32to8 img
 imageToGif (ImageYA16   img) = imageToGif . ImageYA8 $ from16to8 img
 imageToGif (ImageRGB16  img) = imageToGif . ImageRGB8 $ from16to8 img
 imageToGif (ImageRGBA16 img) = imageToGif . ImageRGBA8 $ from16to8 img
@@ -209,6 +233,7 @@ imageToTga (ImageY8     img) = encodeTga img
 imageToTga (ImageYF     img) = encodeTga $ greyScaleToStandardDef img
 imageToTga (ImageYA8    img) = encodeTga (promoteImage img :: Image PixelRGBA8)
 imageToTga (ImageY16    img) = encodeTga (from16to8 img :: Image Pixel8)
+imageToTga (ImageY32    img) = encodeTga (from32to8 img :: Image Pixel8)
 imageToTga (ImageYA16   img) = encodeTga (from16to8 img :: Image PixelRGBA8)
 imageToTga (ImageRGB16  img) = encodeTga (from16to8 img :: Image PixelRGB8)
 imageToTga (ImageRGBA16 img) = encodeTga (from16to8 img :: Image PixelRGBA8)
