@@ -1,15 +1,17 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 -- | Module provides basic types for image manipulation in the library.
+
+{-# LANGUAGE BangPatterns           #-}
+{-# LANGUAGE CPP                    #-}
+{-# LANGUAGE DeriveDataTypeable     #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE Rank2Types             #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeSynonymInstances   #-}
+{-# LANGUAGE UndecidableInstances   #-}
 -- Defined types are used to store all of those __Juicy Pixels__
 module Codec.Picture.Types( -- * Types
                             -- ** Image types
@@ -152,6 +154,12 @@ data Image a = Image
     , imageData   :: V.Vector (PixelBaseComponent a)
     }
     deriving (Typeable)
+
+instance (Eq (PixelBaseComponent a), Storable (PixelBaseComponent a))
+    => Eq (Image a) where
+  a == b = imageWidth  a == imageWidth  b &&
+           imageHeight a == imageHeight b &&
+           imageData   a == imageData   b
 
 -- | Type for the palette used in Gif & PNG files.
 type Palette = Image PixelRGB8
@@ -369,6 +377,8 @@ data DynamicImage =
        ImageY8    (Image Pixel8)
        -- | A greyscale image with 16bit components
      | ImageY16   (Image Pixel16)
+       -- | A greyscale image with 32bit components
+     | ImageY32   (Image Pixel32)
        -- | A greyscale HDR image
      | ImageYF    (Image PixelF)
        -- | An image in greyscale with an alpha channel.
@@ -391,7 +401,7 @@ data DynamicImage =
      | ImageCMYK8  (Image PixelCMYK8)
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
-    deriving (Typeable)
+    deriving (Eq, Typeable)
 
 -- | Type used to expose a palette extracted during reading.
 -- Use palettedAsImage to convert it to a palette usable for
@@ -442,6 +452,7 @@ dynamicMap :: (forall pixel . (Pixel pixel) => Image pixel -> a)
            -> DynamicImage -> a
 dynamicMap f (ImageY8    i) = f i
 dynamicMap f (ImageY16   i) = f i
+dynamicMap f (ImageY32   i) = f i
 dynamicMap f (ImageYF    i) = f i
 dynamicMap f (ImageYA8   i) = f i
 dynamicMap f (ImageYA16  i) = f i
@@ -474,6 +485,7 @@ dynamicPixelMap f = aux
   where
     aux (ImageY8    i) = ImageY8 (f i)
     aux (ImageY16   i) = ImageY16 (f i)
+    aux (ImageY32   i) = ImageY32 (f i)
     aux (ImageYF    i) = ImageYF (f i)
     aux (ImageYA8   i) = ImageYA8 (f i)
     aux (ImageYA16  i) = ImageYA16 (f i)
@@ -489,6 +501,7 @@ dynamicPixelMap f = aux
 instance NFData DynamicImage where
     rnf (ImageY8 img)     = rnf img
     rnf (ImageY16 img)    = rnf img
+    rnf (ImageY32 img)    = rnf img
     rnf (ImageYF img)     = rnf img
     rnf (ImageYA8 img)    = rnf img
     rnf (ImageYA16 img)   = rnf img

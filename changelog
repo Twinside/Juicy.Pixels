@@ -1,6 +1,15 @@
 Change log
 ==========
 
+v3.3 July 2018
+--------------
+
+ * New: Eq instances for image
+ * Fix: color gif resolution offset
+ * New: support for Float Tiff
+ * Breaking change: New `ImageY32` constructor for `Dynamic`
+					hence the version bump.
+
 v3.2.9.5 March 2018
 -------------------
  
