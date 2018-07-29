@@ -19,6 +19,7 @@ module Codec.Picture.BitWriter( BoolReader
                               , BoolWriteStateRef 
                               , newWriteStateRef
                               , finalizeBoolWriter
+                              , finalizeBoolWriterGif
                               , writeBits'
                               , writeBitsGif
 
@@ -339,6 +340,19 @@ writeBitsGif st d c = do
 
               where cleanMask = (1 `unsafeShiftL` bitCount) - 1 :: Word32
                     cleanData = bitData .&. cleanMask     :: Word32
+
+finalizeBoolWriterGif :: BoolWriteStateRef s -> ST s L.ByteString
+finalizeBoolWriterGif st = do
+    flushLeftBitsGif st
+    forceBufferFlushing' st
+    L.fromChunks <$> readSTRef (bwsBufferList st)
+
+flushLeftBitsGif :: BoolWriteStateRef s -> ST s ()
+flushLeftBitsGif st = do
+    currCount <- readSTRef $ bwsBitReaded st
+    when (currCount > 0) $ do
+      currWord <- readSTRef $ bwsBitAcc st
+      pushByte' st currWord
 
 {-# ANN module "HLint: ignore Reduce duplication" #-}
 
