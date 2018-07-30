@@ -399,7 +399,6 @@ instance Binary ImageDescriptor where
         imgWidth   <- getWord16le
         imgHeight  <- getWord16le
         packedFields <- getWord8
-        let tableSize = packedFields .&. 0x7
         return ImageDescriptor
             { gDescPixelsFromLeft = imgLeftPos
             , gDescPixelsFromTop  = imgTopPos
@@ -408,7 +407,7 @@ instance Binary ImageDescriptor where
             , gDescHasLocalMap    = packedFields `testBit` 7
             , gDescIsInterlaced     = packedFields `testBit` 6
             , gDescIsImgDescriptorSorted = packedFields `testBit` 5
-            , gDescLocalColorTableSize = if tableSize > 0 then tableSize + 1 else 0
+            , gDescLocalColorTableSize = (packedFields .&. 0x7) + 1
             }
 
 
