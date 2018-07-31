@@ -832,8 +832,8 @@ checkGifImageSizes ((_, _, img) : rest) = all checkDimension rest
          checkDimension (_,_,Image { imageWidth = w, imageHeight = h }) =
              w == width && h == height
 
-computeMinimumLzwKeySize :: Palette -> Int
-computeMinimumLzwKeySize Image { imageWidth = itemCount } = go 2
+computeColorTableSize :: Palette -> Int
+computeColorTableSize Image { imageWidth = itemCount } = go 1
   where go k | 2 ^ k >= itemCount = k
              | otherwise = go $ k + 1
 
@@ -896,7 +896,8 @@ encodeComplexGifImage spec = do
       , hasGlobalMap       = maybe False (const True) globalPalette
       , colorResolution    = 8
       , isColorTableSorted = False
-      , colorTableSize     = maybe 0 (fromIntegral . computeMinimumLzwKeySize) globalPalette
+      -- Imply a 8 bit global palette size if there's no explicit global palette.
+      , colorTableSize     = maybe 8 (fromIntegral . computeColorTableSize) globalPalette
       }
 
     toSerialize = [(controlExtension delay transparent disposal, GifImage
@@ -916,7 +917,9 @@ encodeComplexGifImage spec = do
                           (_, Just local)        -> local
                           (Just global, Nothing) -> global
                           (Nothing, Nothing)     -> error "No palette for image" -- redundant, we guard for this
-                  , let lzwKeySize = computeMinimumLzwKeySize palette
+                    -- Some decoders (looking at you, GIMP) don't handle initial LZW key size of 1 correctly.
+                    -- We'll waste some space for the sake of interoperability
+                  , let lzwKeySize = max 2 $ computeColorTableSize palette
                   ]
 
     controlExtension 0     Nothing     DisposalAny = Nothing
@@ -936,7 +939,7 @@ encodeComplexGifImage spec = do
       , gDescHasLocalMap            = maybe False (const True) localPalette
       , gDescIsInterlaced           = False
       , gDescIsImgDescriptorSorted  = False
-      , gDescLocalColorTableSize    = maybe 0 (fromIntegral . computeMinimumLzwKeySize) localPalette
+      , gDescLocalColorTableSize    = maybe 0 (fromIntegral . computeColorTableSize) localPalette
       }
 
 -- | Encode a gif animation to a bytestring.
