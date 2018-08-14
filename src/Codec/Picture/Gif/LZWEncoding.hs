@@ -88,7 +88,7 @@ lzwEncode initialKeySize vec = runST $ do
     writeBitsGif bitWriter (fromIntegral clearCode) startCodeSize
     go 0 (startCodeSize, firstFreeIndex, initialTrie)
 
-    finalizeBoolWriter bitWriter
+    finalizeBoolWriterGif bitWriter
   where
     maxi = V.length vec
 
