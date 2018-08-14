@@ -16,14 +16,15 @@ module Codec.Picture.Gif ( -- * Reading
                          , GifEncode( .. )
                          , GifFrame( .. )
                          , GifLooping( .. )
-                         , encodeComplexGifImage
                          , encodeGifImage
                          , encodeGifImageWithPalette
                          , encodeGifImages
+                         , encodeComplexGifImage
 
                          , writeGifImage
                          , writeGifImageWithPalette
                          , writeGifImages
+                         , writeComplexGifImage
                          , greyPalette
                          ) where
 
@@ -1000,3 +1001,5 @@ writeGifImageWithPalette :: FilePath -> Image Pixel8 -> Palette
 writeGifImageWithPalette file img palette =
     L.writeFile file <$> encodeGifImageWithPalette img palette
 
+writeComplexGifImage :: FilePath -> GifEncode -> Either String (IO ())
+writeComplexGifImage file spec = L.writeFile file <$> encodeComplexGifImage spec
