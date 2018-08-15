@@ -13,7 +13,7 @@ import Codec.Picture.Tiff
 import System.Environment
 
 import Data.Binary
-import Data.Bits ( unsafeShiftR )
+import Data.Bits ( unsafeShiftR, xor )
 import Data.Char( toLower )
 import Data.List( isInfixOf )
 import Data.Monoid
@@ -97,6 +97,50 @@ gifAnimationTest =
       Left err -> putStrLn err
       Right w -> w
   where img = [(greyPalette, 20, greyScaleWitness (i * 10)) | i <- [0 .. 20]]
+
+gifPaletteTest :: IO ()
+gifPaletteTest = do
+  gifGridTest
+  gif1024ColorsTest
+
+gifGridTest :: IO ()
+gifGridTest = do
+  gifBWGrid
+  gifBAGrid
+  gifWAGrid
+
+  where palette = generateImage (\x _ -> let c = if x == 0 then 0x00 else 0xff in PixelRGB8 c c c) 2 1
+        pixels = generateImage (\x y -> if even x `xor` even y then 0 else 1) 20 20
+        writeGif name spec = case writeComplexGifImage ("tests" </> name) spec of
+          Left err -> putStrLn err
+          Right w -> w
+        -- BW global palette, no local palette
+        gifBWGrid = writeGif "black-white-grid.gif" $
+          GifEncode 20 20 (Just palette) Nothing LoopingNever
+          [GifFrame 0 0 Nothing Nothing 0 DisposalAny pixels]
+        -- No global palette, BW local palette with white index as transparency
+        gifBAGrid = writeGif "black-alpha-grid.gif" $
+          GifEncode 20 20 Nothing Nothing LoopingNever
+          [GifFrame 0 0 (Just palette) (Just 1) 0 DisposalAny pixels]
+        -- No global palette, BW local palette with black index as transparency
+        gifWAGrid = writeGif "white-alpha-grid.gif" $
+          GifEncode 20 20 Nothing Nothing LoopingNever
+          [GifFrame 0 0 (Just palette) (Just 0) 0 DisposalAny pixels]
+
+gif1024ColorsTest :: IO ()
+gif1024ColorsTest = case writeComplexGifImage ("tests" </> "1024-colors.gif") spec of
+                      Left err -> putStrLn err
+                      Right w -> w
+  where spec = GifEncode 256 4 Nothing Nothing LoopingNever [reds, greens, blues, greys]
+        -- Most viewers will animate this even with the 0 delays
+        reds   = GifFrame 0 0 (Just redPalette)   Nothing 0 DisposalDoNot pixels
+        greens = GifFrame 0 1 (Just greenPalette) Nothing 0 DisposalDoNot pixels
+        blues  = GifFrame 0 2 (Just bluePalette)  Nothing 0 DisposalDoNot pixels
+        greys  = GifFrame 0 3 (Just greyPalette)  Nothing 0 DisposalDoNot pixels
+        redPalette   = pixelMap (\(PixelRGB8 r _ _) -> PixelRGB8 r 0 0) greyPalette
+        greenPalette = pixelMap (\(PixelRGB8 _ g _) -> PixelRGB8 0 g 0) greyPalette
+        bluePalette  = pixelMap (\(PixelRGB8 _ _ b) -> PixelRGB8 0 0 b) greyPalette
+        pixels = generateImage (\x _ -> fromIntegral x) 256 1
 
 jpegValidTests :: [FilePath]
 jpegValidTests = [ "bad_decode.jpg"
@@ -625,7 +669,9 @@ testSuite = do
     metadataWriteTest
     metadataReadTest
     putStrLn ">>>> Gif animation test"
-    gifAnimationTest 
+    gifAnimationTest
+    putStrLn ">>>> Gif palette test"
+    gifPaletteTest
     putStrLn ">>>> Valid instances"
     toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
     toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
