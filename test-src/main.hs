@@ -15,7 +15,7 @@ import System.Environment
 import Data.Binary
 import Data.Bits ( unsafeShiftR, xor )
 import Data.Char( toLower )
-import Data.List( isInfixOf )
+import Data.List( isInfixOf, isPrefixOf )
 import Data.Monoid
 import Data.Word( Word8 )
 import Control.Monad( forM_, liftM, when )
@@ -90,6 +90,123 @@ greyScaleWitness offset = img 232 241
                 where xf = fromIntegral $ x - 100 :: Int
                       yf = fromIntegral $ y - 100
                       dist = (fromIntegral $ xf * xf + yf * yf) :: Double
+
+gifAPITest :: IO ()
+gifAPITest = do
+  testFail noImages1 "No GIF frames" "Empty frames list"
+  testFail noImages2 "No image in list" "Empty images list"
+
+  testFail zeroWidthScreen "Invalid screen bounds" "Screen width of zero"
+  testFail zeroHeightScreen "Invalid screen bounds" "Screen height of zero"
+  testFail tooWideScreen "Invalid screen bounds" "Screen width over 65535"
+  testFail tooTallScreen "Invalid screen bounds" "Screen height over 65535"
+
+  testFail zeroWidthFrame "GIF frames with invalid bounds" "Frame width of zero"
+  testFail zeroHeightFrame "GIF frames with invalid bounds" "Frame height of zero"
+  testFail tooWideFrame "GIF frames with invalid bounds" "Screen width over 65535"
+  testFail tooTallFrame "GIF frames with invalid bounds" "Screen height over 65535"
+
+  testFail outOfBoundsXNeg "GIF frames out of screen bounds" "Frame out of screen bounds -X"
+  testFail outOfBoundsXPos "GIF frames out of screen bounds" "Frame out of screen bounds +X"
+  testFail outOfBoundsYNeg "GIF frames out of screen bounds" "Frame out of screen bounds -Y"
+  testFail outOfBoundsYPos "GIF frames out of screen bounds" "Frame out of screen bounds +Y"
+
+  testFail zeroColorGlobalPalette "Invalid global palette size" "Zero color global palette"
+  testFail tooLargeGlobalPalette "Invalid global palette size" "Over 256 colors global palette"
+  testFail tallGlobalPalette "Invalid global palette size" "Invalid global palette height"
+
+  testFail zeroColorFramePalette "Invalid palette size in GIF frames" "Zero color frame palette"
+  testFail tooLargeFramePalette "Invalid palette size in GIF frames" "Over 256 colors frame palette"
+  testFail tallFramePalette "Invalid palette size in GIF frames" "Invalid frame palette height"
+
+  testFail bgColorMissing "GIF background index absent" "GIF background color not in global palette"
+  testFail trColorMissing "GIF transparent index absent" "GIF transparent color not in frame palette"
+
+  testFail noPalette "GIF image frames with color indexes missing" "Frame with no palette"
+  
+  testFail pxColorMissing1 "GIF image frames with color indexes missing" "Pixel color index not in palette"
+  testFail pxColorMissing2 "GIF image frames with color indexes missing" "Pixel color index not in palette"
+  testFail pxColorMissing3 "GIF image frames with color indexes missing" "Pixel color index not in palette"
+
+  where testFail (Right _)  _        desc = putStrLn $ "GIF API test failed: " ++ desc ++ " should cause error"
+        testFail (Left msg) expected _
+          | expected `isPrefixOf` msg = return ()
+          | otherwise                 = putStrLn $ "Unexpected failure message from GIF API: " ++ msg
+
+        palette2b = generateImage (\x _ -> let c = if x == 0 then 0x00 else 0xff in PixelRGB8 c c c) 2 1
+        pixels1x1 = generateImage (\_ _ -> 0) 1 1
+        okFrames = [GifFrame 0 0 (Just palette2b) Nothing 0 DisposalAny pixels1x1]
+
+        noImages1 = encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever []
+        noImages2 = encodeGifImages LoopingNever []
+
+        zeroWidthScreen = encodeComplexGifImage $ GifEncode 0 1 Nothing Nothing LoopingNever okFrames
+        zeroHeightScreen = encodeComplexGifImage $ GifEncode 1 0 Nothing Nothing LoopingNever okFrames
+        tooWideScreen = encodeComplexGifImage $ GifEncode 0x10000 1 Nothing Nothing LoopingNever okFrames
+        tooTallScreen = encodeComplexGifImage $ GifEncode 1 0x10000 Nothing Nothing LoopingNever okFrames
+
+        zeroWidthFrame = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                         [GifFrame 0 0 Nothing Nothing 0 DisposalAny $ generateImage (\_ _ -> 0) 0 1]
+        zeroHeightFrame = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                          [GifFrame 0 0 Nothing Nothing 0 DisposalAny $ generateImage (\_ _ -> 0) 1 0]
+        tooWideFrame = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                       [GifFrame 0 0 Nothing Nothing 0 DisposalAny $ generateImage (\_ _ -> 0) 0x10000 1]
+        tooTallFrame = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                       [GifFrame 0 0 Nothing Nothing 0 DisposalAny $ generateImage (\_ _ -> 0) 1 0x10000]
+
+        outOfBoundsXNeg = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                          [GifFrame (-1) 0 Nothing Nothing 0 DisposalAny pixels1x1]
+        outOfBoundsXPos = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                          [GifFrame 1 0 Nothing Nothing 0 DisposalAny pixels1x1]
+        outOfBoundsYNeg = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                          [GifFrame 0 (-1) Nothing Nothing 0 DisposalAny pixels1x1]
+        outOfBoundsYPos = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever
+                          [GifFrame 0 1 Nothing Nothing 0 DisposalAny pixels1x1]
+
+        zeroColorGlobalPalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 0 1
+          in encodeComplexGifImage $ GifEncode 1 1 (Just palette) Nothing LoopingNever okFrames
+        tooLargeGlobalPalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 257 1
+          in encodeComplexGifImage $ GifEncode 1 1 (Just palette) Nothing LoopingNever okFrames
+        tallGlobalPalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 1 2
+          in encodeComplexGifImage $ GifEncode 1 1 (Just palette) Nothing LoopingNever okFrames
+
+        zeroColorFramePalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 0 1
+              frames = [GifFrame 0 0 (Just palette) Nothing 0 DisposalAny pixels1x1]
+          in encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever frames
+        tooLargeFramePalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 257 1
+              frames = [GifFrame 0 0 (Just palette) Nothing 0 DisposalAny pixels1x1]
+          in encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever frames
+        tallFramePalette =
+          let palette = generateImage (\_ _ -> PixelRGB8 0 0 0) 1 2
+              frames = [GifFrame 0 0 (Just palette) Nothing 0 DisposalAny pixels1x1]
+          in encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever frames
+
+        bgColorMissing = encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) (Just 3) LoopingNever okFrames
+        trColorMissing = encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever
+                         [GifFrame 0 0 (Just palette2b) (Just 3) 0 DisposalAny pixels1x1]
+
+        noPalette =
+          let frames = [GifFrame 0 0 Nothing Nothing 0 DisposalAny pixels1x1]
+          in encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever frames
+
+        pxColorMissing1 = -- Global palette
+          let pixels = generateImage (\_ _ -> 2) 1 1
+              frames = [GifFrame 0 0 Nothing Nothing 0 DisposalAny pixels]
+          in encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever frames
+        pxColorMissing2 = -- Local palette
+          let pixels = generateImage (\_ _ -> 2) 1 1
+              frames = [GifFrame 0 0 (Just palette2b) Nothing 0 DisposalAny pixels]
+          in encodeComplexGifImage $ GifEncode 1 1 Nothing Nothing LoopingNever frames
+        pxColorMissing3 = -- Both
+          let pixels = generateImage (\_ _ -> 2) 1 1
+              frames = [GifFrame 0 0 (Just palette2b) Nothing 0 DisposalAny pixels]
+          in encodeComplexGifImage $ GifEncode 1 1 (Just palette2b) Nothing LoopingNever frames
+        
 
 gifAnimationTest :: IO ()
 gifAnimationTest =
@@ -670,6 +787,8 @@ testSuite = do
     metadataReadTest
     putStrLn ">>>> Gif animation test"
     gifAnimationTest
+    putStrLn ">>>> Gif API test"
+    gifAPITest
     putStrLn ">>>> Gif palette test"
     gifPaletteTest
     putStrLn ">>>> Valid instances"
