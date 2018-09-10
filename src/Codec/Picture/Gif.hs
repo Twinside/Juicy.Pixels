@@ -780,18 +780,19 @@ checkImagesInBounds GifEncode { geWidth = width, geHeight = height, geFrames = f
   else Left $ "GIF frames out of screen bounds: " ++ show (map snd outOfBounds)
   where outOfBounds = filter (not . isInBounds . fst) $ zip frames [0 :: Int ..]
         isInBounds GifFrame { gfXOffset = xOff, gfYOffset = yOff, gfPixels = img } =
+          xOff >= 0 && yOff >= 0 &&
           xOff + imageWidth img <= width && yOff + imageHeight img <= height
 
 checkPaletteValidity :: GifEncode -> Either String ()
-checkPaletteValidity spec =
-  if null invalidPalettes
-  then Right ()
-  else Left $ "Invalid palette size in GIF frames: " ++ show (map snd invalidPalettes)
-  where invalidPalettes = filter (not . isPaletteValid . fst) $ zip (geFrames spec) [0 :: Int ..]
-        isPaletteValid GifFrame { gfPalette = Nothing } = True
-        isPaletteValid GifFrame { gfPalette = Just p  } = let w = imageWidth p
-                                                              h = imageHeight p
-                                                          in h == 1 && w > 0 && w <= 256
+checkPaletteValidity spec
+  | not $ isPaletteValid $ gePalette spec = Left "Invalid global palette size"
+  | not $ null invalidPalettes = Left $ "Invalid palette size in GIF frames: " ++ show (map snd invalidPalettes)
+  | otherwise = Right ()
+  where invalidPalettes = filter (not . isPaletteValid . gfPalette . fst) $ zip (geFrames spec) [0 :: Int ..]
+        isPaletteValid Nothing  = True
+        isPaletteValid (Just p) = let w = imageWidth p
+                                      h = imageHeight p
+                                  in h == 1 && w > 0 && w <= 256
 
 checkIndexAbsentFromPalette :: GifEncode -> Either String ()
 checkIndexAbsentFromPalette GifEncode { gePalette = global, geFrames = frames } =
