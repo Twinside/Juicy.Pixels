@@ -120,6 +120,8 @@ module Codec.Picture (
                      -- ** Image
                      , Image( .. )
                      , DynamicImage( .. )
+                     , dynamicImageWidth
+                     , dynamicImageHeight
                      , Palette
                      -- ** Pixels
                      , Pixel( .. )
