@@ -23,6 +23,8 @@ module Codec.Picture (
                      , decodeImageWithMetadata
                      , decodeImageWithPaletteAndMetadata
                      , pixelMap
+                     , dynamicMap
+                     , dynamicPixelMap
                      , generateImage
                      , generateFoldImage
                      , withImage
@@ -120,8 +122,6 @@ module Codec.Picture (
                      -- ** Image
                      , Image( .. )
                      , DynamicImage( .. )
-                     , dynamicImageWidth
-                     , dynamicImageHeight
                      , Palette
                      -- ** Pixels
                      , Pixel( .. )

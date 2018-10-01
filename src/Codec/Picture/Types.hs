@@ -61,8 +61,6 @@ module Codec.Picture.Types( -- * Types
                           , TransparentPixel( .. )
 
                             -- * Helper functions
-                          , dynamicImageWidth
-                          , dynamicImageHeight
                           , pixelMap
                           , pixelMapXY
                           , pixelFold
@@ -404,42 +402,6 @@ data DynamicImage =
        -- | An image in the colorspace CMYK and 16 bits precision
      | ImageCMYK16 (Image PixelCMYK16)
     deriving (Eq, Typeable)
-
-dynamicImageWidth :: DynamicImage -> Int
-dynamicImageWidth di =
-  case di of
-    ImageY8 im -> imageWidth im
-    ImageY16 im -> imageWidth im
-    ImageY32 im -> imageWidth im
-    ImageYF im -> imageWidth im
-    ImageYA8 im -> imageWidth im
-    ImageYA16 im -> imageWidth im
-    ImageRGB8 im -> imageWidth im
-    ImageRGB16 im -> imageWidth im
-    ImageRGBF im -> imageWidth im
-    ImageRGBA8 im -> imageWidth im
-    ImageRGBA16 im -> imageWidth im
-    ImageYCbCr8 im -> imageWidth im
-    ImageCMYK8 im -> imageWidth im
-    ImageCMYK16 im -> imageWidth im
-
-dynamicImageHeight :: DynamicImage -> Int
-dynamicImageHeight di =
-  case di of
-    ImageY8 im -> imageHeight im
-    ImageY16 im -> imageHeight im
-    ImageY32 im -> imageHeight im
-    ImageYF im -> imageHeight im
-    ImageYA8 im -> imageHeight im
-    ImageYA16 im -> imageHeight im
-    ImageRGB8 im -> imageHeight im
-    ImageRGB16 im -> imageHeight im
-    ImageRGBF im -> imageHeight im
-    ImageRGBA8 im -> imageHeight im
-    ImageRGBA16 im -> imageHeight im
-    ImageYCbCr8 im -> imageHeight im
-    ImageCMYK8 im -> imageHeight im
-    ImageCMYK16 im -> imageHeight im
 
 -- | Type used to expose a palette extracted during reading.
 -- Use palettedAsImage to convert it to a palette usable for
