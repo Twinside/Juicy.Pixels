@@ -115,7 +115,7 @@ Library
                     Codec.Picture.ColorQuant
 
   Ghc-options: -O3 -Wall
-  Build-depends: base                >= 4.8,
+  Build-depends: base                >= 4.8     && < 6,
                  bytestring          >= 0.9     && < 0.11,
                  mtl                 >= 1.1     && < 2.3,
                  binary              >= 0.5     && < 0.9,
