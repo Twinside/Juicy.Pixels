@@ -26,8 +26,6 @@ module Codec.Picture.Png( -- * High level functions
 
                         , writePng
                         , encodeDynamicPng
-                        , encodePalettedPng
-                        , encodePalettedPngWithMetadata
                         , writeDynamicPng
                         ) where
 
