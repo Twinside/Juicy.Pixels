@@ -13,7 +13,7 @@
 --
 -- this code assumes >> to be a two's-complement arithmetic
 -- right shift: (-2)>>1 == -1 , (-3)>>1 == -2               
-module Codec.Picture.Jpg.FastIdct( MutableMacroBlock
+module Codec.Picture.Jpg.Internal.FastIdct( MutableMacroBlock
                                  , fastIdct
                                  , mutableLevelShift
                                  , createEmptyMutableMacroBlock
@@ -25,7 +25,7 @@ import Data.Bits( unsafeShiftL, unsafeShiftR )
 import Data.Int( Int16 )
 import qualified Data.Vector.Storable.Mutable as M
 
-import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Internal.Types
 
 iclip :: V.Vector Int16
 iclip = V.fromListN 1024 [ val i| i <- [(-512) .. 511] ]

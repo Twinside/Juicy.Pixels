@@ -4,12 +4,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 import Codec.Picture
-import Codec.Picture.Jpg( JpgEncodable 
+import Codec.Picture.Jpg.Internal( JpgEncodable 
                         , decodeJpegWithMetadata
                         , encodeJpeg
                         , encodeDirectJpegAtQualityWithMetadata )
-import Codec.Picture.Gif
-import Codec.Picture.Tiff
+import Codec.Picture.Gif.Internal
+import Codec.Picture.Tiff.Internal
 import System.Environment
 
 import Data.Binary
@@ -26,7 +26,7 @@ import Codec.Picture.Types
 import Codec.Picture.Saving
 import Codec.Picture.HDR
 import Codec.Picture.Bitmap( encodeBitmapWithMetadata )
-import Codec.Picture.Png( encodePalettedPngWithMetadata )
+import Codec.Picture.Png.Internal( encodePalettedPngWithMetadata )
 import qualified Codec.Picture.Metadata as Met
 import qualified Codec.Picture.Metadata.Exif as Met
 import qualified Data.Vector.Storable as V

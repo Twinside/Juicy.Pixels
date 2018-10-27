@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Codec.Picture.Png.Metadata( extractMetadatas
+module Codec.Picture.Png.Internal.Metadata( extractMetadatas
                                  , encodeMetadatas
                                  ) where
 
@@ -23,7 +23,7 @@ import qualified Codec.Picture.Metadata as Met
 import Codec.Picture.Metadata ( Metadatas
                               , dotsPerMeterToDotPerInch
                               , Elem( (:=>) ) )
-import Codec.Picture.Png.Type
+import Codec.Picture.Png.Internal.Type
 
 #if !MIN_VERSION_base(4,7,0)
 eitherFoldMap :: Monoid m => (a -> m) -> Either e a -> m

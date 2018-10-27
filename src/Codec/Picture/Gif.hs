@@ -69,8 +69,8 @@ import Codec.Picture.Types
 import Codec.Picture.Metadata( Metadatas
                              , SourceFormat( SourceGif )
                              , basicMetadata )
-import Codec.Picture.Gif.LZW
-import Codec.Picture.Gif.LZWEncoding
+import Codec.Picture.Gif.Internal.LZW
+import Codec.Picture.Gif.Internal.LZWEncoding
 import Codec.Picture.BitWriter
 
 -- | Delay to wait before showing the next Gif image.

@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Tiff.Metadata
+module Codec.Picture.Tiff.Internal.Metadata
     ( extractTiffMetadata
     , encodeTiffStringMetadata
     , exifOffsetIfd
@@ -22,7 +22,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Codec.Picture.Metadata as Met
 import qualified Data.Vector.Generic as V
-import Codec.Picture.Tiff.Types
+import Codec.Picture.Tiff.Internal.Types
 import Codec.Picture.Metadata( extractExifMetas )
 import Codec.Picture.Metadata.Exif
 

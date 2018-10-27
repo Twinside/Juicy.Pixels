@@ -13,11 +13,11 @@ import qualified Data.Vector.Storable.Mutable as M
 import Text.Printf
 import Debug.Trace
 
-import Codec.Picture.Jpg.FastIdct
-import Codec.Picture.Jpg.DefaultTable
+import Codec.Picture.Jpg.Internal.FastIdct
+import Codec.Picture.Jpg.Internal.DefaultTable
 import Codec.Picture.BitWriter
 import qualified Data.ByteString as B
-import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Internal.Types
 
 {-testBoolWriter :: (forall s. BoolWriter s b) -> [Word8]-}
 {-testBoolWriter = B.unpack . runST . runBoolWriter-}

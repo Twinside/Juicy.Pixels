@@ -63,9 +63,9 @@ import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.InternalHelper
 import Codec.Picture.BitWriter
 import Codec.Picture.Types
-import Codec.Picture.Gif.LZW
-import Codec.Picture.Tiff.Types
-import Codec.Picture.Tiff.Metadata
+import Codec.Picture.Gif.Internal.LZW
+import Codec.Picture.Tiff.Internal.Types
+import Codec.Picture.Tiff.Internal.Metadata
 import Codec.Picture.VectorByteConversion( toByteString )
 
 data TiffInfo = TiffInfo

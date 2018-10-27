@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Codec.Picture.Tiff.Types
+module Codec.Picture.Tiff.Internal.Types
     ( BinaryParam( .. )
     , Endianness( .. )
     , TiffHeader( .. )
