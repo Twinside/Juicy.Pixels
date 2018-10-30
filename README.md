@@ -56,6 +56,7 @@ Status
         - 32bits (RGBA) images
         - 24bits (RGB) images
         - 8bits (greyscale & paletted) images
+        - RLE encoded or uncompressed
 
     * Writing
         - 32bits (RGBA) per pixel images
