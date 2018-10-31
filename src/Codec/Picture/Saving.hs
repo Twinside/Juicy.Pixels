@@ -120,7 +120,7 @@ imageToRadiance (ImageRGBA16 img) =
 -- of 'decodeImage' for jpeg encoding
 -- Save Y or YCbCr Jpeg only, all other colorspaces are converted.
 -- To save a RGB or CMYK JPEG file, use the
--- 'Codec.Picture.Jpg.encodeDirectJpegAtQualityWithMetadata' function
+-- 'Codec.Picture.Jpg.Internal.encodeDirectJpegAtQualityWithMetadata' function
 imageToJpg :: Int -> DynamicImage -> L.ByteString
 imageToJpg quality dynImage =
     let encodeAtQuality = encodeJpegAtQuality (fromIntegral quality)

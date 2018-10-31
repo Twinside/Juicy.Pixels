@@ -1,5 +1,5 @@
 {-# LANGUAGE BangPatterns, CPP #-}
-module Codec.Picture.Gif.LZWEncoding( lzwEncode ) where
+module Codec.Picture.Gif.Internal.LZWEncoding( lzwEncode ) where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )

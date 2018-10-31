@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
--- | Low level png module, you should import 'Codec.Picture.Png' instead.
-module Codec.Picture.Png.Type( PngIHdr( .. )
+-- | Low level png module, you should import 'Codec.Picture.Png.Internal' instead.
+module Codec.Picture.Png.Internal.Type( PngIHdr( .. )
                              , PngFilter( .. )
                              , PngInterlaceMethod( .. )
                              , PngPalette

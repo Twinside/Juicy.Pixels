@@ -52,14 +52,14 @@ import Codec.Picture.Types
 import Codec.Picture.Metadata( Metadatas
                              , SourceFormat( SourceJpeg )
                              , basicMetadata )
-import Codec.Picture.Tiff.Types
-import Codec.Picture.Tiff.Metadata
-import Codec.Picture.Jpg.Types
-import Codec.Picture.Jpg.Common
-import Codec.Picture.Jpg.Progressive
-import Codec.Picture.Jpg.DefaultTable
-import Codec.Picture.Jpg.FastDct
-import Codec.Picture.Jpg.Metadata
+import Codec.Picture.Tiff.Internal.Types
+import Codec.Picture.Tiff.Internal.Metadata
+import Codec.Picture.Jpg.Internal.Types
+import Codec.Picture.Jpg.Internal.Common
+import Codec.Picture.Jpg.Internal.Progressive
+import Codec.Picture.Jpg.Internal.DefaultTable
+import Codec.Picture.Jpg.Internal.FastDct
+import Codec.Picture.Jpg.Internal.Metadata
 
 quantize :: MacroBlock Int16 -> MutableMacroBlock s Int32
          -> ST s (MutableMacroBlock s Int32)

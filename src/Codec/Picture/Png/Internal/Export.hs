@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 -- | Module implementing a basic png export, no filtering is applyed, but
 -- export at least valid images.
-module Codec.Picture.Png.Export( PngSavable( .. )
+module Codec.Picture.Png.Internal.Export( PngSavable( .. )
                                , PngPaletteSaveable( .. )
                                , writePng
                                , encodeDynamicPng
@@ -29,8 +29,8 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
 
 import Codec.Picture.Types
-import Codec.Picture.Png.Type
-import Codec.Picture.Png.Metadata
+import Codec.Picture.Png.Internal.Type
+import Codec.Picture.Png.Internal.Metadata
 import Codec.Picture.Metadata( Metadatas )
 import Codec.Picture.VectorByteConversion( blitVector, toByteString )
 

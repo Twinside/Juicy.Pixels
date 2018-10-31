@@ -112,7 +112,21 @@ Library
                     Codec.Picture.Metadata.Exif,
                     Codec.Picture.Saving,
                     Codec.Picture.Types,
-                    Codec.Picture.ColorQuant
+                    Codec.Picture.ColorQuant,
+                    Codec.Picture.Jpg.Internal.DefaultTable,
+                    Codec.Picture.Jpg.Internal.Metadata,
+                    Codec.Picture.Jpg.Internal.FastIdct,
+                    Codec.Picture.Jpg.Internal.FastDct,
+                    Codec.Picture.Jpg.Internal.Types,
+                    Codec.Picture.Jpg.Internal.Common,
+                    Codec.Picture.Jpg.Internal.Progressive,
+                    Codec.Picture.Gif.Internal.LZW,
+                    Codec.Picture.Gif.Internal.LZWEncoding,
+                    Codec.Picture.Png.Internal.Export,
+                    Codec.Picture.Png.Internal.Type,
+                    Codec.Picture.Png.Internal.Metadata,
+                    Codec.Picture.Tiff.Internal.Metadata,
+                    Codec.Picture.Tiff.Internal.Types
 
   Ghc-options: -O3 -Wall
   Build-depends: base                >= 4.8     && < 6,
@@ -127,21 +141,7 @@ Library
                  containers          >= 0.4.2   && < 0.7
 
   -- Modules not exported by this package.
-  Other-modules: Codec.Picture.Jpg.DefaultTable,
-                 Codec.Picture.Jpg.Metadata,
-                 Codec.Picture.Jpg.FastIdct,
-                 Codec.Picture.Jpg.FastDct,
-                 Codec.Picture.Jpg.Types,
-                 Codec.Picture.Jpg.Common,
-                 Codec.Picture.Jpg.Progressive,
-                 Codec.Picture.Gif.LZW,
-                 Codec.Picture.Gif.LZWEncoding,
-                 Codec.Picture.Png.Export,
-                 Codec.Picture.Png.Type,
-                 Codec.Picture.Png.Metadata,
-                 Codec.Picture.Tiff.Metadata,
-                 Codec.Picture.Tiff.Types,
-                 Codec.Picture.BitWriter,
+  Other-modules: Codec.Picture.BitWriter,
                  Codec.Picture.InternalHelper,
                  Codec.Picture.VectorByteConversion
 

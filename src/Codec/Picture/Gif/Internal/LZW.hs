@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Gif.LZW( decodeLzw, decodeLzwTiff ) where
+module Codec.Picture.Gif.Internal.LZW( decodeLzw, decodeLzwTiff ) where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )

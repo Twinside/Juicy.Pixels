@@ -52,9 +52,9 @@ import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
 import Codec.Picture.Metadata
-import Codec.Picture.Png.Type
-import Codec.Picture.Png.Export
-import Codec.Picture.Png.Metadata
+import Codec.Picture.Png.Internal.Type
+import Codec.Picture.Png.Internal.Export
+import Codec.Picture.Png.Internal.Metadata
 import Codec.Picture.InternalHelper
 
 -- | Simple structure used to hold information about Adam7 deinterlacing.

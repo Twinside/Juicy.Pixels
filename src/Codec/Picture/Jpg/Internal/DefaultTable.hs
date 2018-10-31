@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 -- | Module used by the jpeg decoder internally, shouldn't be used
 -- in user code.
-module Codec.Picture.Jpg.DefaultTable( DctComponent( .. )
+module Codec.Picture.Jpg.Internal.DefaultTable( DctComponent( .. )
                                      , HuffmanTree( .. )
                                      , HuffmanTable
                                      , HuffmanPackedTree
