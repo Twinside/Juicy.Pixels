@@ -326,6 +326,7 @@ bmpValidTests =
     ,"bitmap_32bits_type0.bmp"
     ,"eggyra0001.bmp"
     ,"smiley.bmp"
+    ,"rle_test.bmp"
     ]
 
 -- "caspian.tif"

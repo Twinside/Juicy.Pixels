@@ -333,6 +333,48 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
       (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
       inner (readIdx + 1) (writeIdx + 1)
 
+decodeImageY8RLE :: BmpInfoHeader -> B.ByteString -> Image Pixel8
+decodeImageY8RLE (BmpInfoHeader { width = w, height = h, byteImageSize = sz }) str = Image wi hi stArray where
+  wi = fromIntegral w
+  hi = abs $ fromIntegral h
+  xOffsetMax = wi - 1
+
+  stArray = runST $ do
+    arr <- M.new . fromIntegral $ w * abs h
+    decodeRLE arr (B.unpack (B.take (fromIntegral sz) str)) ((hi - 1) * wi, 0)
+    VS.unsafeFreeze arr
+
+  decodeRLE :: forall s . M.MVector s Word8 -> [Word8] -> (Int, Int) -> ST s ()
+  decodeRLE arr = inner
+    where
+      inner :: [Word8] -> (Int, Int) -> ST s ()
+      inner [] _ = return ()
+      inner (0 : 0 : rest) (yOffset, _) = inner rest (yOffset - wi, 0)
+      inner (0 : 1 : _) _ = return ()
+      inner (0 : 2 : hOffset : vOffset : rest) (yOffset, _) =
+        inner rest (yOffset - (wi * fromIntegral vOffset), fromIntegral hOffset)
+      inner (0 : n : rest) writePos = copyN (odd n) (fromIntegral n) rest writePos
+      inner (n : b : rest) writePos = writeN (fromIntegral n) b rest writePos
+      inner _ _ = return ()
+
+      -- | Write n copies of a byte to the output array.
+      writeN :: Int -> Word8 -> [Word8] -> (Int, Int) -> ST s ()
+      writeN 0 _ rest writePos = inner rest writePos
+      writeN n b rest writePos = writeByte b writePos >>= writeN (n - 1) b rest
+
+      -- | Copy the next byte to the output array, possibly ignoring a padding byte at the end.
+      copyN :: Bool -> Int -> [Word8] -> (Int, Int) -> ST s ()
+      copyN _ _ [] _ = return ()
+      copyN False 0 rest writePos = inner rest writePos
+      copyN True 0 (_:rest) writePos = inner rest writePos
+      copyN isPadded n (b : rest) writePos =
+        writeByte b writePos >>= copyN isPadded (n - 1) rest
+
+      -- | Write the next byte to the output array.
+      writeByte :: Word8 -> (Int, Int) -> ST s (Int, Int)
+      writeByte byte (yOffset, xOffset) = do
+        (arr `M.unsafeWrite` (yOffset + xOffset)) byte
+        return (yOffset, (xOffset + 1) `min` xOffsetMax)
 
 pixelGet :: Get [Word8]
 pixelGet = do
@@ -411,15 +453,20 @@ decodeBitmapWithPaletteAndMetadata str = flip runGetStrict str $ do
       rest <- getData
       return . addMetadata . TrueColorImage . ImageRGB8  $ 
         decodeImageRGB8  bmpHeader rest
-    ( 8, 1, 0) -> do
+    ( 8, 1, compression) -> do
       table <- replicateM paletteColorCount pixelGet
       rest <- getData
       let palette = Palette'
             { _paletteSize = paletteColorCount
             , _paletteData = VS.fromListN (paletteColorCount * 3) $ concat table
             }
-      return . addMetadata $ PalettedRGB8 (decodeImageY8 bmpHeader rest) palette
+      image <-
+        case compression of
+          0 -> return $ decodeImageY8 bmpHeader rest
+          1 -> return $ decodeImageY8RLE bmpHeader rest
+          _ -> fail $ "Can't handle BMP file (8, 1, " ++ show compression ++ ")"
 
+      return . addMetadata $ PalettedRGB8 image palette
     a          -> fail $ "Can't handle BMP file " ++ show a
 
 
