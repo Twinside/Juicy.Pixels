@@ -51,6 +51,7 @@ import Data.Int( Int32 )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
+import Data.Bits
 
 import Codec.Picture.InternalHelper
 import Codec.Picture.Types
@@ -274,6 +275,7 @@ decodeImageRGBA8 (BmpInfoHeader { width = w, height = h }) (posR, posG, posB, po
     lastIndex = wi * (hi - 1 - line + 1) * 4
     writeIndex = wi * (hi - 1 - line) * 4
 
+    inner :: Int -> Int -> ST s Int
     inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
     inner readIdx writeIdx = do
         -- 32-bit BMP pixels are BGRA
@@ -309,8 +311,10 @@ decodeImageRGB8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stAr
         (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
         inner (readIdx + 3) (writeIdx + 3)
 
-decodeImageY8 :: BmpInfoHeader -> B.ByteString -> Image Pixel8
-decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArray where
+data LowBPP = OneBPP | FourBPP | EightBPP deriving Show
+
+decodeImageY8 :: LowBPP -> BmpInfoHeader -> B.ByteString -> Image Pixel8
+decodeImageY8 lowBPP (BmpInfoHeader { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
   stArray = runST $ do
@@ -321,20 +325,43 @@ decodeImageY8 (BmpInfoHeader { width = w, height = h }) str = Image wi hi stArra
         foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
       VS.unsafeFreeze arr
 
-  stride = linePadding 8 wi
+  stride = linePadding (fromIntegral bpp) wi
   
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
-  readLine arr readIndex line = inner readIndex writeIndex where
-    lastIndex = wi * (hi - 1 - line + 1)
-    writeIndex = wi * (hi - 1 - line)
+  readLine arr readIndex line = case lowBPP of
+      OneBPP -> inner1 readIndex writeIndex
+      FourBPP -> inner4 readIndex writeIndex
+      EightBPP -> inner8 readIndex writeIndex
+    where
+      lastIndex = wi * (hi - 1 - line + 1)
+      writeIndex = wi * (hi - 1 - line)
 
-    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
-    inner readIdx writeIdx = do
-      (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
-      inner (readIdx + 1) (writeIdx + 1)
+      inner8 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner8 readIdx writeIdx = do
+        (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
+        inner8 (readIdx + 1) (writeIdx + 1)
 
-decodeImageY8RLE :: BmpInfoHeader -> B.ByteString -> Image Pixel8
-decodeImageY8RLE (BmpInfoHeader { width = w, height = h, byteImageSize = sz }) str = Image wi hi stArray where
+      inner4 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner4 readIdx writeIdx = do
+        let byte = str `B.index` readIdx
+        if writeIdx >= lastIndex - 1 then do
+          (arr `M.unsafeWrite` writeIdx) (byte `unsafeShiftR` 4)
+          inner4 (readIdx + 1) (writeIdx + 1)
+        else do
+          (arr `M.unsafeWrite` writeIdx) (byte `unsafeShiftR` 4)
+          (arr `M.unsafeWrite` (writeIdx + 1)) (byte .&. 0x0F)
+          inner4 (readIdx + 1) (writeIdx + 2)
+
+      inner1 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner1 readIdx writeIdx = do
+        let byte = str `B.index` readIdx
+        let toWrite = (lastIndex - writeIdx) `min` 8
+        forM_ [0 .. (toWrite - 1)] $ \i ->
+          when (byte `testBit` (7 - i)) $ (arr `M.unsafeWrite` (writeIdx + i)) 1
+        inner1 (readIdx + 1) (writeIdx + toWrite)
+
+decodeImageY8RLE :: Bool -> BmpInfoHeader -> B.ByteString -> Image Pixel8
+decodeImageY8RLE is4bpp (BmpInfoHeader { width = w, height = h, byteImageSize = sz }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
   xOffsetMax = wi - 1
@@ -353,14 +380,24 @@ decodeImageY8RLE (BmpInfoHeader { width = w, height = h, byteImageSize = sz }) s
       inner (0 : 1 : _) _ = return ()
       inner (0 : 2 : hOffset : vOffset : rest) (yOffset, _) =
         inner rest (yOffset - (wi * fromIntegral vOffset), fromIntegral hOffset)
-      inner (0 : n : rest) writePos = copyN (odd n) (fromIntegral n) rest writePos
+      inner (0 : n : rest) writePos = 
+        let isPadded = if is4bpp then (n + 3) .&. 0x3 < 2 else odd n
+        in copyN isPadded (fromIntegral n) rest writePos
       inner (n : b : rest) writePos = writeN (fromIntegral n) b rest writePos
       inner _ _ = return ()
 
       -- | Write n copies of a byte to the output array.
       writeN :: Int -> Word8 -> [Word8] -> (Int, Int) -> ST s ()
       writeN 0 _ rest writePos = inner rest writePos
-      writeN n b rest writePos = writeByte b writePos >>= writeN (n - 1) b rest
+      writeN n b rest writePos =
+        case (is4bpp, n) of
+          (True, 1) ->
+            writeByte (b `unsafeShiftR` 4) writePos >>= writeN (n - 1) b rest
+          (True, _) ->
+            writeByte (b `unsafeShiftR` 4) writePos
+              >>= writeByte (b .&. 0x0F) >>= writeN (n - 2) b rest
+          (False, _) ->
+            writeByte b writePos >>= writeN (n - 1) b rest
 
       -- | Copy the next byte to the output array, possibly ignoring a padding byte at the end.
       copyN :: Bool -> Int -> [Word8] -> (Int, Int) -> ST s ()
@@ -368,7 +405,14 @@ decodeImageY8RLE (BmpInfoHeader { width = w, height = h, byteImageSize = sz }) s
       copyN False 0 rest writePos = inner rest writePos
       copyN True 0 (_:rest) writePos = inner rest writePos
       copyN isPadded n (b : rest) writePos =
-        writeByte b writePos >>= copyN isPadded (n - 1) rest
+        case (is4bpp, n) of
+          (True, 1) ->
+            writeByte (b `unsafeShiftR` 4) writePos >>= copyN isPadded (n - 1) rest
+          (True, _) ->
+            writeByte (b `unsafeShiftR` 4) writePos
+              >>= writeByte (b .&. 0x0F) >>= copyN isPadded (n - 2) rest
+          (False, _) ->
+            writeByte b writePos >>= copyN isPadded (n - 1) rest
 
       -- | Write the next byte to the output array.
       writeByte :: Word8 -> (Int, Int) -> ST s (Int, Int)
@@ -453,7 +497,7 @@ decodeBitmapWithPaletteAndMetadata str = flip runGetStrict str $ do
       rest <- getData
       return . addMetadata . TrueColorImage . ImageRGB8  $ 
         decodeImageRGB8  bmpHeader rest
-    ( 8, 1, compression) -> do
+    ( _, 1, compression) -> do
       table <- replicateM paletteColorCount pixelGet
       rest <- getData
       let palette = Palette'
@@ -461,14 +505,17 @@ decodeBitmapWithPaletteAndMetadata str = flip runGetStrict str $ do
             , _paletteData = VS.fromListN (paletteColorCount * 3) $ concat table
             }
       image <-
-        case compression of
-          0 -> return $ decodeImageY8 bmpHeader rest
-          1 -> return $ decodeImageY8RLE bmpHeader rest
-          _ -> fail $ "Can't handle BMP file (8, 1, " ++ show compression ++ ")"
+        case (bpp, compression) of
+          (8, 0) -> return $ decodeImageY8 EightBPP bmpHeader rest
+          (4, 0) -> return $ decodeImageY8 FourBPP bmpHeader rest
+          (1, 0) -> return $ decodeImageY8 OneBPP bmpHeader rest
+          (8, 1) -> return $ decodeImageY8RLE False bmpHeader rest
+          (4, 2) -> return $ decodeImageY8RLE True bmpHeader rest
+          (a, b) -> fail $ "Can't handle BMP file " ++ show (a, 1 :: Int, b)
 
       return . addMetadata $ PalettedRGB8 image palette
+        
     a          -> fail $ "Can't handle BMP file " ++ show a
-
 
 getBitfield :: Get Int
 getBitfield = do
@@ -488,7 +535,7 @@ writeBitmap filename img = L.writeFile filename $ encodeBitmap img
 
 linePadding :: Int -> Int -> Int
 linePadding bpp imgWidth = (4 - (bytesPerLine `mod` 4)) `mod` 4
-    where bytesPerLine = imgWidth * (fromIntegral bpp `div` 8)
+  where bytesPerLine = (bpp * imgWidth + 7) `div` 8
 
 -- | Encode an image into a bytestring in .bmp format ready to be written
 -- on disk.

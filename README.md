@@ -55,7 +55,7 @@ Status
     * Reading
         - 32bits (RGBA) images
         - 24bits (RGB) images
-        - 8bits (greyscale & paletted) images
+        - 1,4,8 bits (greyscale & paletted) images
         - RLE encoded or uncompressed
 
     * Writing
