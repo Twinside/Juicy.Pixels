@@ -435,8 +435,10 @@ decodeImageRGBA8 (BmpV5Header { width = w, height = h }) (posR, posG, posB, posA
         (arr `M.unsafeWrite` (writeIdx + 3)) (str `B.index` (readIdx + posA))
         inner (readIdx + 4) (writeIdx + 4)
 
-decodeImageRGB8 :: BmpV5Header -> B.ByteString -> Image PixelRGB8
-decodeImageRGB8 (BmpV5Header { width = w, height = h }) str = Image wi hi stArray where
+data HiBPP = SixteenBPP | TwentyFourBPP deriving Show
+
+decodeImageRGB8 :: HiBPP -> BmpV5Header -> B.ByteString -> Image PixelRGB8
+decodeImageRGB8 hiBpp (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
   stArray = runST $ do
@@ -447,19 +449,33 @@ decodeImageRGB8 (BmpV5Header { width = w, height = h }) str = Image wi hi stArra
         foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
       VS.unsafeFreeze arr
 
-  stride = linePadding 24 wi
+  stride = linePadding (fromIntegral bpp) wi
 
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
-  readLine arr readIndex line = inner readIndex writeIndex where
-    lastIndex = wi * (hi - 1 - line + 1) * 3
-    writeIndex = wi * (hi - 1 - line) * 3
+  readLine arr readIndex line = case hiBpp of
+      SixteenBPP -> inner16 readIndex writeIndex
+      TwentyFourBPP -> inner24 readIndex writeIndex
+    where
+      lastIndex = wi * (hi - 1 - line + 1) * 3
+      writeIndex = wi * (hi - 1 - line) * 3
 
-    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
-    inner readIdx writeIdx = do
-        (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
-        (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
-        (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
-        inner (readIdx + 3) (writeIdx + 3)
+      expand5To8Bits x = round $ 255/(31 :: Double) * fromIntegral (x .&. 0x1F)
+
+      inner24 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner24 readIdx writeIdx = do
+          (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
+          (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
+          (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
+          inner24 (readIdx + 3) (writeIdx + 3)
+
+      inner16 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner16 readIdx writeIdx = do
+          let rawPixel = ((fromIntegral (str `B.index` (readIdx + 1)) `unsafeShiftL` 8)
+                          .|. fromIntegral (str `B.index` readIdx)) :: Word16
+          (arr `M.unsafeWrite`  writeIdx     ) (expand5To8Bits $ rawPixel `unsafeShiftR` 10)
+          (arr `M.unsafeWrite` (writeIdx + 1)) (expand5To8Bits $ rawPixel `unsafeShiftR` 5)
+          (arr `M.unsafeWrite` (writeIdx + 2)) (expand5To8Bits   rawPixel)
+          inner16 (readIdx + 2) (writeIdx + 3)
 
 data LowBPP = OneBPP | FourBPP | EightBPP deriving Show
 
@@ -684,7 +700,12 @@ decodeBitmapWithHeaders fileHdr hdr = do
           decodeImageRGBA8 hdr (posRed, posGreen, posBlue, posAlpha) rest
       (24, 1, 0) -> do
         rest <- getData
-        return . TrueColorImage . ImageRGB8 $ decodeImageRGB8 hdr rest
+        return . TrueColorImage . ImageRGB8 $
+          decodeImageRGB8 TwentyFourBPP hdr rest
+      (16, 1, 0) -> do
+        rest <- getData
+        return . TrueColorImage . ImageRGB8 $ 
+          decodeImageRGB8 SixteenBPP hdr rest
       ( _, 1, compression) -> do
         table <- replicateM paletteColorCount pixelGet
         rest <- getData
