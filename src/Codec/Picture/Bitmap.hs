@@ -54,6 +54,7 @@ import Data.Bits
 import Data.Int( Int32 )
 import Data.Word( Word32, Word16, Word8 )
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Internal as BI
 import qualified Data.ByteString.Lazy as L
 
 import Codec.Picture.InternalHelper
@@ -163,10 +164,12 @@ data BmpV5Header = BmpV5Header
 sizeofColorProfile :: Int
 sizeofColorProfile = 48
 
+-- | Sizes of basic BMP headers.
 sizeofBmpHeader, sizeofBmpInfoHeader :: Word32
 sizeofBmpHeader = 2 + 4 + 2 + 2 + 4
 sizeofBmpInfoHeader = 40
 
+-- | Sizes of extended BMP headers.
 sizeofBmpV2Header, sizeofBmpV3Header, sizeofBmpV4Header, sizeofBmpV5Header :: Word32
 sizeofBmpV2Header = 52
 sizeofBmpV3Header = 56
@@ -406,8 +409,72 @@ instance BmpEncodable PixelRGB8 where
               inner 0 0 initialIndex
               VS.unsafeFreeze buff
 
-decodeImageRGBA8 :: BmpV5Header -> (Int, Int, Int, Int) -> B.ByteString -> Image PixelRGBA8
-decodeImageRGBA8 (BmpV5Header { width = w, height = h }) (posR, posG, posB, posA) str = Image wi hi stArray where
+-- | Information required to extract data from a bitfield.
+data Bitfield t = Bitfield
+    { bfMask :: !t            -- ^ The original bitmask.
+    , bfShift :: !Int         -- ^ The computed number of bits to shift right.
+    , bfScale :: !Float       -- ^ The scale factor to fit the data into 8 bits.
+    } deriving (Eq, Show)
+
+-- | Four bitfields (red, green, blue, alpha)
+data Bitfields4 t = Bitfields4 !(Bitfield t)
+                               !(Bitfield t)
+                               !(Bitfield t)
+                               !(Bitfield t)
+                               deriving (Eq, Show)
+
+-- | Default bitfields 32 bit bitmaps.
+defaultBitfieldsRGB32 :: Bitfields3 Word32
+defaultBitfieldsRGB32 = Bitfields3 (makeBitfield 0x00FF0000)
+                                   (makeBitfield 0x0000FF00)
+                                   (makeBitfield 0x000000FF)
+
+-- | Default bitfields for 16 bit bitmaps.
+defaultBitfieldsRGB16 :: Bitfields3 Word16
+defaultBitfieldsRGB16 = Bitfields3 (makeBitfield 0x7C00)
+                                   (makeBitfield 0x03E0)
+                                   (makeBitfield 0x001F)
+
+-- | Three bitfields (red, gree, blue).
+data Bitfields3 t = Bitfields3 !(Bitfield t)
+                               !(Bitfield t)
+                               !(Bitfield t)
+                               deriving (Eq, Show)
+
+-- | Pixel formats used to encode RGBA image data.
+data RGBABmpFormat = RGBA32 !(Bitfields4 Word32)
+                   | RGBA16 !(Bitfields4 Word16)
+                   deriving (Eq, Show)
+
+-- | Pixel formats used to encode RGB image data.
+data RGBBmpFormat = RGB32 !(Bitfields3 Word32)
+                  | RGB24
+                  | RGB16 !(Bitfields3 Word16)
+                  deriving (Eq, Show)
+
+-- | Pixel formats used to encode indexed or grayscale images.
+data IndexedBmpFormat = OneBPP | FourBPP | EightBPP deriving Show
+
+-- | Extract pixel data from a bitfield.
+extractBitfield :: (FiniteBits t, Integral t) => Bitfield t -> t -> Word8
+extractBitfield bf t = if bfScale bf == 1
+                        then fromIntegral field
+                        else round $ bfScale bf * fromIntegral field
+  where field = (t .&. bfMask bf) `unsafeShiftR` bfShift bf
+
+-- | Convert a bit mask into a 'BitField'.
+makeBitfield :: (FiniteBits t, Integral t) => t -> Bitfield t
+makeBitfield mask = Bitfield mask shiftBits scale
+  where
+    shiftBits = countTrailingZeros mask
+    scale = 255 / fromIntegral (mask `unsafeShiftR` shiftBits)
+
+-- | Helper method to cast a 'B.ByteString' to a 'VS.Vector' of some type.
+castByteString :: VS.Storable a => B.ByteString -> VS.Vector a
+castByteString (BI.PS fp offset len) = VS.unsafeCast $ VS.unsafeFromForeignPtr fp offset len
+
+decodeImageRGBA8 :: RGBABmpFormat -> BmpV5Header -> B.ByteString -> Image PixelRGBA8
+decodeImageRGBA8 pixelFormat (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
   stArray = runST $ do
@@ -418,27 +485,38 @@ decodeImageRGBA8 (BmpV5Header { width = w, height = h }) (posR, posG, posB, posA
         foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
       VS.unsafeFreeze arr
 
-  stride = linePadding 32 wi -- will be 0
+  paddingWords = (8 * linePadding intBPP wi) `div` intBPP
+  intBPP = fromIntegral bpp
 
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
-  readLine arr readIndex line = inner readIndex writeIndex where
-    lastIndex = wi * (hi - 1 - line + 1) * 4
-    writeIndex = wi * (hi - 1 - line) * 4
+  readLine arr readIndex line = case pixelFormat of
+      RGBA32 bitfields -> inner bitfields (castByteString str) readIndex writeIndex
+      RGBA16 bitfields -> inner bitfields (castByteString str) readIndex writeIndex
+    where
+      lastIndex = wi * (hi - 1 - line + 1) * 4
+      writeIndex = wi * (hi - 1 - line) * 4
 
-    inner :: Int -> Int -> ST s Int
-    inner readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
-    inner readIdx writeIdx = do
-        -- 32-bit BMP pixels are BGRA
-        (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + posR))
-        (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + posG))
-        (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index` (readIdx + posB))
-        (arr `M.unsafeWrite` (writeIdx + 3)) (str `B.index` (readIdx + posA))
-        inner (readIdx + 4) (writeIdx + 4)
+      inner
+        :: (FiniteBits t, Integral t, M.Storable t, Show t)
+        => Bitfields4 t
+        -> VS.Vector t
+        -> Int
+        -> Int
+        -> ST s Int
+      inner (Bitfields4 r g b a) inStr = inner0
+        where
+          inner0 :: Int -> Int -> ST s Int
+          inner0 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + paddingWords
+          inner0 readIdx writeIdx = do
+            let word = inStr VS.! readIdx
+            (arr `M.unsafeWrite`  writeIdx     ) (extractBitfield r word)
+            (arr `M.unsafeWrite` (writeIdx + 1)) (extractBitfield g word)
+            (arr `M.unsafeWrite` (writeIdx + 2)) (extractBitfield b word)
+            (arr `M.unsafeWrite` (writeIdx + 3)) (extractBitfield a word)
+            inner0 (readIdx + 1) (writeIdx + 4)
 
-data HiBPP = SixteenBPP | TwentyFourBPP deriving Show
-
-decodeImageRGB8 :: HiBPP -> BmpV5Header -> B.ByteString -> Image PixelRGB8
-decodeImageRGB8 hiBpp (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
+decodeImageRGB8 :: RGBBmpFormat -> BmpV5Header -> B.ByteString -> Image PixelRGB8
+decodeImageRGB8 pixelFormat (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
   stArray = runST $ do
@@ -449,37 +527,45 @@ decodeImageRGB8 hiBpp (BmpV5Header { width = w, height = h, bitPerPixel = bpp })
         foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
       VS.unsafeFreeze arr
 
-  stride = linePadding (fromIntegral bpp) wi
+  paddingBytes = linePadding intBPP wi
+  paddingWords = (linePadding intBPP wi * 8) `div` intBPP
+  intBPP = fromIntegral bpp
 
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
-  readLine arr readIndex line = case hiBpp of
-      SixteenBPP -> inner16 readIndex writeIndex
-      TwentyFourBPP -> inner24 readIndex writeIndex
+  readLine arr readIndex line = case pixelFormat of
+      RGB16 bitfields -> innerBF bitfields (castByteString str) readIndex writeIndex
+      RGB32 bitfields -> innerBF bitfields (castByteString str) readIndex writeIndex
+      RGB24 -> inner24 readIndex writeIndex
     where
       lastIndex = wi * (hi - 1 - line + 1) * 3
       writeIndex = wi * (hi - 1 - line) * 3
 
-      expand5To8Bits x = round $ 255/(31 :: Double) * fromIntegral (x .&. 0x1F)
-
-      inner24 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner24 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + paddingBytes
       inner24 readIdx writeIdx = do
           (arr `M.unsafeWrite`  writeIdx     ) (str `B.index` (readIdx + 2))
           (arr `M.unsafeWrite` (writeIdx + 1)) (str `B.index` (readIdx + 1))
           (arr `M.unsafeWrite` (writeIdx + 2)) (str `B.index`  readIdx)
           inner24 (readIdx + 3) (writeIdx + 3)
 
-      inner16 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
-      inner16 readIdx writeIdx = do
-          let rawPixel = ((fromIntegral (str `B.index` (readIdx + 1)) `unsafeShiftL` 8)
-                          .|. fromIntegral (str `B.index` readIdx)) :: Word16
-          (arr `M.unsafeWrite`  writeIdx     ) (expand5To8Bits $ rawPixel `unsafeShiftR` 10)
-          (arr `M.unsafeWrite` (writeIdx + 1)) (expand5To8Bits $ rawPixel `unsafeShiftR` 5)
-          (arr `M.unsafeWrite` (writeIdx + 2)) (expand5To8Bits   rawPixel)
-          inner16 (readIdx + 2) (writeIdx + 3)
+      innerBF
+        :: (FiniteBits t, Integral t, M.Storable t, Show t)
+        => Bitfields3 t
+        -> VS.Vector t
+        -> Int
+        -> Int
+        -> ST s Int
+      innerBF (Bitfields3 r g b) inStr = innerBF0
+        where
+          innerBF0 :: Int -> Int -> ST s Int
+          innerBF0 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + paddingWords
+          innerBF0 readIdx writeIdx = do
+            let word = inStr VS.! readIdx
+            (arr `M.unsafeWrite`  writeIdx     ) (extractBitfield r word)
+            (arr `M.unsafeWrite` (writeIdx + 1)) (extractBitfield g word)
+            (arr `M.unsafeWrite` (writeIdx + 2)) (extractBitfield b word)
+            innerBF0 (readIdx + 1) (writeIdx + 3)
 
-data LowBPP = OneBPP | FourBPP | EightBPP deriving Show
-
-decodeImageY8 :: LowBPP -> BmpV5Header -> B.ByteString -> Image Pixel8
+decodeImageY8 :: IndexedBmpFormat -> BmpV5Header -> B.ByteString -> Image Pixel8
 decodeImageY8 lowBPP (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
   wi = fromIntegral w
   hi = abs $ fromIntegral h
@@ -491,7 +577,7 @@ decodeImageY8 lowBPP (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) 
         foldM_ (readLine arr) 0 [hi - 1, hi - 2 .. 0]
       VS.unsafeFreeze arr
 
-  stride = linePadding (fromIntegral bpp) wi
+  padding = linePadding (fromIntegral bpp) wi
   
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
   readLine arr readIndex line = case lowBPP of
@@ -502,12 +588,12 @@ decodeImageY8 lowBPP (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) 
       lastIndex = wi * (hi - 1 - line + 1)
       writeIndex = wi * (hi - 1 - line)
 
-      inner8 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner8 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + padding
       inner8 readIdx writeIdx = do
         (arr `M.unsafeWrite` writeIdx) (str `B.index` readIdx)
         inner8 (readIdx + 1) (writeIdx + 1)
 
-      inner4 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner4 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + padding
       inner4 readIdx writeIdx = do
         let byte = str `B.index` readIdx
         if writeIdx >= lastIndex - 1 then do
@@ -518,7 +604,7 @@ decodeImageY8 lowBPP (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) 
           (arr `M.unsafeWrite` (writeIdx + 1)) (byte .&. 0x0F)
           inner4 (readIdx + 1) (writeIdx + 2)
 
-      inner1 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + stride
+      inner1 readIdx writeIdx | writeIdx >= lastIndex = return $ readIdx + padding
       inner1 readIdx writeIdx = do
         let byte = str `B.index` readIdx
         let toWrite = (lastIndex - writeIdx) `min` 8
@@ -687,25 +773,41 @@ decodeBitmapWithHeaders fileHdr hdr = do
     bitmapData = case (bitPerPixel hdr, planes hdr, bitmapCompression hdr) of
       (32, 1, 0) -> do
         rest <- getData
-        return . TrueColorImage . ImageRGBA8
-              $ decodeImageRGBA8 hdr (2, 1, 0, 3) rest
+        return . TrueColorImage . ImageRGB8 $
+          decodeImageRGB8 (RGB32 defaultBitfieldsRGB32) hdr rest
         -- (2, 1, 0, 3) means BGRA pixel order
       (32, 1, 3) -> do
-        posRed   <- getBitfield $ redMask hdr
-        posGreen <- getBitfield $ greenMask hdr
-        posBlue  <- getBitfield $ blueMask hdr
-        posAlpha <- getBitfield $ alphaMask hdr
+        r <- getBitfield $ redMask hdr
+        g <- getBitfield $ greenMask hdr
+        b <- getBitfield $ blueMask hdr
         rest     <- getData
-        return . TrueColorImage . ImageRGBA8 $
-          decodeImageRGBA8 hdr (posRed, posGreen, posBlue, posAlpha) rest
+        if alphaMask hdr == 0
+          then return . TrueColorImage . ImageRGB8 $
+            decodeImageRGB8 (RGB32 $ Bitfields3 r g b) hdr rest
+          else do
+            a <- getBitfield $ alphaMask hdr
+            return . TrueColorImage . ImageRGBA8 $
+              decodeImageRGBA8 (RGBA32 $ Bitfields4 r g b a) hdr rest
       (24, 1, 0) -> do
         rest <- getData
         return . TrueColorImage . ImageRGB8 $
-          decodeImageRGB8 TwentyFourBPP hdr rest
+          decodeImageRGB8 RGB24 hdr rest
       (16, 1, 0) -> do
         rest <- getData
         return . TrueColorImage . ImageRGB8 $ 
-          decodeImageRGB8 SixteenBPP hdr rest
+          decodeImageRGB8 (RGB16 defaultBitfieldsRGB16) hdr rest
+      (16, 1, 3) -> do
+        r <- getBitfield . fromIntegral $ 0xFFFF .&. redMask hdr
+        g <- getBitfield . fromIntegral $ 0xFFFF .&. greenMask hdr
+        b <- getBitfield . fromIntegral $ 0xFFFF .&. blueMask hdr
+        rest     <- getData
+        if alphaMask hdr == 0
+          then return . TrueColorImage . ImageRGB8 $
+            decodeImageRGB8 (RGB16 $ Bitfields3 r g b) hdr rest
+          else do
+            a <- getBitfield . fromIntegral $ 0xFFFF .&. alphaMask hdr
+            return . TrueColorImage . ImageRGBA8 $
+              decodeImageRGBA8 (RGBA16 $ Bitfields4 r g b a) hdr rest
       ( _, 1, compression) -> do
         table <- replicateM paletteColorCount pixelGet
         rest <- getData
@@ -726,14 +828,11 @@ decodeBitmapWithHeaders fileHdr hdr = do
 
       a          -> fail $ "Can't handle BMP file " ++ show a
 
-getBitfield :: Monad m => Word32 -> m Int
-getBitfield w32 = case w32 of
-    0xFF000000 -> return 3
-    0x00FF0000 -> return 2
-    0x0000FF00 -> return 1
-    0x000000FF -> return 0
-    _          -> fail $
-      "Codec.Picture.Bitmap.getBitfield: unsupported bitfield of " ++ show w32
+-- | Decode a bitfield. Will fail if the bitfield is empty.
+getBitfield :: (FiniteBits t, Integral t, Num t, Monad m) => t -> m (Bitfield t)
+getBitfield 0 = fail $
+  "Codec.Picture.Bitmap.getBitfield: bitfield cannot be 0"
+getBitfield w = return (makeBitfield w)
 
 -- | Compute the size of the pixel data
 sizeofPixelData :: Int -> Int -> Int -> Int
