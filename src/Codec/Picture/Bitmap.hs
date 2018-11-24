@@ -109,12 +109,14 @@ data ColorSpaceType = CalibratedRGB
                     | UnknownColorSpace Word32
                     deriving (Eq, Show)
 
--- | BMPINFOHEADER with compatibility up to V5. This header was first introduced
--- with Windows 3.1, and was later extended in Windows 95 and Windows 98. The
--- original BMPINFOHEADER includes all fields up to 'importantColors'.
+-- | BITMAPxHEADER with compatibility up to V5. This header was first introduced
+-- with Windows 2.0 as the BITMAPCOREHEADER, and was later extended in Windows
+-- 3.1, Windows 95 and Windows 98. The original BITMAPCOREHEADER includes all
+-- fields up to 'bitPerPixel'. The Windows 3.1 BITMAPINFOHEADER adds all the
+-- fields up to 'importantColors'.
 --
--- Some Windows 3.1 bitmaps with 16, 24 or 32 bits per pixel might also have
--- three bitmasks following the BITMAPINFOHEADER. These bitmasks were later
+-- Some Windows 3.1 bitmaps with 16 or 32 bits per pixel might also have three
+-- bitmasks following the BITMAPINFOHEADER. These bitmasks were later
 -- incorporated into the bitmap header structure in the unreleased
 -- BITMAPV2INFOHEADER. The (also unreleased) BITMAPV3INFOHEADER added another
 -- bitmask for an alpha channel.
@@ -165,8 +167,9 @@ sizeofColorProfile :: Int
 sizeofColorProfile = 48
 
 -- | Sizes of basic BMP headers.
-sizeofBmpHeader, sizeofBmpInfoHeader :: Word32
+sizeofBmpHeader, sizeofBmpCoreHeader, sizeofBmpInfoHeader :: Word32
 sizeofBmpHeader = 2 + 4 + 2 + 2 + 4
+sizeofBmpCoreHeader = 12
 sizeofBmpInfoHeader = 40
 
 -- | Sizes of extended BMP headers.
@@ -200,16 +203,25 @@ instance Binary ColorSpaceType where
 instance Binary BmpV5Header where
     put hdr = do
         putWord32le $ size hdr
-        putInt32le $ width hdr
-        putInt32le $ height hdr
-        putWord16le $ planes hdr
-        putWord16le $ bitPerPixel hdr
-        putWord32le $ bitmapCompression hdr
-        putWord32le $ byteImageSize hdr
-        putInt32le $ xResolution hdr
-        putInt32le $ yResolution hdr
-        putWord32le $ colorCount hdr
-        putWord32le $ importantColours hdr
+
+        if (size hdr == sizeofBmpCoreHeader) then do
+          putWord16le . fromIntegral $ width hdr
+          putWord16le . fromIntegral $ height hdr
+          putWord16le $ planes hdr
+          putWord16le $ bitPerPixel hdr
+        else do
+          putInt32le $ width hdr
+          putInt32le $ height hdr
+          putWord16le $ planes hdr
+          putWord16le $ bitPerPixel hdr
+
+        when (size hdr > sizeofBmpCoreHeader) $ do
+          putWord32le $ bitmapCompression hdr
+          putWord32le $ byteImageSize hdr
+          putInt32le $ xResolution hdr
+          putInt32le $ yResolution hdr
+          putWord32le $ colorCount hdr
+          putWord32le $ importantColours hdr
 
         when (size hdr > sizeofBmpInfoHeader || bitmapCompression hdr == 3) $ do
           putWord32le $ redMask hdr
@@ -230,74 +242,108 @@ instance Binary BmpV5Header where
           putWord32le 0 -- reserved field
 
     get = do
-        readSize <- getWord32le
-        readWidth <- getInt32le
-        readHeight <- getInt32le
-        readPlanes <- getWord16le
-        readBitPerPixel <- getWord16le
-        readBitmapCompression <- getWord32le
-        readByteImageSize <- getWord32le
-        readXResolution <- getInt32le
-        readYResolution <- getInt32le
-        readColorCount <- getWord32le
-        readImportantColours <- getWord32le
+      readSize <- getWord32le
+      if readSize == sizeofBmpCoreHeader
+        then getBitmapCoreHeader readSize
+        else getBitmapInfoHeader readSize
 
-        (readRedMask, readGreenMask, readBlueMask) <-
-          if readSize == sizeofBmpInfoHeader && readBitmapCompression /= 3
-            then return (0, 0, 0)
-            else do
-              -- fields added to the header in V2, but sometimes present
-              -- immediately after a plain BITMAPINFOHEADER
-              innerReadRedMask <- getWord32le
-              innerReadGreenMask <- getWord32le
-              innerReadBlueMask <- getWord32le
-              return (innerReadRedMask, innerReadGreenMask, innerReadBlueMask)
+      where
+        getBitmapCoreHeader readSize = do
+          readWidth <- getWord16le
+          readHeight <- getWord16le
+          readPlanes <- getWord16le
+          readBitPerPixel <- getWord16le
+          return BmpV5Header {
+              size = readSize,
+              width = fromIntegral readWidth,
+              height = fromIntegral readHeight,
+              planes = readPlanes,
+              bitPerPixel = readBitPerPixel,
+              bitmapCompression = 0,
+              byteImageSize = 0,
+              xResolution = 2835,
+              yResolution = 2835,
+              colorCount = 2 ^ readBitPerPixel,
+              importantColours = 0,
+              redMask = 0,
+              greenMask = 0,
+              blueMask = 0,
+              alphaMask = 0,
+              colorSpaceType = DeviceDependentRGB,
+              colorSpace = B.empty,
+              iccIntent = 0,
+              iccProfileData = 0,
+              iccProfileSize = 0
+          }
 
-        -- field added in V3 (undocumented)
-        readAlphaMask <- if readSize < sizeofBmpV3Header then return 0 else getWord32le
+        getBitmapInfoHeader readSize = do
+          readWidth <- getInt32le
+          readHeight <- getInt32le
+          readPlanes <- getWord16le
+          readBitPerPixel <- getWord16le
+          readBitmapCompression <- getWord32le
+          readByteImageSize <- getWord32le
+          readXResolution <- getInt32le
+          readYResolution <- getInt32le
+          readColorCount <- getWord32le
+          readImportantColours <- getWord32le
 
-        (readColorSpaceType, readColorSpace) <-
-          if readSize < sizeofBmpV4Header
-            then return (DeviceDependentRGB, B.empty)
-            else do
-              -- fields added in V4 (Windows 95)
-              csType <- get
-              cs <- getByteString sizeofColorProfile
-              return (csType, cs)
+          (readRedMask, readGreenMask, readBlueMask) <-
+            if readSize == sizeofBmpInfoHeader && readBitmapCompression /= 3
+              then return (0, 0, 0)
+              else do
+                -- fields added to the header in V2, but sometimes present
+                -- immediately after a plain BITMAPINFOHEADER
+                innerReadRedMask <- getWord32le
+                innerReadGreenMask <- getWord32le
+                innerReadBlueMask <- getWord32le
+                return (innerReadRedMask, innerReadGreenMask, innerReadBlueMask)
 
-        (readIccIntent, readIccProfileData, readIccProfileSize) <-
-          if readSize < sizeofBmpV5Header
-            then return (0, 0, 0)
-            else do
-              -- fields added in V5 (Windows 98)
-              innerIccIntent <- getWord32le
-              innerIccProfileData <- getWord32le
-              innerIccProfileSize <- getWord32le
-              void getWord32le -- reserved field
-              return (innerIccIntent, innerIccProfileData, innerIccProfileSize)
+          -- field added in V3 (undocumented)
+          readAlphaMask <- if readSize < sizeofBmpV3Header then return 0 else getWord32le
 
-        return BmpV5Header {
-            size = readSize,
-            width = readWidth,
-            height = readHeight,
-            planes = readPlanes,
-            bitPerPixel = readBitPerPixel,
-            bitmapCompression = readBitmapCompression,
-            byteImageSize = readByteImageSize,
-            xResolution = readXResolution,
-            yResolution = readYResolution,
-            colorCount = readColorCount,
-            importantColours = readImportantColours,
-            redMask = readRedMask,
-            greenMask = readGreenMask,
-            blueMask = readBlueMask,
-            alphaMask = readAlphaMask,
-            colorSpaceType = readColorSpaceType,
-            colorSpace = readColorSpace,
-            iccIntent = readIccIntent,
-            iccProfileData = readIccProfileData,
-            iccProfileSize = readIccProfileSize
-        }
+          (readColorSpaceType, readColorSpace) <-
+            if readSize < sizeofBmpV4Header
+              then return (DeviceDependentRGB, B.empty)
+              else do
+                -- fields added in V4 (Windows 95)
+                csType <- get
+                cs <- getByteString sizeofColorProfile
+                return (csType, cs)
+
+          (readIccIntent, readIccProfileData, readIccProfileSize) <-
+            if readSize < sizeofBmpV5Header
+              then return (0, 0, 0)
+              else do
+                -- fields added in V5 (Windows 98)
+                innerIccIntent <- getWord32le
+                innerIccProfileData <- getWord32le
+                innerIccProfileSize <- getWord32le
+                void getWord32le -- reserved field
+                return (innerIccIntent, innerIccProfileData, innerIccProfileSize)
+
+          return BmpV5Header {
+              size = readSize,
+              width = readWidth,
+              height = readHeight,
+              planes = readPlanes,
+              bitPerPixel = readBitPerPixel,
+              bitmapCompression = readBitmapCompression,
+              byteImageSize = readByteImageSize,
+              xResolution = readXResolution,
+              yResolution = readYResolution,
+              colorCount = readColorCount,
+              importantColours = readImportantColours,
+              redMask = readRedMask,
+              greenMask = readGreenMask,
+              blueMask = readBlueMask,
+              alphaMask = readAlphaMask,
+              colorSpaceType = readColorSpaceType,
+              colorSpace = readColorSpace,
+              iccIntent = readIccIntent,
+              iccProfileData = readIccProfileData,
+              iccProfileSize = readIccProfileSize
+          }
 
 newtype BmpPalette = BmpPalette [(Word8, Word8, Word8, Word8)]
 
@@ -672,12 +718,19 @@ decodeImageY8RLE is4bpp (BmpV5Header { width = w, height = h, byteImageSize = sz
         (arr `M.unsafeWrite` (yOffset + xOffset)) byte
         return (yOffset, (xOffset + 1) `min` xOffsetMax)
 
-pixelGet :: Get [Word8]
-pixelGet = do
+pixel4Get :: Get [Word8]
+pixel4Get = do
     b <- getWord8
     g <- getWord8
     r <- getWord8
     _ <- getWord8
+    return [r, g, b]
+
+pixel3Get :: Get [Word8]
+pixel3Get = do
+    b <- getWord8
+    g <- getWord8
+    r <- getWord8
     return [r, g, b]
 
 metadataOfHeader :: BmpV5Header -> Maybe B.ByteString -> Metadatas
@@ -809,7 +862,9 @@ decodeBitmapWithHeaders fileHdr hdr = do
             return . TrueColorImage . ImageRGBA8 $
               decodeImageRGBA8 (RGBA16 $ Bitfields4 r g b a) hdr rest
       ( _, 1, compression) -> do
-        table <- replicateM paletteColorCount pixelGet
+        table <- if size hdr == sizeofBmpCoreHeader
+                    then replicateM paletteColorCount pixel3Get
+                    else replicateM paletteColorCount pixel4Get
         rest <- getData
         let palette = Palette'
               { _paletteSize = paletteColorCount

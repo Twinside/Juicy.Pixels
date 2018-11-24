@@ -51,12 +51,13 @@ Status
         * in a gAMA field : 'Gamma'
         * DPI information in a pHYs chunk.
 
- - Bitmap (.bmp) (mainly used as a debug output format)
+ - Bitmap (.bmp)
     * Reading
-        - 32bits (RGBA) images
-        - 24bits (RGB) images
-        - 1,4,8 bits (greyscale & paletted) images
+        - 16 or 32 bit RGBA images
+        - 16, 24, 32 bit RGB images
+        - 1, 4, or 8 bit (greyscale & paletted) images
         - RLE encoded or uncompressed
+        - Windows 2.0/3.1/95/98 style bitmaps all supported
 
     * Writing
         - 32bits (RGBA) per pixel images
