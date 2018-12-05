@@ -116,6 +116,7 @@ encodeSingleMetadata = Met.foldMap go where
     Met.Format :=> _ -> mempty
     Met.Gamma       :=> g ->
       pure $ mkRawChunk gammaSignature . encode $ PngGamma g
+    Met.ColorSpace  :=> _ -> mempty
     Met.Title       :=> tx -> txt "Title" (L.pack tx)
     Met.Description :=> tx -> txt "Description" (L.pack tx)
     Met.Author      :=> tx -> txt "Author" (L.pack tx)

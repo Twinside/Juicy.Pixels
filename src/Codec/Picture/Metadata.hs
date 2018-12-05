@@ -17,6 +17,7 @@ module Codec.Picture.Metadata( -- * Types
                              , Value( .. )
                              , Elem( .. )
                              , SourceFormat( .. )
+                             , ColorSpace( .. )
 
                                -- * Functions
                              , Codec.Picture.Metadata.lookup
@@ -49,6 +50,7 @@ import Data.Word( Word )
 
 
 import Control.DeepSeq( NFData( .. ) )
+import qualified Data.ByteString as B
 import qualified Data.Foldable as F
 
 import Codec.Picture.Metadata.Exif
@@ -61,7 +63,7 @@ data Equiv a b where
     Refl :: Equiv a a
 #endif
 
--- | Type describing the original file format of the ilfe.
+-- | Type describing the original file format of the file.
 data SourceFormat
   = SourceJpeg
   | SourceGif
@@ -75,6 +77,38 @@ data SourceFormat
 instance NFData SourceFormat where
   rnf a = a `seq` ()
 
+-- | The same color values may result in slightly different colors on different
+-- devices. To get consistent colors accross multiple devices we need a way of
+-- mapping color values from a source device into their equivalents on the
+-- target device.
+--
+-- The solution is essentially to define, for each device, a family of mappings
+-- that convert between device colors and standard CIEXYZ or CIELAB colors. The
+-- collection of mappings for a device is known as the 'color-profile' of that
+-- device, and each color-profile can be thought of as describing a
+-- 'color-space'.
+--
+-- If we know the color-space of the input pixels, and the color space of the
+-- output device, then we can convert the colors in the image to their
+-- equivalents on the output device.
+--
+-- JuicyPixels does not parse color-profiles or attempt to perform color
+-- correction.
+--
+-- The following color space types are recognised:
+--
+--   * sRGB: Standard RGB color space.
+--   * Windows BMP color space: Color space information embedded within a V4
+--         Windows BMP file.
+--   * ICC profile: An ICC color profile.
+data ColorSpace = SRGB
+                | WindowsBitmapColorSpace !B.ByteString
+                | ICCProfile !B.ByteString
+                deriving (Eq, Show)
+
+instance NFData ColorSpace where
+  rnf v = v `seq` ()
+
 -- | Store various additional information about an image. If
 -- something is not recognized, it can be stored in an unknown tag.
 --
@@ -86,9 +120,12 @@ instance NFData SourceFormat where
 --          information can avoid the full decompression of the image.
 --          Ignored for image writing.
 --
---   * 'Height' Image height in pixels. Relyiung on the metadata for this
---          information can void the full decomrpession of the image.
+--   * 'Height' Image height in pixels. Relying on the metadata for this
+--          information can void the full decompression of the image.
 --          Ignored for image writing.
+--
+--   * 'ColorProfile' An unparsed ICC color profile. Currently only supported by
+--          the Bitmap format.
 --
 --   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
 --
@@ -96,6 +133,7 @@ instance NFData SourceFormat where
 --
 data Keys a where
   Gamma       :: Keys Double
+  ColorSpace  :: Keys ColorSpace
   Format      :: Keys SourceFormat
   DpiX        :: Keys Word
   DpiY        :: Keys Word
@@ -140,6 +178,7 @@ instance NFData (Elem Keys) where
 keyEq :: Keys a -> Keys b -> Maybe (Equiv a b)
 keyEq a b = case (a, b) of
   (Gamma, Gamma) -> Just Refl
+  (ColorSpace, ColorSpace) -> Just Refl
   (DpiX, DpiX) -> Just Refl
   (DpiY, DpiY) -> Just Refl
   (Width, Width) -> Just Refl
