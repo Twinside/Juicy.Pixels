@@ -1,6 +1,14 @@
 Change log
 ==========
 
+v3.3.3 December 2018
+--------------------
+
+ * Enhanced: loading of bitmap format (thanks to CLowcay)
+ * Refactoring: exposing more internal modules (thanks to wyager)
+ * Refactoring: exposing dynamicMap & dynamicPixelMap
+   through `Codec.Picture` (thnks to LightAndLight)
+
 v3.3.2 October 2018
 -------------------
 
