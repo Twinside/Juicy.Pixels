@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Jpg.Types( MutableMacroBlock
+module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
                               , printMacroBlock
                               , printPureMacroBlock
@@ -66,9 +66,9 @@ import Data.Binary.Put( Put
                       )
 
 import Codec.Picture.InternalHelper
-import Codec.Picture.Jpg.DefaultTable
-import Codec.Picture.Tiff.Types
-import Codec.Picture.Tiff.Metadata( exifOffsetIfd )
+import Codec.Picture.Jpg.Internal.DefaultTable
+import Codec.Picture.Tiff.Internal.Types
+import Codec.Picture.Tiff.Internal.Metadata( exifOffsetIfd )
 import Codec.Picture.Metadata.Exif
 
 {-import Debug.Trace-}

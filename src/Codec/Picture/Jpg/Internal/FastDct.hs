@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
-module Codec.Picture.Jpg.FastDct( referenceDct, fastDctLibJpeg ) where
+module Codec.Picture.Jpg.Internal.FastDct( referenceDct, fastDctLibJpeg ) where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( (<$>) )
@@ -12,7 +12,7 @@ import Control.Monad.ST( ST )
 
 import qualified Data.Vector.Storable.Mutable as M
 
-import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Internal.Types
 import Control.Monad( forM, forM_ )
 
 -- | Reference implementation of the DCT, directly implementing the formula

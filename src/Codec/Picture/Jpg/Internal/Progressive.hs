@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Jpg.Progressive
+module Codec.Picture.Jpg.Internal.Progressive
     ( JpgUnpackerParameter( .. )
     , progressiveUnpack
     ) where
@@ -27,9 +27,9 @@ import qualified Data.Vector.Storable.Mutable as MS
 
 import Codec.Picture.Types
 import Codec.Picture.BitWriter
-import Codec.Picture.Jpg.Common
-import Codec.Picture.Jpg.Types
-import Codec.Picture.Jpg.DefaultTable
+import Codec.Picture.Jpg.Internal.Common
+import Codec.Picture.Jpg.Internal.Types
+import Codec.Picture.Jpg.Internal.DefaultTable
 
 createMcuLineIndices :: JpgComponent -> Int -> Int -> V.Vector (VS.Vector Int)
 createMcuLineIndices param imgWidth mcuWidth =

@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Jpg.Metadata ( extractMetadatas, encodeMetadatas ) where
+module Codec.Picture.Jpg.Internal.Metadata ( extractMetadatas, encodeMetadatas ) where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative( pure )
@@ -11,7 +11,7 @@ import Data.Word( Word16 )
 import Data.Maybe( fromMaybe )
 import qualified Codec.Picture.Metadata as Met
 import Codec.Picture.Metadata( Metadatas )
-import Codec.Picture.Jpg.Types
+import Codec.Picture.Jpg.Internal.Types
 
 scalerOfUnit :: JFifUnit -> Met.Keys Word -> Word16 -> Metadatas -> Metadatas
 scalerOfUnit unit k v = case unit of

@@ -1,7 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
-module Codec.Picture.Jpg.Common
+module Codec.Picture.Jpg.Internal.Common
     ( DctCoefficients
     , JpgUnpackerParameter( .. )
     , decodeInt
@@ -36,9 +36,9 @@ import Foreign.Storable ( Storable )
 
 import Codec.Picture.Types
 import Codec.Picture.BitWriter
-import Codec.Picture.Jpg.Types
-import Codec.Picture.Jpg.FastIdct
-import Codec.Picture.Jpg.DefaultTable
+import Codec.Picture.Jpg.Internal.Types
+import Codec.Picture.Jpg.Internal.FastIdct
+import Codec.Picture.Jpg.Internal.DefaultTable
 
 -- | Same as for DcCoefficient, to provide nicer type signatures
 type DctCoefficients = DcCoefficient
