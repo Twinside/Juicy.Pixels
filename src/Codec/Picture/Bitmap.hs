@@ -12,9 +12,9 @@ module Codec.Picture.Bitmap( -- * Functions
                            , decodeBitmap
                            , decodeBitmapWithMetadata
                            , decodeBitmapWithPaletteAndMetadata
-                           , encodeDynamicBitmap 
+                           , encodeDynamicBitmap
                            , encodeBitmapWithPaletteAndMetadata
-                           , writeDynamicBitmap 
+                           , writeDynamicBitmap
                              -- * Accepted format in output
                            , BmpEncodable( )
                            ) where
@@ -36,12 +36,12 @@ import Data.Binary.Put( Put
                       , putInt32le
                       , putWord16le
                       , putWord32le
-                      , putByteString 
+                      , putByteString
                       )
 
 import Data.Binary.Get( Get
                       , getWord8
-                      , getWord16le 
+                      , getWord16le
                       , getWord32le
                       , getInt32le
                       , getByteString
@@ -400,7 +400,7 @@ instance BmpEncodable Pixel8 where
 instance BmpEncodable PixelRGBA8 where
     hasAlpha _ = True
     bitsPerPixel _ = 32
-    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) = 
+    bmpEncode (Image {imageWidth = w, imageHeight = h, imageData = arr}) =
       forM_ [h - 1, h - 2 .. 0] $ \l -> putVector $ runST $ putLine l
       where
         putVector vec = putByteString . blitVector vec 0 $ w * 4
@@ -445,7 +445,7 @@ instance BmpEncodable PixelRGB8 where
                       let r = arr `VS.unsafeIndex` readIdx
                           g = arr `VS.unsafeIndex` (readIdx + 1)
                           b = arr `VS.unsafeIndex` (readIdx + 2)
-                      
+
                       (buff `M.unsafeWrite` writeIdx) b
                       (buff `M.unsafeWrite` (writeIdx + 1)) g
                       (buff `M.unsafeWrite` (writeIdx + 2)) r
@@ -624,7 +624,7 @@ decodeImageY8 lowBPP (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) 
       VS.unsafeFreeze arr
 
   padding = linePadding (fromIntegral bpp) wi
-  
+
   readLine :: forall s. M.MVector s Word8 -> Int -> Int -> ST s Int
   readLine arr readIndex line = case lowBPP of
       OneBPP -> inner1 readIndex writeIndex
@@ -678,7 +678,7 @@ decodeImageY8RLE is4bpp (BmpV5Header { width = w, height = h, byteImageSize = sz
       inner (0 : 1 : _) _ = return ()
       inner (0 : 2 : hOffset : vOffset : rest) (yOffset, _) =
         inner rest (yOffset - (wi * fromIntegral vOffset), fromIntegral hOffset)
-      inner (0 : n : rest) writePos = 
+      inner (0 : n : rest) writePos =
         let isPadded = if is4bpp then (n + 3) .&. 0x3 < 2 else odd n
         in copyN isPadded (fromIntegral n) rest writePos
       inner (n : b : rest) writePos = writeN (fromIntegral n) b rest writePos
@@ -735,7 +735,7 @@ pixel3Get = do
 
 metadataOfHeader :: BmpV5Header -> Maybe B.ByteString -> Metadatas
 metadataOfHeader hdr iccProfile =
-    cs <> Met.simpleMetadata Met.SourceBitmap (width hdr) (abs $ height hdr) dpiX dpiY
+    cs `mappend` Met.simpleMetadata Met.SourceBitmap (width hdr) (abs $ height hdr) dpiX dpiY
   where
     dpiX = Met.dotsPerMeterToDotPerInch . fromIntegral $ xResolution hdr
     dpiY = Met.dotsPerMeterToDotPerInch . fromIntegral $ yResolution hdr
@@ -847,7 +847,7 @@ decodeBitmapWithHeaders fileHdr hdr = do
           decodeImageRGB8 RGB24 hdr rest
       (16, 1, 0) -> do
         rest <- getData
-        return . TrueColorImage . ImageRGB8 $ 
+        return . TrueColorImage . ImageRGB8 $
           decodeImageRGB8 (RGB16 defaultBitfieldsRGB16) hdr rest
       (16, 1, 3) -> do
         r <- getBitfield . fromIntegral $ 0xFFFF .&. redMask hdr
@@ -911,7 +911,7 @@ encodeBitmap = encodeBitmapWithPalette (defaultPalette (undefined :: pixel))
 -- the following metadatas:
 --
 --  * 'Codec.Picture.Metadata.DpiX'
---  * 'Codec.Picture.Metadata.DpiY' 
+--  * 'Codec.Picture.Metadata.DpiY'
 --
 encodeBitmapWithMetadata :: forall pixel. BmpEncodable pixel
                          => Metadatas -> Image pixel -> L.ByteString
@@ -952,7 +952,7 @@ encodeBitmapWithPalette = encodeBitmapWithPaletteAndMetadata mempty
 -- the following metadatas:
 --
 --  * 'Codec.Picture.Metadata.DpiX'
---  * 'Codec.Picture.Metadata.DpiY' 
+--  * 'Codec.Picture.Metadata.DpiY'
 --
 encodeBitmapWithPaletteAndMetadata :: forall pixel. (BmpEncodable pixel)
                                    => Metadatas -> BmpPalette -> Image pixel
