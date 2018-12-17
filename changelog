@@ -9,6 +9,8 @@ v3.3.3 December 2018
  * Refactoring: exposing dynamicMap & dynamicPixelMap
    through `Codec.Picture` (thnks to LightAndLight)
 
+ * v3.3.3.1: fixing compilation with older GHC
+
 v3.3.2 October 2018
 -------------------
 
