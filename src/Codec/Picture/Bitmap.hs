@@ -27,6 +27,7 @@ import Control.Applicative( (<$>) )
 import Control.Arrow( first )
 import Control.Monad( replicateM, when, foldM_, forM_, void )
 import Control.Monad.ST ( ST, runST )
+import qualified Control.Monad.Fail as Fail
 import Data.Maybe( fromMaybe )
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as M
@@ -884,8 +885,8 @@ decodeBitmapWithHeaders fileHdr hdr = do
       a          -> fail $ "Can't handle BMP file " ++ show a
 
 -- | Decode a bitfield. Will fail if the bitfield is empty.
-getBitfield :: (FiniteBits t, Integral t, Num t, Monad m) => t -> m (Bitfield t)
-getBitfield 0 = fail $
+getBitfield :: (FiniteBits t, Integral t, Num t, Fail.MonadFail m) => t -> m (Bitfield t)
+getBitfield 0 = Fail.fail $
   "Codec.Picture.Bitmap.getBitfield: bitfield cannot be 0"
 getBitfield w = return (makeBitfield w)
 
