@@ -884,7 +884,11 @@ decodeBitmapWithHeaders fileHdr hdr = do
       a          -> fail $ "Can't handle BMP file " ++ show a
 
 -- | Decode a bitfield. Will fail if the bitfield is empty.
+#if MIN_VERSION_base(4,13,0)
+getBitfield :: (FiniteBits t, Integral t, Num t, MonadFail m) => t -> m (Bitfield t)
+#else
 getBitfield :: (FiniteBits t, Integral t, Num t, Monad m) => t -> m (Bitfield t)
+#endif
 getBitfield 0 = fail $
   "Codec.Picture.Bitmap.getBitfield: bitfield cannot be 0"
 getBitfield w = return (makeBitfield w)
