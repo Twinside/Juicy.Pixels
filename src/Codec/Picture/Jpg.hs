@@ -309,7 +309,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
         scanSpecifier scanCount scanSpec = do
             compMapping <- gets componentIndexMapping
             comp <- case lookup (componentSelector scanSpec) compMapping of
-                Nothing -> fail "Jpg decoding error - bad component selector in blob."
+                Nothing -> error "Jpg decoding error - bad component selector in blob."
                 Just v -> return v
             let maximumHuffmanTable = 4
                 dcIndex = min (maximumHuffmanTable - 1) 
@@ -326,7 +326,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
             frameInfo <- gets currentFrame
             blobId <- gets seenBlobs                   
             case frameInfo of
-              Nothing -> fail "Jpg decoding error - no previous frame"
+              Nothing -> error "Jpg decoding error - no previous frame"
               Just v -> do
                  let compDesc = jpgComponents v !! comp
                      compCount = length $ jpgComponents v
