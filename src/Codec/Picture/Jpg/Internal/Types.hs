@@ -34,7 +34,11 @@ import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.List( partition )
+
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
+
 import Foreign.Storable ( Storable )
 import Data.Vector.Unboxed( (!) )
 import qualified Data.Vector as V

@@ -36,7 +36,11 @@ import Control.Applicative( (<$>) )
 import Control.Arrow( first )
 import Control.Monad( forM_, foldM_, when, void )
 import Control.Monad.ST( ST, runST )
+
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
+
 import Data.Binary( Binary( get) )
 
 import qualified Data.Vector.Storable as V

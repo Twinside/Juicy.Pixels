@@ -120,7 +120,7 @@ uniformQuantization opts img
     (bg, br, bb) = bitDiv3 maxCols
     (dr, dg, db) = (2^(8-br), 2^(8-bg), 2^(8-bb))
     paletteIndex (PixelRGB8 r g b) = fromIntegral $ fromMaybe 0 (elemIndex
-      (PixelRGB8 (r .&. (256 - dr)) (g .&. (256 - dg)) (b .&. (256 - db)))
+      (PixelRGB8 (r .&. negate dr) (g .&. negate dg) (b .&. negate db))
       paletteList)
 
 isColorCountBelow :: Int -> Image PixelRGB8 -> (Set.Set PixelRGB8, Bool)

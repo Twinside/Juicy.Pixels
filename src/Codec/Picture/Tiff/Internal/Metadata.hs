@@ -16,7 +16,9 @@ import Data.Foldable( find )
 import Data.List( sortBy )
 import Data.Function( on )
 import qualified Data.Foldable as F
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
 import Codec.Picture.Metadata( Metadatas )
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
