@@ -16,7 +16,9 @@ import Data.Binary( Binary( get, put ), encode )
 import Data.Binary.Get( getLazyByteStringNul )
 import Data.Binary.Put( putLazyByteString, putWord8 )
 import qualified Data.ByteString.Lazy.Char8 as L
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
 
 import Codec.Picture.InternalHelper
 import qualified Codec.Picture.Metadata as Met

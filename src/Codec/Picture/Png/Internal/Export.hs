@@ -19,7 +19,9 @@ import Control.Monad( forM_ )
 import Control.Monad.ST( ST, runST )
 import Data.Bits( unsafeShiftR, (.&.) )
 import Data.Binary( encode )
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
 import Data.Word(Word8, Word16)
 import qualified Codec.Compression.Zlib as Z
 import qualified Data.ByteString as B

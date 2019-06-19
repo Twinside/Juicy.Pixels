@@ -109,8 +109,9 @@ module Codec.Picture.Types( -- * Types
 import Data.Monoid( Monoid, mempty )
 import Control.Applicative( Applicative, pure, (<*>), (<$>) )
 #endif
-
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
 import Control.Monad( foldM, liftM, ap )
 import Control.DeepSeq( NFData( .. ) )
 import Control.Monad.ST( ST, runST )

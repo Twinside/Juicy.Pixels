@@ -19,7 +19,11 @@ import Control.Applicative( pure, (<*>), (<$>) )
 import Data.Bits( Bits, (.&.), (.|.), unsafeShiftL, unsafeShiftR )
 import Data.Char( ord, chr, isDigit )
 import Data.Word( Word8 )
+
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
+
 import Control.Monad( when, foldM, foldM_, forM, forM_, unless )
 import Control.Monad.Trans.Class( lift )
 import qualified Data.ByteString as B

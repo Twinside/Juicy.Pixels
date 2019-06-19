@@ -31,7 +31,9 @@ import Control.Monad.Trans( lift )
 import Control.Monad.Trans.RWS.Strict( RWS, modify, tell, gets, execRWS )
 
 import Data.Bits( (.|.), unsafeShiftL )
+#if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
+#endif
 import Data.Int( Int16, Int32 )
 import Data.Word(Word8, Word32)
 import Data.Binary( Binary(..), encode )
@@ -309,7 +311,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
         scanSpecifier scanCount scanSpec = do
             compMapping <- gets componentIndexMapping
             comp <- case lookup (componentSelector scanSpec) compMapping of
-                Nothing -> fail "Jpg decoding error - bad component selector in blob."
+                Nothing -> error "Jpg decoding error - bad component selector in blob."
                 Just v -> return v
             let maximumHuffmanTable = 4
                 dcIndex = min (maximumHuffmanTable - 1) 
@@ -326,7 +328,7 @@ jpgMachineStep (JpgScanBlob hdr raw_data) = do
             frameInfo <- gets currentFrame
             blobId <- gets seenBlobs                   
             case frameInfo of
-              Nothing -> fail "Jpg decoding error - no previous frame"
+              Nothing -> error "Jpg decoding error - no previous frame"
               Just v -> do
                  let compDesc = jpgComponents v !! comp
                      compCount = length $ jpgComponents v
