@@ -1248,6 +1248,10 @@ instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
 
+instance ColorConvertible Pixel8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGB16 (fromIntegral c * 257) (fromIntegral c * 257) (fromIntegral c * 257)
+
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGBA8 c c c 255
@@ -1424,6 +1428,10 @@ instance ColorConvertible PixelYA8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y _) = PixelRGB8 y y y
 
+instance ColorConvertible PixelYA8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA8 y _) = PixelRGB16 (fromIntegral y * 257) (fromIntegral y * 257) (fromIntegral y * 257)
+
 instance ColorConvertible PixelYA8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
@@ -1493,6 +1501,10 @@ instance Pixel PixelYA16 where
     {-# INLINE unsafeWritePixel #-}
     unsafeWritePixel v idx (PixelYA16 y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
+
+instance ColorConvertible PixelYA16 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA16 y _) = PixelRGB16 y y y
 
 instance ColorConvertible PixelYA16 PixelRGBA16 where
     {-# INLINE promotePixel #-}

@@ -32,6 +32,7 @@ module Codec.Picture (
 
                       -- * RGB helper functions
                      , convertRGB8
+                     , convertRGB16
                      , convertRGBA8
 
                      -- * Lens compatibility
@@ -295,6 +296,13 @@ decimateWord16 :: ( Pixel px1, Pixel px2
 decimateWord16 (Image w h da) =
   Image w h $ VS.map (\v -> fromIntegral $ v `unsafeShiftR` 8) da
 
+decimateWord3216 :: ( Pixel px1, Pixel px2
+                  , PixelBaseComponent px1 ~ Pixel32
+                  , PixelBaseComponent px2 ~ Pixel16
+                  ) => Image px1 -> Image px2
+decimateWord3216 (Image w h da) =
+  Image w h $ VS.map (\v -> fromIntegral $ v `unsafeShiftR` 16) da
+  
 decimateWord32 :: ( Pixel px1, Pixel px2
                   , PixelBaseComponent px1 ~ Pixel32
                   , PixelBaseComponent px2 ~ Pixel8
@@ -309,8 +317,18 @@ decimateFloat :: ( Pixel px1, Pixel px2
 decimateFloat (Image w h da) =
   Image w h $ VS.map (floor . (255*) . max 0 . min 1) da
 
+decimateFloat16 :: ( Pixel px1, Pixel px2
+                 , PixelBaseComponent px1 ~ PixelF
+                 , PixelBaseComponent px2 ~ Pixel16
+                 ) => Image px1 -> Image px2
+decimateFloat16 (Image w h da) =
+  Image w h $ VS.map (floor . (65535*) . max 0 . min 1) da
+
 instance Decimable Pixel16 Pixel8 where
    decimateBitDepth = decimateWord16
+
+instance Decimable Pixel32 Pixel16 where
+   decimateBitDepth = decimateWord3216
 
 instance Decimable Pixel32 Pixel8 where
    decimateBitDepth = decimateWord32
@@ -330,8 +348,14 @@ instance Decimable PixelCMYK16 PixelCMYK8 where
 instance Decimable PixelF Pixel8 where
    decimateBitDepth = decimateFloat
 
+instance Decimable PixelF Pixel16 where
+   decimateBitDepth = decimateFloat16
+
 instance Decimable PixelRGBF PixelRGB8 where
    decimateBitDepth = decimateFloat
+
+instance Decimable PixelRGBF PixelRGB16 where
+   decimateBitDepth = decimateFloat16
 
 -- | Convert by any means possible a dynamic image to an image
 -- in RGBA. The process can lose precision while converting from
@@ -374,6 +398,27 @@ convertRGB8 dynImage = case dynImage of
   ImageYCbCr8 img -> convertImage img
   ImageCMYK8  img -> convertImage img
   ImageCMYK16 img -> convertImage (decimateBitDepth img :: Image PixelCMYK8)
+  
+-- | Convert by any means possible a dynamic image to an image
+-- in RGB. The process can lose precision while converting from
+-- 32bits pixels or Floating point pixels. Any alpha layer will
+-- be dropped
+convertRGB16 :: DynamicImage -> Image PixelRGB16
+convertRGB16 dynImage = case dynImage of
+  ImageY8     img -> promoteImage img
+  ImageY16    img -> promoteImage img
+  ImageY32    img -> promoteImage (decimateBitDepth img :: Image Pixel16)
+  ImageYF     img -> promoteImage (decimateBitDepth img :: Image Pixel16)
+  ImageYA8    img -> promoteImage img
+  ImageYA16   img -> promoteImage img
+  ImageRGB8   img -> promoteImage img
+  ImageRGB16  img -> img
+  ImageRGBF   img -> decimateBitDepth img :: Image PixelRGB16
+  ImageRGBA8  img -> dropAlphaLayer (promoteImage img :: Image PixelRGBA16)
+  ImageRGBA16 img -> dropAlphaLayer img
+  ImageYCbCr8 img -> promoteImage (convertImage img :: Image PixelRGB8)
+  ImageCMYK8  img -> promoteImage (convertImage img :: Image PixelRGB8)
+  ImageCMYK16 img -> convertImage img
 
 -- | Equivalent to 'decodeImage', but also provide potential metadatas
 -- present in the given file and the palettes if the format provides them.
