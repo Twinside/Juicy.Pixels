@@ -1,6 +1,18 @@
 Change log
 ==========
 
+v3.3.4 September 2019
+---------------------
+
+ * support reading compressed zTXt metadata from PNG files (claudeha)
+ * Add helper functions to convert a DynamicImage to RGB16 (uglyoldbob)
+ * Fix RGB to CMYK conversion (lehins)
+
+v3.3.3.1 June 2019
+------------------
+
+ * New GHC maintenance (thanks to ekmett)
+
 v3.3.3 December 2018
 --------------------
 
