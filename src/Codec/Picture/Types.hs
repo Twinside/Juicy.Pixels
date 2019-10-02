@@ -1248,6 +1248,10 @@ instance ColorConvertible Pixel8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGB8 c c c
 
+instance ColorConvertible Pixel8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel c = PixelRGB16 (fromIntegral c * 257) (fromIntegral c * 257) (fromIntegral c * 257)
+
 instance ColorConvertible Pixel8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel c = PixelRGBA8 c c c 255
@@ -1424,6 +1428,10 @@ instance ColorConvertible PixelYA8 PixelRGB8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y _) = PixelRGB8 y y y
 
+instance ColorConvertible PixelYA8 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA8 y _) = PixelRGB16 (fromIntegral y * 257) (fromIntegral y * 257) (fromIntegral y * 257)
+
 instance ColorConvertible PixelYA8 PixelRGBA8 where
     {-# INLINE promotePixel #-}
     promotePixel (PixelYA8 y a) = PixelRGBA8 y y y a
@@ -1493,6 +1501,10 @@ instance Pixel PixelYA16 where
     {-# INLINE unsafeWritePixel #-}
     unsafeWritePixel v idx (PixelYA16 y a) =
         M.unsafeWrite v idx y >> M.unsafeWrite v (idx + 1) a
+
+instance ColorConvertible PixelYA16 PixelRGB16 where
+    {-# INLINE promotePixel #-}
+    promotePixel (PixelYA16 y _) = PixelRGB16 y y y
 
 instance ColorConvertible PixelYA16 PixelRGBA16 where
     {-# INLINE promotePixel #-}
@@ -2244,26 +2256,25 @@ instance ColorSpaceConvertible PixelYCbCrK8 PixelCMYK8 where
                                  -> (Word8, Word8, Word8) -> b #-}
 {-# SPECIALIZE integralRGBToCMYK :: (Word16 -> Word16 -> Word16 -> Word16 -> b)
                                  -> (Word16, Word16, Word16) -> b #-}
+-- | Convert RGB8 or RGB16 to CMYK8 and CMYK16 respectfully.
+--
+-- /Note/ - 32bit precision is not supported. Make sure to adjust implementation if ever
+-- used with Word32.
 integralRGBToCMYK :: (Bounded a, Integral a)
                   => (a -> a -> a -> a -> b)    -- ^ Pixel building function
                   -> (a, a, a)                  -- ^ RGB sample
                   -> b                          -- ^ Resulting sample
-integralRGBToCMYK build (r, g, b) =
-  build (clamp c) (clamp m) (clamp y) (fromIntegral kInt)
-    where maxi = maxBound
-
-          ir = fromIntegral $ maxi - r :: Int
-          ig = fromIntegral $ maxi - g
-          ib = fromIntegral $ maxi - b
-
-          kInt = minimum [ir, ig, ib]
-          ik = fromIntegral maxi - kInt
-
-          c = (ir - kInt) `div` ik
-          m = (ig - kInt) `div` ik
-          y = (ib - kInt) `div` ik
-
-          clamp = fromIntegral . max 0
+integralRGBToCMYK build (r, g, b)
+  | kMax == 0 = build 0 0 0 maxVal -- prevent division by zero
+  | otherwise = build (fromIntegral c) (fromIntegral m) (fromIntegral y) k
+    where maxVal = maxBound
+          max32 = fromIntegral maxVal :: Word32
+          kMax32 = fromIntegral kMax :: Word32
+          kMax = max r (max g b)
+          k = maxVal - kMax
+          c = max32 * (kMax32 - fromIntegral r) `div` kMax32
+          m = max32 * (kMax32 - fromIntegral g) `div` kMax32
+          y = max32 * (kMax32 - fromIntegral b) `div` kMax32
 
 instance ColorSpaceConvertible PixelRGB8 PixelCMYK8 where
   convertPixel (PixelRGB8 r g b) = integralRGBToCMYK PixelCMYK8 (r, g, b)

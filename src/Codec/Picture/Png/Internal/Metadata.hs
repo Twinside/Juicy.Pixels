@@ -13,12 +13,14 @@ import Data.Foldable( foldMap )
 
 import Data.Maybe( fromMaybe )
 import Data.Binary( Binary( get, put ), encode )
-import Data.Binary.Get( getLazyByteStringNul )
+import Data.Binary.Get( getLazyByteStringNul, getWord8 )
 import Data.Binary.Put( putLazyByteString, putWord8 )
 import qualified Data.ByteString.Lazy.Char8 as L
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
 #endif
+
+import qualified Codec.Compression.Zlib as Z
 
 import Codec.Picture.InternalHelper
 import qualified Codec.Picture.Metadata as Met
@@ -68,8 +70,26 @@ instance Binary PngText where
     putWord8 0
     putLazyByteString pdata
 
-textToMetadata :: PngText -> Metadatas
-textToMetadata ptext = case pngKeyword ptext of
+data PngZText = PngZText
+  { pngZKeyword :: !L.ByteString
+  , pngZData    :: !L.ByteString
+  }
+  deriving Show
+
+instance Binary PngZText where
+  get = PngZText <$> getLazyByteStringNul <* getCompressionType <*> (Z.decompress <$> getRemainingLazyBytes)
+    where
+      getCompressionType = do
+        0 <- getWord8
+        return ()
+  put (PngZText kw pdata) = do
+    putLazyByteString kw
+    putWord8 0
+    putWord8 0 -- compression type
+    putLazyByteString (Z.compress pdata)
+
+aToMetadata :: (a -> L.ByteString) -> (a -> L.ByteString) -> a -> Metadatas
+aToMetadata pkeyword pdata ptext = case pkeyword ptext of
   "Title" -> strValue Met.Title
   "Author" -> strValue Met.Author
   "Description" -> strValue Met.Description
@@ -83,18 +103,27 @@ textToMetadata ptext = case pngKeyword ptext of
   other -> 
     Met.singleton
       (Met.Unknown $ L.unpack other)
-      (Met.String . L.unpack $ pngData ptext)
+      (Met.String . L.unpack $ pdata ptext)
   where
-    strValue k = Met.singleton k . L.unpack $ pngData ptext
+    strValue k = Met.singleton k . L.unpack $ pdata ptext
+
+textToMetadata :: PngText -> Metadatas
+textToMetadata = aToMetadata pngKeyword pngData
+
+ztxtToMetadata :: PngZText -> Metadatas
+ztxtToMetadata = aToMetadata pngZKeyword pngZData
 
 getTexts :: [L.ByteString] -> Metadatas
-getTexts = foldMap (eitherFoldMap textToMetadata . runGet get) where
- 
+getTexts = foldMap (eitherFoldMap textToMetadata . runGet get)
+
+getZTexts :: [L.ByteString] -> Metadatas
+getZTexts = foldMap (eitherFoldMap ztxtToMetadata . runGet get)
 
 extractMetadatas :: PngRawImage -> Metadatas
 extractMetadatas img = getDpis (chunksOf pHYsSignature)
                     <> getGamma (chunksOf gammaSignature)
                     <> getTexts (chunksOf tEXtSignature)
+                    <> getZTexts (chunksOf zTXtSignature)
   where
     chunksOf = chunksWithSig img
 
