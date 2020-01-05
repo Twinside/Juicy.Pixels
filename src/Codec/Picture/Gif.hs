@@ -628,8 +628,7 @@ decodeAllGifImages GifFile { gifHeader = GifHeader { gifGlobalMap = palette
             (thisPalette, firstControl, substituteColors thisPalette baseImage)
           scanner = gifAnimationApplyer (globalWidth, globalHeight) thisPalette backImage
           palette' = Palette'
-            { _paletteSize = imageWidth thisPalette
-            , _paletteData = imageData thisPalette
+            { _paletteData = imageData thisPalette
             }
       in
       PalettedRGB8 baseImage palette' :

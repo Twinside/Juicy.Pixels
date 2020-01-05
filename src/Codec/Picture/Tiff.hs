@@ -668,10 +668,7 @@ instance BinaryParam B.ByteString TiffInfo where
         <*> pure (extractTiffMetadata cleaned)
 
 palette16Of :: Image PixelRGB16 -> Palette' PixelRGB16
-palette16Of p = Palette'
-    { _paletteSize = imageWidth p
-    , _paletteData = imageData p
-    }
+palette16Of p = Palette' {_paletteData = imageData p}
 
 unpack :: B.ByteString -> TiffInfo -> Either String PalettedImage
 -- | while mandatory some images don't put correct

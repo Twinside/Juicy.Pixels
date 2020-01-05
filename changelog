@@ -1,6 +1,11 @@
 Change log
 ==========
 
+v3.3.5 January 2020
+---------------------
+
+* Addition of `paletteSize`, while removing private field of `Palette'`
+
 v3.3.4 September 2019
 ---------------------
 

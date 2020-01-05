@@ -395,8 +395,8 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         Right <$> V.unsafeFreeze imgArray
 
 generateGreyscalePalette :: Word8 -> PngPalette
-generateGreyscalePalette bits = Palette' (maxValue+1) vec
-    where maxValue = 2 ^ bits - 1
+generateGreyscalePalette bits = Palette' vec
+    where maxValue = (2 :: Int) ^ bits - 1
           vec = V.fromListN ((fromIntegral maxValue + 1) * 3) $ concat pixels
           pixels = [[i, i, i] | n <- [0 .. maxValue]
                               , let i = fromIntegral $ n * (255 `div` maxValue)]
@@ -415,7 +415,7 @@ paletteRGB4 = generateGreyscalePalette 4
 
 addTransparencyToPalette :: PngPalette -> Lb.ByteString -> Palette' PixelRGBA8
 addTransparencyToPalette pal transpBuffer = 
-  Palette' (_paletteSize pal) . imageData . pixelMapXY addOpacity $ palettedAsImage pal
+  Palette' . imageData . pixelMapXY addOpacity $ palettedAsImage pal
   where 
     maxi = fromIntegral $ Lb.length transpBuffer
     addOpacity ix _ (PixelRGB8 r g b) | ix < maxi =
