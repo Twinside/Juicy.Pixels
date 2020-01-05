@@ -405,7 +405,7 @@ data DynamicImage =
     deriving (Eq, Typeable)
 
 -- | Type used to expose a palette extracted during reading.
--- Use palettedAsImage to convert it to a palette usable for
+-- Use `palettedAsImage` to convert it to a palette usable for
 -- writing.
 data Palette' px = Palette'
   { -- | Number of element in pixels.

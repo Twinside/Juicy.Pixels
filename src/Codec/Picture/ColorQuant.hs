@@ -71,7 +71,7 @@ defaultPaletteOptions = PaletteOptions
     , paletteColorCount     = 256
     }
 
--- | Reduces an image to a color palette according to `PaletteOpts` and
+-- | Reduces an image to a color palette according to `PaletteOptions` and
 --   returns the /indices image/ along with its `Palette`.
 palettize :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
 palettize opts@PaletteOptions { paletteCreationMethod = method } =
@@ -100,7 +100,7 @@ medianMeanCutQuantization opts img
     cs =  Set.toList . clusters maxColorCount $ img
     dImg = pixelMapXY dither img
 
--- | A naive one pass Color Quantiation algorithm - Uniform Quantization.
+-- | A naive one pass Color Quantization algorithm - Uniform Quantization.
 -- Simply take the most significant bits. The maxCols parameter is rounded
 -- down to the nearest power of 2, and the bits are divided among the three
 -- color channels with priority order green, red, blue. Returns an
