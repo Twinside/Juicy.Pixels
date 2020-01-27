@@ -129,6 +129,7 @@ module Codec.Picture (
                      -- $graph
                      , Pixel8
                      , Pixel16
+                     , Pixel32
                      , PixelF
 
                      , PixelYA8( .. )
