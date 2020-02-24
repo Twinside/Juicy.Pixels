@@ -867,8 +867,7 @@ decodeBitmapWithHeaders fileHdr hdr = do
                     else replicateM paletteColorCount pixel4Get
         rest <- getData
         let palette = Palette'
-              { _paletteSize = paletteColorCount
-              , _paletteData = VS.fromListN (paletteColorCount * 3) $ concat table
+              { _paletteData = VS.fromListN (paletteColorCount * 3) $ concat table
               }
         image <-
           case (bpp, compression) of
@@ -987,14 +986,14 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
                      | colorType == CalibratedRGB || hasAlpha img  = sizeofBmpV4Header
                      | otherwise                                   = sizeofBmpInfoHeader
 
-          paletteSize = fromIntegral $ length palette
+          paletteSize' = fromIntegral $ length palette
           bpp = bitsPerPixel (undefined :: pixel)
 
           profileSize = fromIntegral $ maybe 0 B.length colorProfileData
           imagePixelSize = fromIntegral $ sizeofPixelData bpp imgWidth imgHeight
-          offsetToData = sizeofBmpHeader + headerSize + 4 * paletteSize
+          offsetToData = sizeofBmpHeader + headerSize + 4 * paletteSize'
           offsetToICCProfile = offsetToData + imagePixelSize <$ colorProfileData
-          sizeOfFile = sizeofBmpHeader + headerSize + 4 * paletteSize
+          sizeOfFile = sizeofBmpHeader + headerSize + 4 * paletteSize'
                         + imagePixelSize + profileSize
 
           hdr = BmpHeader {
@@ -1015,7 +1014,7 @@ encodeBitmapWithPaletteAndMetadata metas pal@(BmpPalette palette) img =
               byteImageSize = imagePixelSize,
               xResolution = fromIntegral dpiX,
               yResolution = fromIntegral dpiY,
-              colorCount = paletteSize,
+              colorCount = paletteSize',
               importantColours = 0,
               redMask   = if hasAlpha img then 0x00FF0000 else 0,
               greenMask = if hasAlpha img then 0x0000FF00 else 0,

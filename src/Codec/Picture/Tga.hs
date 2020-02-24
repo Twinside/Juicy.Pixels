@@ -273,11 +273,8 @@ toPaletted :: (Pixel px)
            => (Image Pixel8 -> Palette' px -> PalettedImage) -> Image px
            -> DynamicImage
            -> Either String PalettedImage
-toPaletted f palette (ImageY8 img) = pure $ f img pal where
-  pal = Palette' 
-    { _paletteSize = imageWidth palette
-    , _paletteData = imageData palette
-    }
+toPaletted f palette (ImageY8 img) =
+  pure $ f img Palette' {_paletteData = imageData palette}
 toPaletted _ _ _ = Left "Bad colorspace for image"
 
 unparse :: TgaFile -> Either String (PalettedImage, Metadatas)

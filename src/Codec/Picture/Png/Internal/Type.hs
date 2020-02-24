@@ -176,10 +176,10 @@ type PngPalette = Palette' PixelRGB8
 -- | Parse a palette from a png chunk.
 parsePalette :: PngRawChunk -> Either String PngPalette
 parsePalette plte
- | chunkLength plte `mod` 3 /= 0 = Left "Invalid palette size"
- | otherwise = Palette' pixelCount . V.fromListN (3 * pixelCount) <$> pixels
-    where pixelUnpacker = replicateM (fromIntegral pixelCount * 3) get
-          pixelCount = fromIntegral $ chunkLength plte `div` 3
+ | plteCount `mod` 3 /= 0 = Left "Invalid palette size"
+ | otherwise = Palette' . V.fromListN plteCount <$> pixels
+    where pixelUnpacker = replicateM plteCount get
+          plteCount = fromIntegral $ chunkLength plte
           pixels = runGet pixelUnpacker (chunkData plte)
 
 -- | Data structure during real png loading/parsing

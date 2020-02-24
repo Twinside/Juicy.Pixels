@@ -21,6 +21,7 @@ module Codec.Picture.Types( -- * Types
                           , PalettedImage( .. )
                           , Palette
                           , Palette'( .. )
+                          , paletteSize
 
                             -- ** Image functions
                           , createMutableImage
@@ -407,18 +408,20 @@ data DynamicImage =
 -- | Type used to expose a palette extracted during reading.
 -- Use `palettedAsImage` to convert it to a palette usable for
 -- writing.
-data Palette' px = Palette'
-  { -- | Number of element in pixels.
-    _paletteSize :: !Int
-    -- | Real data used by the palette.
-  , _paletteData :: !(V.Vector (PixelBaseComponent px))
+newtype Palette' px = Palette'
+  { -- | Real data used by the palette.
+  _paletteData :: V.Vector (PixelBaseComponent px)
   }
   deriving Typeable
 
+-- | Size of pallete in pixels
+paletteSize :: forall px . Pixel px => Palette' px -> Int
+paletteSize = (`div` componentCount (undefined :: px)) . V.length . _paletteData
+
 -- | Convert a palette to an image. Used mainly for
 -- backward compatibility.
-palettedAsImage :: Palette' px -> Image px
-palettedAsImage p = Image (_paletteSize p) 1 $ _paletteData p
+palettedAsImage :: Pixel px => Palette' px -> Image px
+palettedAsImage p = Image (paletteSize p) 1 $ _paletteData p
 
 -- | Describe an image and it's potential associated
 -- palette. If no palette is present, fallback to a
