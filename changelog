@@ -1,6 +1,16 @@
 Change log
 ==========
 
+v3.3.5 January 2020
+-------------------
+
+Maintenance release to push various pull requests onto
+hackage
+
+ * Exporting Pixel32 (will)
+ * Palettization of transparent frames in Gif (flutterlice)
+ * Documentation fixes (lehins)
+
 v3.3.4 September 2019
 ---------------------
 
