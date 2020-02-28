@@ -10,6 +10,7 @@
 -- with its palette.
 module Codec.Picture.ColorQuant
     ( palettize
+    , palettizeWithAlpha
     , defaultPaletteOptions
     , PaletteCreationMethod(..)
     , PaletteOptions( .. )
@@ -32,6 +33,7 @@ import qualified Data.Vector.Unboxed as VU
 import qualified Data.Vector.Storable as VS
 
 import           Codec.Picture.Types
+import           Codec.Picture.Gif (GifFrame(..), GifDisposalMethod, GifDelay)
 
 -------------------------------------------------------------------------------
 ----            Palette Creation and Dithering
@@ -71,7 +73,54 @@ defaultPaletteOptions = PaletteOptions
     , paletteColorCount     = 256
     }
 
--- | Reduces an image to a color palette according to `PaletteOpts` and
+-- | Changes all pixels with alpha = 0 to black
+-- converting image to RGB (from RGBA) in meantime
+alphaToBlack :: Image PixelRGBA8 -> Image PixelRGB8
+alphaToBlack = pixelMap f
+  where f (PixelRGBA8 r g b a) =
+          if a == 0 then PixelRGB8 0 0 0
+          else PixelRGB8 r g b
+
+-- | Using second image as a stencil, changes palette index to the transparent
+alphaTo255 :: Image Pixel8 -> Image PixelRGBA8 -> Pixel8 -> Image Pixel8
+alphaTo255 img1 img2 transparentIndex = generateImage f (imageWidth img1) (imageHeight img2)
+  where f x y =
+          if a == 0 then transparentIndex
+          else v
+          where v = pixelAt img1 x y
+                PixelRGBA8 _ _ _ a = pixelAt img2 x y
+
+-- | Converts RGBA image to the array of GifFame's to use in encodeComplexGifImage
+palettizeWithAlpha :: [(GifDelay, Image PixelRGBA8)] -> GifDisposalMethod -> [GifFrame]
+palettizeWithAlpha [] _ = []
+palettizeWithAlpha (x:xs) dispose =
+  GifFrame
+    0 -- Offset X
+    0 -- Offset Y 
+    (Just $ palet)
+    (Just $ transparentIndex)
+    delay
+    dispose
+    (alphaTo255 pixels i (fromIntegral transparentIndex))
+  : palettizeWithAlpha xs dispose
+  where (delay, i) = x
+        img = alphaToBlack i
+        (palet, pixels) =
+          if isBelow
+            then (vecToPalette (belowPaletteVec `V.snoc` PixelRGB8 0 0 0), pixelMap belowPaletteIndex img)
+            else (vecToPalette (genPaletteVec   `V.snoc` PixelRGB8 0 0 0), pixelMap genPaletteIndex img)
+
+        (belowPalette, isBelow) = isColorCountBelow 255 img
+        belowPaletteVec = V.fromList $ Set.toList belowPalette
+        belowPaletteIndex p = nearestColorIdx p belowPaletteVec
+
+        cs = Set.toList . clusters 255 $ img
+        genPaletteVec = mkPaletteVec cs
+        genPaletteIndex p = nearestColorIdx p genPaletteVec
+
+        transparentIndex = length $ if isBelow then belowPaletteVec else genPaletteVec
+
+-- | Reduces an image to a color palette according to `PaletteOptions` and
 --   returns the /indices image/ along with its `Palette`.
 palettize :: PaletteOptions -> Image PixelRGB8 -> (Image Pixel8, Palette)
 palettize opts@PaletteOptions { paletteCreationMethod = method } =
@@ -100,7 +149,7 @@ medianMeanCutQuantization opts img
     cs =  Set.toList . clusters maxColorCount $ img
     dImg = pixelMapXY dither img
 
--- | A naive one pass Color Quantiation algorithm - Uniform Quantization.
+-- | A naive one pass Color Quantization algorithm - Uniform Quantization.
 -- Simply take the most significant bits. The maxCols parameter is rounded
 -- down to the nearest power of 2, and the bits are divided among the three
 -- color channels with priority order green, red, blue. Returns an
