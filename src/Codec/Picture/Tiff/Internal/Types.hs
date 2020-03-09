@@ -38,6 +38,8 @@ import Data.Binary( Binary( .. ) )
 import Data.Binary.Get( Get
                       , getWord16le, getWord16be
                       , getWord32le, getWord32be
+                      , getFloatle,  getFloatbe
+                      , getDoublele, getDoublebe
                       , bytesRead
                       , skip
                       , getByteString
@@ -45,6 +47,8 @@ import Data.Binary.Get( Get
 import Data.Binary.Put( Put
                       , putWord16le, putWord16be
                       , putWord32le, putWord32be
+                      , putFloatle,  putFloatbe
+                      , putDoublele, putDoublebe
                       , putByteString
                       )
 import Data.Function( on )
@@ -104,6 +108,20 @@ instance BinaryParam Endianness Word32 where
 
   getP EndianLittle = getWord32le
   getP EndianBig = getWord32be
+
+instance BinaryParam Endianness Float where
+  putP EndianLittle = putFloatle
+  putP EndianBig = putFloatbe
+
+  getP EndianLittle = getFloatle
+  getP EndianBig = getFloatbe
+
+instance BinaryParam Endianness Double where
+  putP EndianLittle = putDoublele
+  putP EndianBig = putDoublebe
+
+  getP EndianLittle = getDoublele
+  getP EndianBig = getDoublebe
 
 instance Binary TiffHeader where
   put hdr = do
@@ -215,12 +233,16 @@ instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
       dump ExifNone = pure ()
       dump (ExifLong _) = pure ()
       dump (ExifShort _) = pure ()
+      dump (ExifFloat _) = pure ()
+      dump (ExifDouble _) = pure ()
       dump (ExifIFD _) = pure ()
       dump (ExifString bstr) = paddWrite bstr
       dump (ExifUndefined bstr) = paddWrite bstr
       -- wrong if length == 2
       dump (ExifShorts shorts) = V.mapM_ (putP endianness) shorts
       dump (ExifLongs longs) = V.mapM_ (putP endianness) longs
+      dump (ExifFloats floats) = V.mapM_ (putP endianness) floats
+      dump (ExifDoubles doubles) = V.mapM_ (putP endianness) doubles
       dump (ExifRational a b) = putP endianness a >> putP endianness b
       dump (ExifSignedRational a b) = putP endianness a >> putP endianness b
 
@@ -282,12 +304,20 @@ instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
           align ifd $ ExifSignedRational <$> getP EndianLittle <*> getP EndianLittle
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 1 } =
           pure . ExifShort . fromIntegral $ ifdOffset ifd
-      fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 2 =
+      fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = count } | count > 1 =
           align ifd $ ExifShorts <$> getVec count getE
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = 1 } =
           pure . ExifLong . fromIntegral $ ifdOffset ifd
       fetcher ImageFileDirectory { ifdType = TypeLong, ifdCount = count } | count > 1 =
           align ifd $ ExifLongs <$> getVec count getE
+      fetcher ImageFileDirectory { ifdType = TypeFloat, ifdCount = 1 } =
+          pure . ExifFloat . fromIntegral $ ifdOffset ifd
+      fetcher ImageFileDirectory { ifdType = TypeFloat, ifdCount = count } | count > 1 =
+          align ifd $ ExifFloats <$> getVec count getE
+      fetcher ImageFileDirectory { ifdType = TypeDouble, ifdCount = 1 } =
+          pure . ExifDouble . fromIntegral $ ifdOffset ifd
+      fetcher ImageFileDirectory { ifdType = TypeDouble, ifdCount = count } | count > 1 =
+          align ifd $ ExifDoubles <$> getVec count getE
       fetcher _ = pure ExifNone
 
 cleanImageFileDirectory :: Endianness -> ImageFileDirectory -> ImageFileDirectory
@@ -339,6 +369,10 @@ setupIfdOffsets initialOffset lst = mapAccumL updater startExtended lst
         updater ix ifd@(ImageFileDirectory { ifdExtended = ExifShorts v })
             | V.length v > 2 = ( ix + fromIntegral (V.length v * 2)
                              , ifd { ifdOffset = ix })
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifFloats v }) =
+            ( ix + fromIntegral (V.length v * 4) , ifd { ifdOffset = ix } )
+        updater ix ifd@(ImageFileDirectory { ifdExtended = ExifDoubles v }) =
+            ( ix + fromIntegral (V.length v * 8) , ifd { ifdOffset = ix } )
         updater ix ifd = (ix, ifd)
 
 instance BinaryParam B.ByteString (TiffHeader, [[ImageFileDirectory]]) where

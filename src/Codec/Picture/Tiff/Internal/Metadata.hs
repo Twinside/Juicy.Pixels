@@ -44,7 +44,11 @@ typeOfData d = case d of
   ExifLong _l -> TypeLong
   ExifLongs _l -> TypeLong
   ExifShort _s -> TypeShort
+  ExifFloat _f -> TypeFloat
+  ExifDouble _d -> TypeDouble
   ExifShorts _s -> TypeShort
+  ExifFloats _f -> TypeFloat
+  ExifDoubles _d -> TypeDouble
   ExifString _str -> TypeAscii
   ExifUndefined _undef -> TypeUndefined
   ExifRational _r1 _r2 -> TypeRational
