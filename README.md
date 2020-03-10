@@ -102,10 +102,10 @@ Status
  - Tiff
     * Reading
         - 2, 4, 8, 16 int bit depth reading (planar and contiguous for each)
-        - 32 bit floating point reading
+        - 16 and 32 bit floating point reading
           
         - CMYK, YCbCr, RGB, RGBA, Paletted, Greyscale
-        - Uncompressed, PackBits, LZW
+        - Uncompressed, PackBits, LZW, Deflate
 
     * Writing
         - 8 and 16 bits
