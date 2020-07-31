@@ -574,7 +574,7 @@ decodeJpegWithMetadata file = case runGetStrict get file of
        let (st, arr) = decodeBaseline
            jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
            exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
-           meta = sizeMeta <> jfifMeta <> exifMeta
+           meta = jfifMeta <> exifMeta <> sizeMeta
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
@@ -582,7 +582,7 @@ decodeJpegWithMetadata file = case runGetStrict get file of
        let (st, arr) = decodeProgressive
            jfifMeta = foldMap extractMetadatas $ app0JFifMarker st
            exifMeta = foldMap extractTiffMetadata $ app1ExifMarker st
-           meta = sizeMeta <> jfifMeta <> exifMeta
+           meta = jfifMeta <> exifMeta <> sizeMeta
        in
        (, meta) <$>
            dynamicOfColorSpace (colorSpaceOfState st) imgWidth imgHeight arr
