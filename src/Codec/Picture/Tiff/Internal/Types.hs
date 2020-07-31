@@ -267,8 +267,15 @@ instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
               ,fromIntegral $ ofs .&. 0x0000FF00 `unsafeShiftR` (1 * 8)
               ,fromIntegral $ ofs .&. 0x000000FF
               ]
-      fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 1 =
+      fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 4 =
           align ifd $ ExifString <$> getByteString (fromIntegral count)
+      fetcher ImageFileDirectory { ifdType = TypeAscii, ifdOffset = ofs } =
+          pure . ExifString . B.pack $ take (fromIntegral $ ifdCount ifd)
+              [fromIntegral $ (ofs .&. 0xFF000000) `unsafeShiftR` (3 * 8)
+              ,fromIntegral $ (ofs .&. 0x00FF0000) `unsafeShiftR` (2 * 8)
+              ,fromIntegral $ (ofs .&. 0x0000FF00) `unsafeShiftR` (1 * 8)
+              ,fromIntegral $ ofs .&. 0x000000FF
+              ]
       fetcher ImageFileDirectory { ifdType = TypeShort, ifdCount = 2, ifdOffset = ofs } =
           pure . ExifShorts $ V.fromListN 2 valList
             where high = fromIntegral $ ofs `unsafeShiftR` 16
