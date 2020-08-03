@@ -262,9 +262,9 @@ instance BinaryParam (Endianness, Int, ImageFileDirectory) ExifData where
          align ifd $ ExifUndefined <$> getByteString (fromIntegral count)
       fetcher ImageFileDirectory { ifdType = TypeUndefined, ifdOffset = ofs } =
           pure . ExifUndefined . B.pack $ take (fromIntegral $ ifdCount ifd)
-              [fromIntegral $ ofs .&. 0xFF000000 `unsafeShiftR` (3 * 8)
-              ,fromIntegral $ ofs .&. 0x00FF0000 `unsafeShiftR` (2 * 8)
-              ,fromIntegral $ ofs .&. 0x0000FF00 `unsafeShiftR` (1 * 8)
+              [fromIntegral $ (ofs .&. 0xFF000000) `unsafeShiftR` (3 * 8)
+              ,fromIntegral $ (ofs .&. 0x00FF0000) `unsafeShiftR` (2 * 8)
+              ,fromIntegral $ (ofs .&. 0x0000FF00) `unsafeShiftR` (1 * 8)
               ,fromIntegral $ ofs .&. 0x000000FF
               ]
       fetcher ImageFileDirectory { ifdType = TypeAscii, ifdCount = count } | count > 4 =
