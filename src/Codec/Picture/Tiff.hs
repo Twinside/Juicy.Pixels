@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -39,6 +40,7 @@ import Control.Applicative( (<$>), (<*>), pure )
 import Data.Monoid( mempty )
 #endif
 
+import Codec.Compression.Zlib( decompress )
 import Control.Arrow( first )
 import Control.Monad( when, foldM_, unless, forM_ )
 import Control.Monad.ST( ST, runST )
@@ -57,6 +59,9 @@ import qualified Data.ByteString.Lazy as Lb
 import qualified Data.ByteString.Unsafe as BU
 
 import Foreign.Storable( sizeOf )
+
+import Numeric.Half
+import Unsafe.Coerce
 
 import Codec.Picture.Metadata.Exif
 import Codec.Picture.Metadata( Metadatas )
@@ -206,6 +211,14 @@ uncompressAt CompressionLZW =  \str outVec _stride writeIndex (offset, size) -> 
     let toDecode = B.take (fromIntegral size) $ B.drop (fromIntegral offset) str
     runBoolReader $ decodeLzwTiff toDecode outVec writeIndex
     return 0
+uncompressAt CompressionDeflate = \str outVec stride writeIndex (offset,size) ->
+    let decompressed = Lb.toStrict
+                     . decompress
+                     . Lb.fromStrict
+                     . B.take (fromIntegral size)
+                     $ B.drop (fromIntegral offset) str
+        len = fromIntegral $ B.length decompressed
+    in copyByteString decompressed outVec stride writeIndex (0,len)
 uncompressAt _ = error "Unhandled compression"
 
 class Unpackable a where
@@ -782,8 +795,18 @@ unpack file nfo@TiffInfo { tiffColorspace = TiffMonochrome
   -- some files are a little bit borked...
   | lst == V.fromList [8, 8, 8] && all (TiffSampleUint ==) format =
         pure . TrueColorImage . ImageRGB8 $ gatherStrips (0 :: Word8) file nfo
+  | lst == V.singleton 16 && all (TiffSampleFloat ==) format =
+        pure . TrueColorImage . ImageYF . fromHalfToFloat $ gatherStrips (0 :: Word16) file nfo
 
 unpack _ _ = Left "Failure to unpack TIFF file"
+
+fromHalfToFloat :: Image Word16 -> Image Float
+fromHalfToFloat Image { imageWidth = w, imageHeight = h
+                      , imageData = arr } = Image w h transformed
+  where transformed = VS.map (fromHalf . word16ToHalf) arr
+        -- safe under the hood, but CUShort's data constructor isn't exposed
+        word16ToHalf = unsafeCoerce :: Word16 -> Half
+
 
 -- | Decode a tiff encoded image while preserving the underlying
 -- pixel type (except for Y32 which is truncated to 16 bits).

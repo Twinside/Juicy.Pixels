@@ -157,6 +157,7 @@ data TiffCompression
   | CompressionModifiedRLE    -- 2
   | CompressionLZW            -- 5
   | CompressionJPEG           -- 6
+  | CompressionDeflate        -- 8
   | CompressionPackBit        -- 32273
 
 data IfdType
@@ -511,6 +512,7 @@ unPackCompression v = case v of
   2 -> pure CompressionModifiedRLE
   5 -> pure CompressionLZW
   6 -> pure CompressionJPEG
+  8 -> pure CompressionDeflate
   32773 -> pure CompressionPackBit
   vv -> fail $ "Unknown compression scheme " ++ show vv
 
@@ -520,5 +522,6 @@ packCompression v = case v of
   CompressionModifiedRLE -> 2
   CompressionLZW         -> 5
   CompressionJPEG        -> 6
+  CompressionDeflate     -> 8
   CompressionPackBit     -> 32773
 
