@@ -32,7 +32,9 @@ module Codec.Picture.Tiff( decodeTiff
                          , decodeTiffWithPaletteAndMetadata
                          , TiffSaveable
                          , encodeTiff
+                         , encodeTiffWithDeflate
                          , writeTiff
+                         , writeTiffWithDeflate
                          ) where
 
 #if !MIN_VERSION_base(4,8,0)
@@ -40,7 +42,7 @@ import Control.Applicative( (<$>), (<*>), pure )
 import Data.Monoid( mempty )
 #endif
 
-import Codec.Compression.Zlib( decompress )
+import Codec.Compression.Zlib( compress, decompress )
 import Control.Arrow( first )
 import Control.Monad( when, foldM_, unless, forM_ )
 import Control.Monad.ST( ST, runST )
@@ -914,17 +916,15 @@ instance TiffSaveable PixelYCbCr8 where
   colorSpaceOfPixel _ = TiffYCbCr
   subSamplingInfo _ = V.fromListN 2 [1, 1]
 
--- | Transform an image into a Tiff encoded bytestring, ready to be
--- written as a file.
-encodeTiff :: forall px. (TiffSaveable px) => Image px -> Lb.ByteString
-encodeTiff img = runPut $ putP rawPixelData hdr
+encodeTiffWithCompression :: forall px. (TiffSaveable px) => TiffCompression -> Image px -> Lb.ByteString
+encodeTiffWithCompression compressMethod img = runPut $ putP rawPixelData hdr
   where intSampleCount = componentCount (undefined :: px)
         sampleCount = fromIntegral intSampleCount
 
         sampleType = undefined :: PixelBaseComponent px
         pixelData = imageData img
 
-        rawPixelData = toByteString pixelData
+        rawPixelData = tiffCompress compressMethod $ toByteString pixelData
         width = fromIntegral $ imageWidth img
         height = fromIntegral $ imageHeight img
         intSampleSize = sizeOf sampleType
@@ -946,7 +946,7 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffPlaneConfiguration = PlanarConfigContig
             , tiffSampleFormat       = sampleFormat (undefined :: px)
             , tiffBitsPerSample      = V.replicate intSampleCount bitPerSample
-            , tiffCompression        = CompressionNone
+            , tiffCompression        = compressMethod
             , tiffStripSize          = V.singleton imageSize
             , tiffOffsets            = V.singleton headerSize
             , tiffPalette            = Nothing
@@ -956,9 +956,29 @@ encodeTiff img = runPut $ putP rawPixelData hdr
             , tiffMetadatas          = mempty
             }
 
+        tiffCompress CompressionNone img' = img'
+        tiffCompress CompressionDeflate img' = Lb.toStrict $ compress (Lb.fromStrict img')
+        tiffCompress _ _ = error "encodeTiffWithCompression: unsupported compression format"
+
+-- | Transform an image into a Tiff encoded bytestring, ready to be
+-- written as a file.
+encodeTiff :: (TiffSaveable px) => Image px -> Lb.ByteString
+encodeTiff img = encodeTiffWithCompression CompressionNone img
+{-# INLINE encodeTiff #-}
+
+-- | Transform an image into a Tiff encoded bytestring, ready to be
+-- written as a file. The raw data is compressed via deflate.
+encodeTiffWithDeflate :: (TiffSaveable px) => Image px -> Lb.ByteString
+encodeTiffWithDeflate img = encodeTiffWithCompression CompressionDeflate img
+{-# INLINE encodeTiffWithDeflate #-}
+
 -- | Helper function to directly write an image as a tiff on disk.
 writeTiff :: (TiffSaveable pixel) => FilePath -> Image pixel -> IO ()
 writeTiff path img = Lb.writeFile path $ encodeTiff img
+
+-- | Helper function to directly write an image as a deflate-compressed tiff on disk.
+writeTiffWithDeflate :: (TiffSaveable pixel) => FilePath -> Image pixel -> IO ()
+writeTiffWithDeflate path img = Lb.writeFile path $ encodeTiff img
 
 {-# ANN module "HLint: ignore Reduce duplication" #-}
 
