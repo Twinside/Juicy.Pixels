@@ -517,7 +517,11 @@ makeBitfield mask = Bitfield mask shiftBits scale
 
 -- | Helper method to cast a 'B.ByteString' to a 'VS.Vector' of some type.
 castByteString :: VS.Storable a => B.ByteString -> VS.Vector a
+#if MIN_VERSION_bytestring(0,11,0)
+castByteString (BI.BS fp len) = VS.unsafeCast $ VS.unsafeFromForeignPtr fp 0 len
+#else
 castByteString (BI.PS fp offset len) = VS.unsafeCast $ VS.unsafeFromForeignPtr fp offset len
+#endif
 
 decodeImageRGBA8 :: RGBABmpFormat -> BmpV5Header -> B.ByteString -> Image PixelRGBA8
 decodeImageRGBA8 pixelFormat (BmpV5Header { width = w, height = h, bitPerPixel = bpp }) str = Image wi hi stArray where
