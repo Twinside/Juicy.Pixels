@@ -278,7 +278,7 @@ intLength = Fold (\n _ -> n + 1) 0 id
 
 -- Based on the OCaml implementation:
 -- http://rosettacode.org/wiki/Color_quantization
--- which is in turn based on: www.leptonica.com/papers/mediancut.pdf.
+-- which is in turn based on: www.leptonica.org/papers/mediancut.pdf.
 -- We use the product of volume and population to determine the next cluster
 -- to split and determine the placement of each color by compating it to the
 -- mean of the parent cluster. So median cut is a bit of a misnomer, since one
