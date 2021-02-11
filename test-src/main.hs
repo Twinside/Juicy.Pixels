@@ -391,6 +391,7 @@ tiffValidTests =
     ,"other/butique-YA8.tif"
     ,"other/butique-YA16.tif"
     ,"horizontal-difference-lzw.tiff" -- produced by "Grab" on Mac OS X
+    ,"float16deflate.tif"
     ,"rad_YF.tif"
     ,"rad_Y32.tif"
     ]

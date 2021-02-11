@@ -124,6 +124,7 @@ import Data.Word( Word8, Word16, Word32, Word64 )
 import Data.Vector.Storable ( (!) )
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as M
+import Numeric.Half
 
 #include "ConvGraph.hs"
 
@@ -1344,6 +1345,40 @@ instance Pixel Pixel32 where
 --------------------------------------------------
 instance Pixel PixelF where
     type PixelBaseComponent PixelF = Float
+
+    {-# INLINE pixelOpacity #-}
+    pixelOpacity = const 1.0
+
+    {-# INLINE mixWith #-}
+    mixWith f = f 0
+
+    {-# INLINE colorMap #-}
+    colorMap f = f
+    {-# INLINE componentCount #-}
+    componentCount _ = 1
+    {-# INLINE pixelAt #-}
+    pixelAt (Image { imageWidth = w, imageData = arr }) x y =
+        arr ! (x + y * w)
+
+    {-# INLINE readPixel #-}
+    readPixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.read` mutablePixelBaseIndex image x y
+
+    {-# INLINE writePixel #-}
+    writePixel image@(MutableImage { mutableImageData = arr }) x y =
+        arr `M.write` mutablePixelBaseIndex image x y
+
+    {-# INLINE unsafePixelAt #-}
+    unsafePixelAt = V.unsafeIndex
+    {-# INLINE unsafeReadPixel #-}
+    unsafeReadPixel = M.unsafeRead
+    {-# INLINE unsafeWritePixel #-}
+    unsafeWritePixel = M.unsafeWrite
+
+type PixelH = Half
+
+instance Pixel PixelH where
+    type PixelBaseComponent PixelH = Half
 
     {-# INLINE pixelOpacity #-}
     pixelOpacity = const 1.0
