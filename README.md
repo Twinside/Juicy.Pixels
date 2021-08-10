@@ -25,6 +25,14 @@ For the user of:
 
  * [Gloss](http://hackage.haskell.org/package/gloss), check-out gloss-juicy on [GitHub](https://github.com/alpmestan/gloss-juicy) or [Hackage](http://hackage.haskell.org/package/gloss-juicy)
 
+Install
+-------
+
+- runhaskell Setup.hs configure
+  * Compile with --ghc-options="-O0" on unregisterised 64-bit arches to work-around a GHC bug
+- runhaskell Setup.hs build
+- runhaskell Setup.hs install
+
 Status
 ------
 
