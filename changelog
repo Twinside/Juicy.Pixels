@@ -1,6 +1,15 @@
 Change log
 ==========
 
+v3.3.6 October 2021
+-------------------
+
+ * Bytestring bound bump
+ * Fix bug #187.  (Some JPEGs are misidentified as SourceTiff.)
+ * Fix EXIF handling of strings of four characters or fewer.
+ * Fix endianness bug in short ExifString and ExifUndefined.
+
+
 v3.3.5 January 2020
 -------------------
 
