@@ -21,12 +21,19 @@ import qualified Data.ByteString.Internal as S
 
 import Codec.Picture.Types
 
+mkBS :: ForeignPtr Word8 -> Int -> Int -> S.ByteString
+#if MIN_VERSION_bytestring(0,11,0)
+mkBS fptr off = S.BS (fptr `S.plusForeignPtr` off)
+#else
+mkBS = S.PS
+#endif
+
 blitVector :: Vector Word8 -> Int -> Int -> B.ByteString
-blitVector vec atIndex = S.PS ptr (offset + atIndex)
+blitVector vec atIndex = mkBS ptr (offset + atIndex)
   where (ptr, offset, _length) = unsafeToForeignPtr vec
 
 toByteString :: forall a. (Storable a) => Vector a -> B.ByteString
-toByteString vec = S.PS (castForeignPtr ptr) offset (len * size)
+toByteString vec = mkBS (castForeignPtr ptr) offset (len * size)
   where (ptr, offset, len) = unsafeToForeignPtr vec
         size = sizeOf (undefined :: a)
 
