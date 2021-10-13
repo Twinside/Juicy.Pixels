@@ -199,10 +199,14 @@ data ExifData
   = ExifNone
   | ExifLong      !Word32
   | ExifShort     !Word16
+  | ExifFloat     !Float
+  | ExifDouble    !Double
   | ExifString    !B.ByteString
   | ExifUndefined !B.ByteString
   | ExifShorts    !(V.Vector Word16)
   | ExifLongs     !(V.Vector Word32)
+  | ExifFloats    !(V.Vector Double)
+  | ExifDoubles   !(V.Vector Double)
   | ExifRational  !Word32 !Word32
   | ExifSignedRational  !Int32 !Int32
   | ExifIFD       ![(ExifTag, ExifData)]
@@ -215,4 +219,6 @@ instance NFData ExifData where
   rnf (ExifIFD ifds) = rnf ifds `seq` ()
   rnf (ExifLongs l) = rnf l `seq` ()
   rnf (ExifShorts l) = rnf l `seq` ()
+  rnf (ExifFloats l) = rnf l `seq` ()
+  rnf (ExifDoubles l) = rnf l `seq` ()
   rnf a = a `seq` ()
