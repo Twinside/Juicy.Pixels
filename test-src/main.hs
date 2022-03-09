@@ -262,6 +262,7 @@ gif1024ColorsTest = case writeComplexGifImage ("tests" </> "1024-colors.gif") sp
 jpegValidTests :: [FilePath]
 jpegValidTests = [ "bad_decode.jpg"
                  , "broken.jpg"
+                 , "borked_render.jpg"
                  , "inf_loop01.jpg"
                  , "inf_loop02.jpg"
                  , "explore_jpeg.jpg"

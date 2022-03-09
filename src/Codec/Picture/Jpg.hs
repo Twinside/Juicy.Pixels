@@ -422,8 +422,15 @@ decodeImage frame quants lst outImage = do
   forM_ lst $ \(params, str) -> do
     let componentsInfo = V.fromList params
         compReader = initBoolStateJpg . B.concat $ L.toChunks str
-        maxiW = maximum [fst $ subSampling c | (c,_) <- params]
-        maxiH = maximum [snd $ subSampling c | (c,_) <- params]
+        maxiSubSampW = maximum [fst $ subSampling c | (c,_) <- params]
+        maxiSubSampH = maximum [snd $ subSampling c | (c,_) <- params]
+
+        (maxiW, maxiH) = 
+            if length params > 1 then
+                (maximum [componentWidth c | (c,_) <- params], 
+                    maximum [componentHeight c | (c,_) <- params])
+            else
+                (maxiSubSampW, maxiSubSampH)
 
         imageBlockWidth = toBlockSize imgWidth
         imageBlockHeight = toBlockSize imgHeight

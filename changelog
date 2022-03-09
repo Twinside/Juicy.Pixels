@@ -1,6 +1,12 @@
 Change log
 ==========
 
+v3.3.7 March 2022
+-----------------
+
+ * Jpg: Fixing renderng bug with MCUs with single block in width and
+   multiple in height
+
 v3.3.6 October 2021
 -------------------
 
