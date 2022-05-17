@@ -44,10 +44,7 @@ Executable toPng
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base,
                  bytestring,
-                 JuicyPixels,
-                 mtl,
-                 MonadRandom,
-                 vector
+                 JuicyPixels
 
 Test-suite imageTest
   type: exitcode-stdio-1.0
@@ -131,7 +128,7 @@ Library
   Ghc-options: -O3 -Wall
   Build-depends: base                >= 4.8     && < 6,
                  bytestring          >= 0.9     && < 0.12,
-                 mtl                 >= 1.1     && < 2.3,
+                 mtl                 >= 1.1     && < 2.4,
                  binary              >= 0.8.1     && < 0.9,
                  zlib                >= 0.5.3.1 && < 0.7,
                  transformers        >= 0.2,
