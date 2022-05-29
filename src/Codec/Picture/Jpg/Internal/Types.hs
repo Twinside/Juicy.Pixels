@@ -603,29 +603,29 @@ instance Binary JpgFrameKind where
         -- no lookahead :(
         {-word <- getWord8-}
         word2 <- getWord8
-        return $ case word2 of
-            0xC0 -> JpgBaselineDCTHuffman
-            0xC1 -> JpgExtendedSequentialDCTHuffman
-            0xC2 -> JpgProgressiveDCTHuffman
-            0xC3 -> JpgLosslessHuffman
-            0xC4 -> JpgHuffmanTableMarker
-            0xC5 -> JpgDifferentialSequentialDCTHuffman
-            0xC6 -> JpgDifferentialProgressiveDCTHuffman
-            0xC7 -> JpgDifferentialLosslessHuffman
-            0xC9 -> JpgExtendedSequentialArithmetic
-            0xCA -> JpgProgressiveDCTArithmetic
-            0xCB -> JpgLosslessArithmetic
-            0xCD -> JpgDifferentialSequentialDCTArithmetic
-            0xCE -> JpgDifferentialProgressiveDCTArithmetic
-            0xCF -> JpgDifferentialLosslessArithmetic
-            0xD9 -> JpgEndOfImage
-            0xDA -> JpgStartOfScan
-            0xDB -> JpgQuantizationTable
-            0xDD -> JpgRestartInterval
-            a | a >= 0xF0 -> JpgExtensionSegment a
-              | a >= 0xE0 -> JpgAppSegment (a - 0xE0)
-              | a >= 0xD0 && a <= 0xD7 -> JpgRestartIntervalEnd a
-              | otherwise -> error ("Invalid frame marker (" ++ show a ++ ")")
+        case word2 of
+            0xC0 -> return JpgBaselineDCTHuffman
+            0xC1 -> return JpgExtendedSequentialDCTHuffman
+            0xC2 -> return JpgProgressiveDCTHuffman
+            0xC3 -> return JpgLosslessHuffman
+            0xC4 -> return JpgHuffmanTableMarker
+            0xC5 -> return JpgDifferentialSequentialDCTHuffman
+            0xC6 -> return JpgDifferentialProgressiveDCTHuffman
+            0xC7 -> return JpgDifferentialLosslessHuffman
+            0xC9 -> return JpgExtendedSequentialArithmetic
+            0xCA -> return JpgProgressiveDCTArithmetic
+            0xCB -> return JpgLosslessArithmetic
+            0xCD -> return JpgDifferentialSequentialDCTArithmetic
+            0xCE -> return JpgDifferentialProgressiveDCTArithmetic
+            0xCF -> return JpgDifferentialLosslessArithmetic
+            0xD9 -> return JpgEndOfImage
+            0xDA -> return JpgStartOfScan
+            0xDB -> return JpgQuantizationTable
+            0xDD -> return JpgRestartInterval
+            a | a >= 0xF0 -> return $! JpgExtensionSegment a
+              | a >= 0xE0 -> return $! JpgAppSegment (a - 0xE0)
+              | a >= 0xD0 && a <= 0xD7 -> return $! JpgRestartIntervalEnd a
+              | otherwise -> fail ("Invalid frame marker (" ++ show a ++ ")")
 
 put4BitsOfEach :: Word8 -> Word8 -> Put
 put4BitsOfEach a b = put $ (a `unsafeShiftL` 4) .|. b
