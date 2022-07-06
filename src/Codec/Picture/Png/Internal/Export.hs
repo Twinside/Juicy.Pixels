@@ -93,7 +93,7 @@ class PngSavable a where
     --  * 'Codec.Picture.Metadata.Warning'
     --  * 'Codec.Picture.Metadata.Unknown' using the key present in the constructor.
     -- 
-    -- the followings metadata will bes tored in the `gAMA` chunk.
+    -- the followings metadata will be stored in the `gAMA` chunk.
     --
     --  * 'Codec.Picture.Metadata.Gamma'
     --
