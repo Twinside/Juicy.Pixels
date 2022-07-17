@@ -1,6 +1,12 @@
 Change log
 ==========
 
+v3.3.7 July 2022
+----------------
+
+ * Dependence fidling
+ * Jpg: do not call "error" in the parser, use fail instead.
+
 v3.3.7 March 2022
 -----------------
 
