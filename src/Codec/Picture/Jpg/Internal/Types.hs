@@ -418,13 +418,17 @@ instance Binary JpgImage where
             >> putWord8 0xFF >> putWord8 0xD9
 
     get = do
-        let startOfImageMarker = 0xD8
-            -- endOfImageMarker = 0xD9
-        checkMarker commonMarkerFirstByte startOfImageMarker
-        eatUntilCode
+        skipUntilFrames
         frames <- parseFrames
+        -- let endOfImageMarker = 0xD9
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return JpgImage { jpgFrame = frames }
+
+skipUntilFrames :: Get ()
+skipUntilFrames = do
+    let startOfImageMarker = 0xD8
+    checkMarker commonMarkerFirstByte startOfImageMarker
+    eatUntilCode
 
 eatUntilCode :: Get ()
 eatUntilCode = do
