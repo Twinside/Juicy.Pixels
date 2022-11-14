@@ -25,12 +25,7 @@ runGetStrict :: Get a -> B.ByteString -> Either String a
 runGetStrict act buffer = runGet act $ L.fromChunks [buffer]
 
 getRemainingBytes :: Get B.ByteString
-getRemainingBytes = do
-    rest <- getRemainingLazyByteString
-    return $ case L.toChunks rest of
-        [] -> B.empty
-        [a] -> a
-        lst -> B.concat lst
+getRemainingBytes = L.toStrict <$> getRemainingLazyByteString
 
 getRemainingLazyBytes :: Get L.ByteString
 getRemainingLazyBytes = getRemainingLazyByteString
