@@ -49,6 +49,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 
+import Data.Maybe( maybeToList )
 import Data.Int( Int16 )
 import Data.Word(Word8, Word16 )
 import Data.Binary( Binary(..) )
@@ -436,7 +437,7 @@ takeCurrentFrame = do
     getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
-putFrame (JpgAdobeAPP14 adobe) = 
+putFrame (JpgAdobeAPP14 adobe) =
     put (JpgAppSegment 14) >> putWord16be 14 >> put adobe
 putFrame (JpgJFIF jfif) =
     put (JpgAppSegment 0) >> putWord16be (14+2) >> put jfif
@@ -475,35 +476,35 @@ extractScanContent str = aux 0
 
         aux n | n >= maxi = (str, L.empty)
               | v == 0xFF && vNext /= 0 && not isReset = L.splitAt n str
-              | otherwise = aux (n + 1)
-            where v = str `L.index` n
-                  vNext = str `L.index` (n + 1)
-                  isReset = 0xD0 <= vNext && vNext <= 0xD7
+               | otherwise = aux (n + 1)
+             where v = str `L.index` n
+                   vNext = str `L.index` (n + 1)
+                   isReset = 0xD0 <= vNext && vNext <= 0xD7
 
-parseAdobe14 :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseAdobe14 str lst = go where
-  go = case runGetStrict get str of
-    Left _err -> lst
-    Right app14 -> JpgAdobeAPP14 app14 : lst
+parseAdobe14 :: B.ByteString -> Maybe JpgFrame
+parseAdobe14 str = case runGetStrict get str of
+    Left _err -> Nothing
+    Right app14 -> Just $! JpgAdobeAPP14 app14
 
 -- | Parse JFIF or JFXX information. Right now only JFIF.
-parseJF__  :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseJF__  str lst = go where
-  go = case runGetStrict get str of
-    Left _err -> lst
-    Right jfif -> JpgJFIF jfif : lst
+parseJF__ :: B.ByteString -> Maybe JpgFrame
+parseJF__ str = case runGetStrict get str of
+    Left _err -> Nothing
+    Right jfif -> Just $! JpgJFIF jfif
 
-parseExif :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseExif str lst 
-  | exifHeader `B.isPrefixOf` str = go
-  | otherwise = lst
+parseExif :: B.ByteString -> Maybe JpgFrame
+parseExif str
+  | exifHeader `B.isPrefixOf` str =
+      let
+        tiff = B.drop (B.length exifHeader) str
+      in
+        case runGetStrict (getP tiff) tiff of
+            Left _err -> Nothing
+            Right (_hdr :: TiffHeader, []) -> Nothing
+            Right (_hdr :: TiffHeader, ifds : _) -> Just $! JpgExif ifds
+  | otherwise = Nothing
   where
     exifHeader = BC.pack "Exif\0\0"
-    tiff = B.drop (B.length exifHeader) str
-    go = case runGetStrict (getP tiff) tiff of
-      Left _err -> lst
-      Right (_hdr :: TiffHeader, []) -> lst
-      Right (_hdr :: TiffHeader, ifds : _) -> JpgExif ifds : lst
 
 putExif :: [ImageFileDirectory] -> Put
 putExif ifds = putAll where
@@ -515,7 +516,7 @@ putExif ifds = putAll where
   ifdList = case partition (isInIFD0 . ifdIdentifier) ifds of
     (ifd0, []) -> [ifd0]
     (ifd0, ifdExif) -> [ifd0 <> pure exifOffsetIfd, ifdExif]
-  
+
   exifBlob = runPut $ do
     putByteString $ BC.pack "Exif\0\0"
     putP BC.empty (hdr, ifdList)
@@ -525,47 +526,60 @@ putExif ifds = putAll where
     putWord16be . fromIntegral $ L.length exifBlob + 2
     putLazyByteString exifBlob
 
+skipFrameMarker :: Get ()
+skipFrameMarker = do
+    word <- getWord8
+    when (word /= 0xFF) $ do
+        readedData <- bytesRead
+        fail $ "Invalid Frame marker (" ++ show word
+                ++ ", bytes read : " ++ show readedData ++ ")"
+
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    let parseNextFrame = do
-            word <- getWord8
-            when (word /= 0xFF) $ do
-                readedData <- bytesRead
-                fail $ "Invalid Frame marker (" ++ show word
-                     ++ ", bytes read : " ++ show readedData ++ ")"
-            parseFrames
-
     case kind of
         JpgEndOfImage -> return []
         JpgAppSegment 0 ->
-            parseJF__ <$> takeCurrentFrame <*> parseNextFrame
+            (\frm lst -> maybeToList (parseJF__ frm) ++ lst) <$> takeCurrentFrame <*> parseFollowingFrames
         JpgAppSegment 1 ->
-            parseExif <$> takeCurrentFrame <*> parseNextFrame
+            (\frm lst -> maybeToList (parseExif frm) ++ lst) <$> takeCurrentFrame <*> parseFollowingFrames
         JpgAppSegment 14 ->
-            parseAdobe14 <$> takeCurrentFrame <*> parseNextFrame
+            (\frm lst -> maybeToList (parseAdobe14 frm) ++ lst) <$> takeCurrentFrame <*> parseFollowingFrames
         JpgAppSegment c ->
-            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
+            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseFollowingFrames
         JpgExtensionSegment c ->
-            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
+            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseFollowingFrames
         JpgQuantizationTable ->
-            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
+            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseFollowingFrames
         JpgRestartInterval ->
-            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
+            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseFollowingFrames
         JpgHuffmanTableMarker ->
             (\(TableList huffTables) lst ->
                     JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
-                    <$> get <*> parseNextFrame
+                    <$> get <*> parseFollowingFrames
         JpgStartOfScan ->
-            (\frm imgData ->
-                let (d, other) = extractScanContent imgData
+            (\scanHeader remainingBytes ->
+                -- Note that we do this funny thing of doing `runGet` inside a `Get` parser.
+                -- This is because `binary` does not allow to run a parser and catch a `fail`,
+                -- (Which is what the current logic below does, namely just discarding any failing
+                -- parser after the first decoded scan blob.)
+                -- Doing that is emulated by calling `extractScanContent` (which makes the current
+                -- `Get` consume all the way to the end of the input), and running a new `Get`
+                -- on `other`.
+                -- Note this will make the error offset recorded by `fail` unhelpful because it
+                -- will be relative to the the start of `other`, not relative to the start of the JPG.
+                let (d, other) = extractScanContent remainingBytes
                 in
                 case runGet parseFrames (L.drop 1 other) of
-                  Left _ -> [JpgScanBlob frm d]
-                  Right lst -> JpgScanBlob frm d : lst
+                  Left _ -> [JpgScanBlob scanHeader d]
+                  Right lst -> JpgScanBlob scanHeader d : lst
             ) <$> get <*> getRemainingLazyBytes
 
-        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
+        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseFollowingFrames
+  where
+    parseFollowingFrames = do
+        skipFrameMarker
+        parseFrames
 
 buildPackedHuffmanTree :: V.Vector (VU.Vector Word8) -> HuffmanTree
 buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList
