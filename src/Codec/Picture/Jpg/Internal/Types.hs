@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
@@ -30,10 +31,12 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
 import Control.Applicative( pure, (<*>), (<$>) )
 #endif
 
+import Control.DeepSeq( NFData(..) )
 import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.List( partition )
+import GHC.Generics( Generic )
 
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
@@ -109,7 +112,8 @@ data JpgFrameKind =
 
     | JpgRestartInterval
     | JpgRestartIntervalEnd Word8
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrameKind
 
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
@@ -122,7 +126,8 @@ data JpgFrame =
     | JpgScanBlob        !JpgScanHeader !L.ByteString
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrame
 
 data JpgColorSpace
   = JpgColorSpaceYCbCr
@@ -134,13 +139,15 @@ data JpgColorSpace
   | JpgColorSpaceCMYK
   | JpgColorSpaceRGB
   | JpgColorSpaceRGBA
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgColorSpace
 
 data AdobeTransform
   = AdobeUnknown    -- ^ Value 0
   | AdobeYCbCr      -- ^ value 1
   | AdobeYCck       -- ^ value 2
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData AdobeTransform
 
 data JpgAdobeApp14 = JpgAdobeApp14
   { _adobeDctVersion :: !Word16
@@ -148,14 +155,16 @@ data JpgAdobeApp14 = JpgAdobeApp14
   , _adobeFlag1      :: !Word16
   , _adobeTransform  :: !AdobeTransform
   }
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgAdobeApp14
 
 -- | Size: 1
 data JFifUnit
   = JFifUnitUnknown   -- ^ 0
   | JFifPixelsPerInch -- ^ 1
   | JFifPixelsPerCentimeter -- ^ 2
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JFifUnit
 
 instance Binary JFifUnit where
   put v = putWord8 $ case v of
@@ -176,7 +185,8 @@ data JpgJFIFApp0 = JpgJFIFApp0
   , _jfifDpiY      :: !Word16
   , _jfifThumbnail :: !(Maybe {- (Image PixelRGB8) -} Int)
   }
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgJFIFApp0
 
 instance Binary JpgJFIFApp0 where
   get = do
@@ -261,7 +271,8 @@ data JpgFrameHeader = JpgFrameHeader
     , jpgImageComponentCount :: !Word8
     , jpgComponents          :: ![JpgComponent]
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrameHeader
 
 
 instance SizeCalculable JpgFrameHeader where
@@ -276,13 +287,15 @@ data JpgComponent = JpgComponent
     , verticalSamplingFactor    :: !Word8
     , quantizationTableDest     :: !Word8
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgComponent
 
 instance SizeCalculable JpgComponent where
     calculateSize _ = 3
 
 data JpgImage = JpgImage { jpgFrame :: [JpgFrame] }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgImage
 
 data JpgScanSpecification = JpgScanSpecification
     { componentSelector :: !Word8
@@ -292,7 +305,8 @@ data JpgScanSpecification = JpgScanSpecification
     , acEntropyCodingTable :: !Word8
 
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgScanSpecification
 
 instance SizeCalculable JpgScanSpecification where
     calculateSize _ = 2
@@ -311,7 +325,8 @@ data JpgScanHeader = JpgScanHeader
       -- | Encoded as 4 bits
     , successiveApproxLow :: !Word8
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgScanHeader
 
 instance SizeCalculable JpgScanHeader where
     calculateSize hdr = 2 + 1
@@ -328,7 +343,8 @@ data JpgQuantTableSpec = JpgQuantTableSpec
 
     , quantTable         :: MacroBlock Int16
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgQuantTableSpec
 
 class SizeCalculable a where
     calculateSize :: a -> Int
@@ -383,7 +399,8 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     , huffSizes :: !(VU.Vector Word8)
     , huffCodes :: !(V.Vector (VU.Vector Word8))
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgHuffmanTableSpec
 
 instance SizeCalculable JpgHuffmanTableSpec where
     calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]

@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts #-}
 -- | Module used by the jpeg decoder internally, shouldn't be used
@@ -33,6 +34,7 @@ module Codec.Picture.Jpg.Internal.DefaultTable( DctComponent( .. )
                                      , defaultDcLumaHuffmanTable
                                      ) where
 
+import Control.DeepSeq( NFData(..) )
 import Data.Int( Int16 )
 import Foreign.Storable ( Storable )
 import Control.Monad.ST( runST )
@@ -42,6 +44,7 @@ import Data.Bits( unsafeShiftL, (.|.), (.&.) )
 import Data.Word( Word8, Word16 )
 import Data.List( foldl' )
 import qualified Data.Vector.Storable.Mutable as M
+import GHC.Generics( Generic )
 
 import Codec.Picture.BitWriter
 
@@ -108,7 +111,8 @@ makeMacroBlock = SV.fromListN 64
 
 -- | Enumeration used to search in the tables for different components.
 data DctComponent = DcComponent | AcComponent
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
+instance NFData DctComponent
 
 -- | Transform parsed coefficients from the jpeg header to a
 -- tree which can be used to decode data.
