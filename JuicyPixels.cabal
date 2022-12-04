@@ -39,7 +39,7 @@ Executable toPng
   Default-Language: Haskell2010
   Main-Is: toPng.hs
   Ghc-options: -O3 -Wall
-  Ghc-prof-options: -rtsopts -Wall -prof -auto-all
+  Ghc-prof-options: -rtsopts -Wall -auto-all
   Include-Dirs: src/Codec/Picture
   -- -cpp -prof -auto-all -rtsopts -caf-all -fforce-recomp
   Build-depends: base,
@@ -52,7 +52,7 @@ Test-suite imageTest
   Default-Language: Haskell2010
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
-  Ghc-prof-options: -rtsopts -Wall -prof -auto-all
+  Ghc-prof-options: -rtsopts -Wall -auto-all
   -- -O3 -Wall
   --
   -- -ddump-simpl
@@ -76,7 +76,7 @@ Benchmark imageBenchmark
   Default-Language: Haskell2010
   Main-Is: main.hs
   Ghc-options: -O3 -Wall
-  Ghc-prof-options: -rtsopts -Wall -prof -auto-all
+  Ghc-prof-options: -rtsopts -Wall -auto-all
   -- -O3 -Wall
   --
   -- -ddump-simpl
@@ -132,7 +132,7 @@ Library
                  binary              >= 0.8.1     && < 0.9,
                  zlib                >= 0.5.3.1 && < 0.7,
                  transformers        >= 0.2,
-                 vector              >= 0.13,
+                 vector              >= 0.12.3.1,
                  primitive           >= 0.4,
                  deepseq             >= 1.1     && < 1.5,
                  containers          >= 0.4.2   && < 0.7

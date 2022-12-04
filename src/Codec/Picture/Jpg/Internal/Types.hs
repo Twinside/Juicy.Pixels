@@ -1,6 +1,13 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
+
+-- | A good explanation of the JPEG format, including diagrams, is given at:
+-- <https://github.com/corkami/formats/blob/master/image/jpeg.md>
+--
+-- The full spec (excluding EXIF): https://www.w3.org/Graphics/JPEG/itu-t81.pdf
 module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , createEmptyMutableMacroBlock
                               , printMacroBlock
@@ -21,8 +28,17 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , JpgAdobeApp14( .. )
                               , JpgJFIFApp0( .. )
                               , JFifUnit( .. )
+                              , TableList( .. )
+                              , RestartInterval( .. )
                               , calculateSize
                               , dctBlockSize
+                              , parseECS
+                              , parseECS_simple
+                              , skipUntilFrames
+                              , skipFrameMarker
+                              , parseFrameOfKind
+                              , parseFrames
+                              , parseToFirstFrameHeader
                               ) where
 
 
@@ -30,10 +46,13 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
 import Control.Applicative( pure, (<*>), (<$>) )
 #endif
 
+import Control.DeepSeq( NFData(..) )
 import Control.Monad( when, replicateM, forM, forM_, unless )
 import Control.Monad.ST( ST )
 import Data.Bits( (.|.), (.&.), unsafeShiftL, unsafeShiftR )
 import Data.List( partition )
+import Data.Maybe( maybeToList )
+import GHC.Generics( Generic )
 
 #if !MIN_VERSION_base(4,11,0)
 import Data.Monoid( (<>) )
@@ -59,7 +78,11 @@ import Data.Binary.Get( Get
                       , getByteString
                       , skip
                       , bytesRead
+                      , lookAhead
+                      , ByteOffset
+                      , getLazyByteString
                       )
+import qualified Data.Binary.Get.Internal as GetInternal
 
 import Data.Binary.Put( Put
                       , putWord8
@@ -75,7 +98,6 @@ import Codec.Picture.Tiff.Internal.Types
 import Codec.Picture.Tiff.Internal.Metadata( exifOffsetIfd )
 import Codec.Picture.Metadata.Exif
 
-{-import Debug.Trace-}
 import Text.Printf
 
 -- | Type only used to make clear what kind of integer we are carrying
@@ -108,7 +130,8 @@ data JpgFrameKind =
 
     | JpgRestartInterval
     | JpgRestartIntervalEnd Word8
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrameKind
 
 data JpgFrame =
       JpgAppFrame        !Word8 B.ByteString
@@ -118,10 +141,11 @@ data JpgFrame =
     | JpgExtension       !Word8 B.ByteString
     | JpgQuantTable      ![JpgQuantTableSpec]
     | JpgHuffmanTable    ![(JpgHuffmanTableSpec, HuffmanPackedTree)]
-    | JpgScanBlob        !JpgScanHeader !L.ByteString
+    | JpgScanBlob        !JpgScanHeader !L.ByteString -- ^ The @ByteString@ is the ECS (Entropy-Coded Segment), typically the largest part of compressed image data.
     | JpgScans           !JpgFrameKind !JpgFrameHeader
     | JpgIntervalRestart !Word16
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrame
 
 data JpgColorSpace
   = JpgColorSpaceYCbCr
@@ -133,13 +157,15 @@ data JpgColorSpace
   | JpgColorSpaceCMYK
   | JpgColorSpaceRGB
   | JpgColorSpaceRGBA
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgColorSpace
 
 data AdobeTransform
   = AdobeUnknown    -- ^ Value 0
   | AdobeYCbCr      -- ^ value 1
   | AdobeYCck       -- ^ value 2
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData AdobeTransform
 
 data JpgAdobeApp14 = JpgAdobeApp14
   { _adobeDctVersion :: !Word16
@@ -147,14 +173,16 @@ data JpgAdobeApp14 = JpgAdobeApp14
   , _adobeFlag1      :: !Word16
   , _adobeTransform  :: !AdobeTransform
   }
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgAdobeApp14
 
 -- | Size: 1
 data JFifUnit
   = JFifUnitUnknown   -- ^ 0
   | JFifPixelsPerInch -- ^ 1
   | JFifPixelsPerCentimeter -- ^ 2
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JFifUnit
 
 instance Binary JFifUnit where
   put v = putWord8 $ case v of
@@ -175,7 +203,8 @@ data JpgJFIFApp0 = JpgJFIFApp0
   , _jfifDpiY      :: !Word16
   , _jfifThumbnail :: !(Maybe {- (Image PixelRGB8) -} Int)
   }
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData JpgJFIFApp0
 
 instance Binary JpgJFIFApp0 where
   get = do
@@ -260,7 +289,8 @@ data JpgFrameHeader = JpgFrameHeader
     , jpgImageComponentCount :: !Word8
     , jpgComponents          :: ![JpgComponent]
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgFrameHeader
 
 
 instance SizeCalculable JpgFrameHeader where
@@ -275,13 +305,15 @@ data JpgComponent = JpgComponent
     , verticalSamplingFactor    :: !Word8
     , quantizationTableDest     :: !Word8
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgComponent
 
 instance SizeCalculable JpgComponent where
     calculateSize _ = 3
 
 data JpgImage = JpgImage { jpgFrame :: [JpgFrame] }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgImage
 
 data JpgScanSpecification = JpgScanSpecification
     { componentSelector :: !Word8
@@ -291,7 +323,8 @@ data JpgScanSpecification = JpgScanSpecification
     , acEntropyCodingTable :: !Word8
 
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgScanSpecification
 
 instance SizeCalculable JpgScanSpecification where
     calculateSize _ = 2
@@ -310,7 +343,8 @@ data JpgScanHeader = JpgScanHeader
       -- | Encoded as 4 bits
     , successiveApproxLow :: !Word8
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgScanHeader
 
 instance SizeCalculable JpgScanHeader where
     calculateSize hdr = 2 + 1
@@ -327,7 +361,8 @@ data JpgQuantTableSpec = JpgQuantTableSpec
 
     , quantTable         :: MacroBlock Int16
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgQuantTableSpec
 
 class SizeCalculable a where
     calculateSize :: a -> Int
@@ -382,7 +417,8 @@ data JpgHuffmanTableSpec = JpgHuffmanTableSpec
     , huffSizes :: !(VU.Vector Word8)
     , huffCodes :: !(V.Vector (VU.Vector Word8))
     }
-    deriving Show
+    deriving (Eq, Show, Generic)
+instance NFData JpgHuffmanTableSpec
 
 instance SizeCalculable JpgHuffmanTableSpec where
     calculateSize table = 1 + 16 + sum [fromIntegral e | e <- VU.toList $ huffSizes table]
@@ -417,13 +453,17 @@ instance Binary JpgImage where
             >> putWord8 0xFF >> putWord8 0xD9
 
     get = do
-        let startOfImageMarker = 0xD8
-            -- endOfImageMarker = 0xD9
-        checkMarker commonMarkerFirstByte startOfImageMarker
-        eatUntilCode
-        frames <- parseFrames
+        skipUntilFrames
+        frames <- parseFramesSemiLazy
+        -- let endOfImageMarker = 0xD9
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return JpgImage { jpgFrame = frames }
+
+skipUntilFrames :: Get ()
+skipUntilFrames = do
+    let startOfImageMarker = 0xD8
+    checkMarker commonMarkerFirstByte startOfImageMarker
+    eatUntilCode
 
 eatUntilCode :: Get ()
 eatUntilCode = do
@@ -436,7 +476,7 @@ takeCurrentFrame = do
     getByteString (fromIntegral size - 2)
 
 putFrame :: JpgFrame -> Put
-putFrame (JpgAdobeAPP14 adobe) = 
+putFrame (JpgAdobeAPP14 adobe) =
     put (JpgAppSegment 14) >> putWord16be 14 >> put adobe
 putFrame (JpgJFIF jfif) =
     put (JpgAppSegment 0) >> putWord16be (14+2) >> put jfif
@@ -469,41 +509,152 @@ checkMarker b1 b2 = do
     when (rb1 /= b1 || rb2 /= b2)
          (fail "Invalid marker used")
 
-extractScanContent :: L.ByteString -> (L.ByteString, L.ByteString)
-extractScanContent str = aux 0
-  where maxi = fromIntegral $ L.length str - 1
+-- | Simpler implementation of `parseECS` to allow an easier understanding
+-- of the logic, and to provide a comparison for correctness.
+parseECS_simple :: Get L.ByteString
+parseECS_simple = do
+    -- There's no efficient way in `binary` to parse byte-by-byte while assembling a
+    -- resulting ByteString (without using `.Internal` modules, which is what
+    --  `parseECS` does), so instead first compute the length of the content
+    -- byte-by-byte inside a `lookAhead` (not advancing the parser offset), and
+    -- then efficiently take that long a ByteString (advancing the parser offset).
+    --
+    -- This is still slow compared to `parseECS` because parser functions
+    -- (`getWord8`) are used repeatedly, instead of plain loops over ByteString contents.
+    -- The slowdown is ~2x on GHC 8.10.7 on an Intel Core i7-7500U.
+    n <- lookAhead getContentLength
+    getLazyByteString n
+  where
+    getContentLength :: Get ByteOffset
+    getContentLength = do
+        bytesReadBeforeContent <- bytesRead
+        let loop :: Word8 -> Get ByteOffset
+            loop !v = do
+                vNext <- getWord8
+                let isReset = 0xD0 <= vNext && vNext <= 0xD7
+                let vIsSegmentMarker = v == 0xFF && vNext /= 0 && not isReset
+                if not vIsSegmentMarker
+                    then loop vNext
+                    else do
+                        bytesReadAfterContentPlus2 <- bytesRead -- "plus 2" because we've also read the segment marker (0xFF and `vNext`)
+                        let !contentLength = (bytesReadAfterContentPlus2 - 2) - bytesReadBeforeContent
+                        return contentLength
 
-        aux n | n >= maxi = (str, L.empty)
-              | v == 0xFF && vNext /= 0 && not isReset = L.splitAt n str
-              | otherwise = aux (n + 1)
-            where v = str `L.index` n
-                  vNext = str `L.index` (n + 1)
-                  isReset = 0xD0 <= vNext && vNext <= 0xD7
+        v_first <- getWord8
+        loop v_first
 
-parseAdobe14 :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseAdobe14 str lst = go where
-  go = case runGetStrict get str of
-    Left _err -> lst
-    Right app14 -> JpgAdobeAPP14 app14 : lst
+-- Replace by `Data.ByteString.dropEnd` once we require `bytestring >= 0.11.1.0`.
+bsDropEnd :: Int -> B.ByteString -> B.ByteString
+bsDropEnd n bs
+    | n <= 0    = bs
+    | n >= len  = B.empty
+    | otherwise = B.take (len - 1) bs
+  where
+    len = B.length bs
+{-# INLINE bsDropEnd #-}
+
+-- | Parses a Scan's ECS (Entropy-Coded Segment, the largest part of compressed image data)
+-- from the `Get` stream.
+--
+-- When this function is called, the parser's offset should be
+-- immediately behind the SOS tag.
+--
+-- As described on e.g. https://www.ccoderun.ca/programming/2017-01-31_jpeg/,
+--
+-- > To find the next segment after the SOS, you must keep reading until you
+-- > find a 0xFF bytes which is not immediately followed by 0x00 (see "byte stuffing")
+-- > [or a reset marker's byte: 0xD0 through 0xD7].
+-- > Normally, this will be the EOI segment that comes at the end of the file.
+--
+-- where the 0xFF is the next segment's marker.
+-- See https://github.com/corkami/formats/blob/master/image/jpeg.md#entropy-coded-segment
+-- for more details.
+--
+-- This function returns the ECS, not including the next segment's
+-- marker on its trailing end.
+parseECS :: Get L.ByteString
+parseECS = do
+    -- For a simpler but slower implementation of this function, see
+    -- `parseECS_simple`.
+
+    v_first <- getWord8
+    -- TODO: Compare with what `scan` from `binary-parsers` does.
+    --       Probably we cannot use it because it does not allow us to set the parser state
+    --       to be _before_ the segment marker which would be convenient to not have to
+    --       make a special case the function that calls this function.
+    --       But `scan` works on pointers into the bytestring chunks. Why, for performance?
+    --       I've asked on https://github.com/winterland1989/binary-parsers/issues/7
+    --       If that is for performance, we may want to replicate the same thing here.
+    --
+    --       An orthogonal idea is to use `Data.ByteString.elemIndex` to fast-forward
+    --       to the next 0xFF using `memchr`, but the `unsafe` call to `memchr` might
+    --       have too much overhead, since 0xFF bytes appear statistically every 256 bytes.
+    --       See https://stackoverflow.com/questions/14519905/how-much-does-it-cost-for-haskell-ffi-to-go-into-c-and-back
+
+    -- `withInputChunks` allows us to work on chunks of ByteStrings,
+    -- reducing the number of higher-overhead `Get` functions called.
+    -- It also allows to easily assemble the ByteString to return,
+    -- which may be cross-chunk.
+    -- `withInputChunks` terminates when we return a
+    --     Right (consumed :: ByteString, unconsumed :: ByteString)
+    -- from `consumeChunk`, setting the `Get` parser's offset to just before `unconsumed`.
+    -- Because the segment marker we seek may be the 2 bytes across chunk boundaries,
+    -- we need to keep a reference to the previous chunk (initialised as `B.empty`),
+    -- so that we can set `consumed` properly, because this function is supposed
+    -- to not consume the start of the segment marker (see code dropping the last
+    -- byte of the previous chunk below).
+    GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks) (return . L.fromChunks)
+  where
+    consumeChunk :: GetInternal.Consume (Word8, B.ByteString) -- which is: (Word8, B.ByteString) -> B.ByteString -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
+    consumeChunk (!v_chunk_start, !prev_chunk) !chunk =
+        let
+            loop :: Word8 -> Int -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
+            loop !v !offset_in_chunk
+                | offset_in_chunk >= B.length chunk = Left (v, chunk)
+                | otherwise =
+                    let !vNext = B.index chunk offset_in_chunk
+                        !isReset = 0xD0 <= vNext && vNext <= 0xD7
+                        !vIsSegmentMarker = v == 0xFF && vNext /= 0 && not isReset
+                    in
+                        if not vIsSegmentMarker
+                            then loop vNext (offset_in_chunk+1)
+                            else
+                                -- Set the parser state to _before_ the segment marker.
+                                -- The first case, where the segment marker's 2 bytes are exactly
+                                -- at the chunk boundary, requires us to allocate a new BS with
+                                -- `B.cons`; luckily this case should be rare.
+                                let (!consumed, !unconsumed) = case () of
+                                     () | offset_in_chunk == 0 -> (bsDropEnd 1 prev_chunk, v `B.cons` chunk) -- segment marker starts at `v`, which is the last byte of the previous chunk
+                                        | offset_in_chunk == 1 -> (B.empty, chunk) -- segment marker starts exactly at `chunk`
+                                        | otherwise            -> B.splitAt (offset_in_chunk - 1) chunk -- segment marker starts at `v`, which is 1 before `vNext` (which is at `offset_in_chunk`)
+                                in Right $! (consumed, unconsumed)
+
+        in loop v_chunk_start 0
+
+parseAdobe14 :: B.ByteString -> Maybe JpgFrame
+parseAdobe14 str = case runGetStrict get str of
+    Left _err -> Nothing
+    Right app14 -> Just $! JpgAdobeAPP14 app14
 
 -- | Parse JFIF or JFXX information. Right now only JFIF.
-parseJF__  :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseJF__  str lst = go where
-  go = case runGetStrict get str of
-    Left _err -> lst
-    Right jfif -> JpgJFIF jfif : lst
+parseJF__ :: B.ByteString -> Maybe JpgFrame
+parseJF__ str = case runGetStrict get str of
+    Left _err -> Nothing
+    Right jfif -> Just $! JpgJFIF jfif
 
-parseExif :: B.ByteString -> [JpgFrame] -> [JpgFrame]
-parseExif str lst 
-  | exifHeader `B.isPrefixOf` str = go
-  | otherwise = lst
+parseExif :: B.ByteString -> Maybe JpgFrame
+parseExif str
+  | exifHeader `B.isPrefixOf` str =
+      let
+        tiff = B.drop (B.length exifHeader) str
+      in
+        case runGetStrict (getP tiff) tiff of
+            Left _err -> Nothing
+            Right (_hdr :: TiffHeader, []) -> Nothing
+            Right (_hdr :: TiffHeader, ifds : _) -> Just $! JpgExif ifds
+  | otherwise = Nothing
   where
     exifHeader = BC.pack "Exif\0\0"
-    tiff = B.drop (B.length exifHeader) str
-    go = case runGetStrict (getP tiff) tiff of
-      Left _err -> lst
-      Right (_hdr :: TiffHeader, []) -> lst
-      Right (_hdr :: TiffHeader, ifds : _) -> JpgExif ifds : lst
 
 putExif :: [ImageFileDirectory] -> Put
 putExif ifds = putAll where
@@ -515,7 +666,7 @@ putExif ifds = putAll where
   ifdList = case partition (isInIFD0 . ifdIdentifier) ifds of
     (ifd0, []) -> [ifd0]
     (ifd0, ifdExif) -> [ifd0 <> pure exifOffsetIfd, ifdExif]
-  
+
   exifBlob = runPut $ do
     putByteString $ BC.pack "Exif\0\0"
     putP BC.empty (hdr, ifdList)
@@ -525,47 +676,164 @@ putExif ifds = putAll where
     putWord16be . fromIntegral $ L.length exifBlob + 2
     putLazyByteString exifBlob
 
+skipFrameMarker :: Get ()
+skipFrameMarker = do
+    word <- getWord8
+    when (word /= 0xFF) $ do
+        readedData <- bytesRead
+        fail $ "Invalid Frame marker (" ++ show word
+                ++ ", bytes read : " ++ show readedData ++ ")"
+
+-- | Parses a single frame.
+--
+-- Returns `Nothing` when we encounter a frame we want to skip.
+parseFrameOfKind :: JpgFrameKind -> Get (Maybe JpgFrame)
+parseFrameOfKind kind = do
+    case kind of
+        JpgEndOfImage -> return Nothing
+        JpgAppSegment 0 -> parseJF__ <$> takeCurrentFrame
+        JpgAppSegment 1 -> parseExif <$> takeCurrentFrame
+        JpgAppSegment 14 -> parseAdobe14 <$> takeCurrentFrame
+        JpgAppSegment c -> Just . JpgAppFrame c <$> takeCurrentFrame
+        JpgExtensionSegment c -> Just . JpgExtension c <$> takeCurrentFrame
+        JpgQuantizationTable ->
+            (\(TableList quants) -> Just $! JpgQuantTable quants) <$> get
+        JpgRestartInterval ->
+            (\(RestartInterval i) -> Just $! JpgIntervalRestart i) <$> get
+        JpgHuffmanTableMarker ->
+            (\(TableList huffTables) -> Just $!
+                    JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables])
+                    <$> get
+        JpgStartOfScan -> do
+            scanHeader <- get
+            ecs <- parseECS
+            return $! Just $! JpgScanBlob scanHeader ecs
+        _ -> Just . JpgScans kind <$> get
+
+
+-- | Parse a list of `JpgFrame`s.
+--
+-- This function has various quirks; consider the below with great caution
+-- when using this function.
+--
+-- While @data JpgFrame = ... | JpgScanBlob !...` itself has strict fields,
+--
+-- This function is written in such a way that that it can construct
+-- the @[JpgFrame]@ "lazily" such that the expensive byte-by-byte traversal
+-- in `parseECS` to create a `JpgScanBlob` can be avoided if only
+-- list elements before that `JpgScanBlob` are evaluated.
+--
+-- That means the user can write code such as
+--
+-- > let mbFirstScan =
+-- >       case runGetOrFail (get @JPG.JpgImage) hugeImageByteString of -- (`get @JPG.JpgImage` uses `parseFramesSemiLazy`)
+-- >         Right (_restBs, _offset, res) ->
+-- >           find (\frame -> case frame of { JPG.JpgScans{} -> True; _ -> False }) (JPG.jpgFrame res)
+--
+-- with the guarantee that only the bytes before the ECS (large compressed image data)
+-- will be inspected, assuming that indeed there is at least 1 `JpgScan` in front
+-- of the `JpgScanBlob` that contains the ECS.
+--
+-- This guarantee can be useful to e.g. quickly read just the image
+-- dimensions (width, height) without traversing the large data.
+--
+-- Also note that this `Get` parser does not correctly maintain the parser byte offset
+-- (`Data.Binary.Get.bytesRead`), because as soon as a `JpgStartOfScan` is returned,
+-- it uses `Data.Binary.Get.getRemainingLazyBytes` to provide:
+--
+-- 1. the laziness described above, and
+-- 2. the ability to ignore any parser failure after the first successfully-parsed
+--    `JpgScanBlob` (it is debatable whether this behaviour is a desirable behaviour of this
+--    library, but it is historically so and existing exposed functions do not break
+--    this for backwards compatibility with existing uses of this library).
+--    This fact also means that even `parseNextFrameStrict` cannot maintain
+--    correct parser byte offsets.
+--
+-- Further note that if you are reading a huge JPEG image from disk strictly,
+-- this will already incur a full traversal (namely creation) of the `hugeImageByteString`.
+-- Thus, `parseNextFrameLazy` only provides any benefit if you:
+--
+-- - read the image from disk using lazy IO (not recommended!) such as via
+--   `Data.ByteString.Lazy.readFile`,
+-- - or do something similar, such as creating the `hugeImageByteString` via @mmap()@
+--
+-- This function is called "semi lazy" because only the first `JpgScanBlob` returned
+-- in the `[JpgFrame]` is returned lazily; frames of other types, or multiple
+-- `JpgScanBlob`s, are confusingly not dealt with lazily.
+--
+-- If as a caller you do not want to deal with any of these quirks,
+-- and use proper strict IO and/or via `Data.Binary.Get`'s incremental input interface:
+--
+-- - If you want the whole `[JpgFrame]`: use `parseFrames`.
+-- - If you want parsing to terminate early as in the example shown above,
+--   use in combination with just the right amount of `get :: Get JpgFrameKind`,
+--   `parseFrameOfKind`, and `skipFrameMarker`.
+parseFramesSemiLazy :: Get [JpgFrame]
+parseFramesSemiLazy = do
+    kind <- get
+    case kind of
+        JpgStartOfScan -> do
+            scanHeader <- get
+            remainingBytes <- getRemainingLazyBytes
+            -- It is after the above `getRemainingLazyBytes` that the `Get` parser lazily succeeds,
+            -- allowing consumers of `parseFramesSemiLazy` evaluate all `[JpgFrame]` list elements
+            -- until (excluding) the cons-cell around the `JpgScanBlob ...` we construct below.
+
+            return $ case runGet parseECS remainingBytes of
+                Left _ ->
+                    -- Construct invalid `JpgScanBlob` even when the compressed JPEG
+                    -- data is truncated or otherwise invalid, because that's what JuicyPixels's
+                    -- `parseFramesSemiLazy` function did in the past, for backwards compat.
+                    [JpgScanBlob scanHeader remainingBytes]
+                Right ecs ->
+                    JpgScanBlob scanHeader ecs
+                    :
+                    -- TODO Why `drop 1` instead of `runGet (skipFrameMarker *> parseFramesSemiLazy) remainingBytes` that would check that the dropped 1 Byte is really a frame marker?
+                    case runGet parseFramesSemiLazy (L.drop (L.length ecs + 1) remainingBytes) of
+                        -- After we've encountered the first scan blob containing encoded image data,
+                        -- we accept anything else after to fail parsing, ignoring that failure,
+                        -- end emitting no further frames.
+                        -- TODO: Explain why JuicyPixel chose to use this logic, insteaed of failing.
+                        Left _ -> []
+                        Right remainingFrames -> remainingFrames
+        _ -> do
+            mbFrame <- parseFrameOfKind kind
+            skipFrameMarker
+            remainingFrames <- parseFramesSemiLazy
+            return $ maybeToList mbFrame ++ remainingFrames
+
+-- | Parse a list of `JpgFrame`s.
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    let parseNextFrame = do
-            word <- getWord8
-            when (word /= 0xFF) $ do
-                readedData <- bytesRead
-                fail $ "Invalid Frame marker (" ++ show word
-                     ++ ", bytes read : " ++ show readedData ++ ")"
-            parseFrames
+    mbFrame <- parseFrameOfKind kind
+    skipFrameMarker
+    remainingFrames <- parseFrames
+    return $ maybeToList mbFrame ++ remainingFrames
 
+-- | Parses forward, returning the first scan header encountered.
+--
+-- Should be used after `skipUntilFrames`.
+--
+-- Fails parsing when an SOS segment marker (`JpgStartOfScan`, resulting
+-- in `JpgScanBlob`) is encountered before an SOF segment marker (that
+-- results in `JpgScans` carrying the `JpgFrameHeader`).
+parseToFirstFrameHeader :: Get (Maybe JpgFrameHeader)
+parseToFirstFrameHeader = do
+    kind <- get
     case kind of
-        JpgEndOfImage -> return []
-        JpgAppSegment 0 ->
-            parseJF__ <$> takeCurrentFrame <*> parseNextFrame
-        JpgAppSegment 1 ->
-            parseExif <$> takeCurrentFrame <*> parseNextFrame
-        JpgAppSegment 14 ->
-            parseAdobe14 <$> takeCurrentFrame <*> parseNextFrame
-        JpgAppSegment c ->
-            (\frm lst -> JpgAppFrame c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
-        JpgExtensionSegment c ->
-            (\frm lst -> JpgExtension c frm : lst) <$> takeCurrentFrame <*> parseNextFrame
-        JpgQuantizationTable ->
-            (\(TableList quants) lst -> JpgQuantTable quants : lst) <$> get <*> parseNextFrame
-        JpgRestartInterval ->
-            (\(RestartInterval i) lst -> JpgIntervalRestart i : lst) <$> get <*> parseNextFrame
-        JpgHuffmanTableMarker ->
-            (\(TableList huffTables) lst ->
-                    JpgHuffmanTable [(t, packHuffmanTree . buildPackedHuffmanTree $ huffCodes t) | t <- huffTables] : lst)
-                    <$> get <*> parseNextFrame
-        JpgStartOfScan ->
-            (\frm imgData ->
-                let (d, other) = extractScanContent imgData
-                in
-                case runGet parseFrames (L.drop 1 other) of
-                  Left _ -> [JpgScanBlob frm d]
-                  Right lst -> JpgScanBlob frm d : lst
-            ) <$> get <*> getRemainingLazyBytes
-
-        _ -> (\hdr lst -> JpgScans kind hdr : lst) <$> get <*> parseNextFrame
+        JpgStartOfScan -> fail "parseToFirstFrameHeader: Encountered SOS frame marker before frame header that tells its dimensions"
+        _ -> do
+            mbFrame <- parseFrameOfKind kind
+            case mbFrame of
+                Nothing -> continueSearching
+                Just frame -> case frame of
+                    JpgScans _ frameHeader -> return $ Just $! frameHeader
+                    _ -> continueSearching
+  where
+    continueSearching = do
+        skipFrameMarker
+        parseToFirstFrameHeader
 
 buildPackedHuffmanTree :: V.Vector (VU.Vector Word8) -> HuffmanTree
 buildPackedHuffmanTree = buildHuffmanTree . map VU.toList . V.toList

@@ -14,6 +14,8 @@ module Codec.Picture.Png.Internal.Type( PngIHdr( .. )
                              , APngFrameControl( .. )
                              , parsePalette 
                              , pngComputeCrc
+                             , pngSignature
+                             , iHDRSignature
                              , pLTESignature
                              , iDATSignature
                              , iENDSignature
