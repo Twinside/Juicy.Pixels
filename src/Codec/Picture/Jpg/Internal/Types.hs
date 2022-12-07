@@ -30,6 +30,7 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , JFifUnit( .. )
                               , TableList( .. )
                               , RestartInterval( .. )
+                              , getJpgImage
                               , calculateSize
                               , dctBlockSize
                               , parseECS
@@ -454,12 +455,21 @@ instance Binary JpgImage where
         putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
             >> putWord8 0xFF >> putWord8 0xD9
 
+    -- | Consider using `getJpgImage` instead for a non-semi-lazy implementation.
     get = do
         skipUntilFrames
         frames <- parseFramesSemiLazy
         -- let endOfImageMarker = 0xD9
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return JpgImage { jpgFrame = frames }
+
+-- | Like `get` from `instance Binary JpgImage`, but without the legacy
+-- semi-lazy implementation.
+getJpgImage :: Get JpgImage
+getJpgImage = do
+    skipUntilFrames
+    frames <- parseFrames
+    return JpgImage { jpgFrame = frames }
 
 skipUntilFrames :: Get ()
 skipUntilFrames = do
