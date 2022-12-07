@@ -603,7 +603,11 @@ parseECS = do
     -- so that we can set `consumed` properly, because this function is supposed
     -- to not consume the start of the segment marker (see code dropping the last
     -- byte of the previous chunk below).
-    GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks . (B.singleton v_first :)) (return . L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
+    GetInternal.withInputChunks
+        (v_first, B.empty)
+        consumeChunk
+        (         L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
+        (return . L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
   where
     consumeChunk :: GetInternal.Consume (Word8, B.ByteString) -- which is: (Word8, B.ByteString) -> B.ByteString -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
     consumeChunk (!v_chunk_start, !prev_chunk) !chunk
