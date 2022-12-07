@@ -30,6 +30,7 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , JFifUnit( .. )
                               , TableList( .. )
                               , RestartInterval( .. )
+                              , getJpgImage
                               , calculateSize
                               , dctBlockSize
                               , parseECS
@@ -38,6 +39,7 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , skipFrameMarker
                               , parseFrameOfKind
                               , parseFrames
+                              , parseFrameKinds
                               , parseToFirstFrameHeader
                               ) where
 
@@ -67,8 +69,9 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Unsafe as BU
 
-import Data.Int( Int16 )
+import Data.Int( Int16, Int64 )
 import Data.Word(Word8, Word16 )
 import Data.Binary( Binary(..) )
 
@@ -452,12 +455,21 @@ instance Binary JpgImage where
         putWord8 0xFF >> putWord8 0xD8 >> mapM_ putFrame frames
             >> putWord8 0xFF >> putWord8 0xD9
 
+    -- | Consider using `getJpgImage` instead for a non-semi-lazy implementation.
     get = do
         skipUntilFrames
         frames <- parseFramesSemiLazy
         -- let endOfImageMarker = 0xD9
         {-checkMarker commonMarkerFirstByte endOfImageMarker-}
         return JpgImage { jpgFrame = frames }
+
+-- | Like `get` from `instance Binary JpgImage`, but without the legacy
+-- semi-lazy implementation.
+getJpgImage :: Get JpgImage
+getJpgImage = do
+    skipUntilFrames
+    frames <- parseFrames
+    return JpgImage { jpgFrame = frames }
 
 skipUntilFrames :: Get ()
 skipUntilFrames = do
@@ -603,16 +615,26 @@ parseECS = do
     -- so that we can set `consumed` properly, because this function is supposed
     -- to not consume the start of the segment marker (see code dropping the last
     -- byte of the previous chunk below).
-    GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks) (return . L.fromChunks)
+    GetInternal.withInputChunks
+        (v_first, B.empty)
+        consumeChunk
+        (         L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
+        (return . L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
   where
     consumeChunk :: GetInternal.Consume (Word8, B.ByteString) -- which is: (Word8, B.ByteString) -> B.ByteString -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
-    consumeChunk (!v_chunk_start, !prev_chunk) !chunk =
-        let
+    consumeChunk (!v_chunk_start, !prev_chunk) !chunk
+        -- If `withInputChunks` hands us an empty chunk (which `binary` probably
+        -- won't do, but since that's not documented, handle it anyway) then skip over it,
+        -- so that we always remember the last `prev_chunk` that actually has data in it,
+        -- since we `bsDropEnd 1 prev_chunk` in the `case` below.
+        | B.null chunk = Left (v_chunk_start, prev_chunk)
+        | otherwise = loop v_chunk_start 0
+          where
             loop :: Word8 -> Int -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
             loop !v !offset_in_chunk
                 | offset_in_chunk >= B.length chunk = Left (v, chunk)
                 | otherwise =
-                    let !vNext = B.index chunk offset_in_chunk
+                    let !vNext = BU.unsafeIndex chunk offset_in_chunk -- bounds check is done above
                         !isReset = 0xD0 <= vNext && vNext <= 0xD7
                         !vIsSegmentMarker = v == 0xFF && vNext /= 0 && not isReset
                     in
@@ -629,7 +651,7 @@ parseECS = do
                                         | otherwise            -> B.splitAt (offset_in_chunk - 1) chunk -- segment marker starts at `v`, which is 1 before `vNext` (which is at `offset_in_chunk`)
                                 in Right $! (consumed, unconsumed)
 
-        in loop v_chunk_start 0
+
 
 parseAdobe14 :: B.ByteString -> Maybe JpgFrame
 parseAdobe14 str = case runGetStrict get str of
@@ -772,6 +794,9 @@ parseFramesSemiLazy :: Get [JpgFrame]
 parseFramesSemiLazy = do
     kind <- get
     case kind of
+        -- The end-of-image case needs to be here because `_ ->` default case below
+        -- unconditionally uses `skipFrameMarker` which does not exist after `JpgEndOfImage`.
+        JpgEndOfImage -> pure []
         JpgStartOfScan -> do
             scanHeader <- get
             remainingBytes <- getRemainingLazyBytes
@@ -806,10 +831,32 @@ parseFramesSemiLazy = do
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    mbFrame <- parseFrameOfKind kind
-    skipFrameMarker
-    remainingFrames <- parseFrames
-    return $ maybeToList mbFrame ++ remainingFrames
+    case kind of
+        JpgEndOfImage -> pure []
+        _ -> do
+            mbFrame <- parseFrameOfKind kind
+            skipFrameMarker
+            remainingFrames <- parseFrames
+            return $ maybeToList mbFrame ++ remainingFrames
+
+-- | Parse a list of `JpgFrameKind`s with their corresponding offsets and lengths
+-- (not counting the segment and frame markers into the lengths).
+--
+-- Useful for debugging.
+parseFrameKinds :: Get [(JpgFrameKind, Int64, Int64)]
+parseFrameKinds = do
+    kindMarkerOffset :: Int64 <- bytesRead
+    kind <- get
+    case kind of
+        JpgEndOfImage -> pure [(JpgEndOfImage, kindMarkerOffset, 0)]
+        _ -> do
+            parserOffsetBefore <- bytesRead
+            _ <- parseFrameOfKind kind
+            parserOffsetAfter <- bytesRead
+            let !segmentLengthWithoutMarker = parserOffsetAfter - parserOffsetBefore
+            skipFrameMarker
+            remainingKinds <- parseFrameKinds
+            return $ (kind, kindMarkerOffset, segmentLengthWithoutMarker):remainingKinds
 
 -- | Parses forward, returning the first scan header encountered.
 --
@@ -822,6 +869,7 @@ parseToFirstFrameHeader :: Get (Maybe JpgFrameHeader)
 parseToFirstFrameHeader = do
     kind <- get
     case kind of
+        JpgEndOfImage -> return Nothing
         JpgStartOfScan -> fail "parseToFirstFrameHeader: Encountered SOS frame marker before frame header that tells its dimensions"
         _ -> do
             mbFrame <- parseFrameOfKind kind

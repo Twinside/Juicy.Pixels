@@ -12,6 +12,7 @@ import Codec.Picture.Gif
 import Codec.Picture.Tiff
 import System.Environment
 
+import Data.Either ( isRight )
 import Data.Binary
 import Data.Binary.Get (runGetOrFail)
 import Data.Bits ( unsafeShiftR, xor )
@@ -812,28 +813,49 @@ palettedPngCreation = L.writeFile "tests/paleted_alpha.png" encoded
     palette :: Image PixelRGBA8
     palette = generateImage (\x _y -> PixelRGBA8 255 128 128 (255 - fromIntegral x)) 256 1
 
-jpgParseECS_equivalence :: FilePath -> IO ()
-jpgParseECS_equivalence path = do
+-- The given `path` must be a valid JPEG; this function checks it.
+-- This is to guard against not noticing that everything fails parsing.
+jpgParseECS_equivalence_success :: FilePath -> IO ()
+jpgParseECS_equivalence_success path = do
     bsl <- L.fromStrict <$> B.readFile path
-    let ecs =
-            runGetOrFail (parseFramesWithParseECSFunction JpgInternal.parseECS) bsl
-    let ecs_simple =
-            runGetOrFail (parseFramesWithParseECSFunction JpgInternal.parseECS_simple) bsl
-    when (ecs /= ecs_simple) $ do
-        error "Test failure: parseECS /= parseECS_simple"
+    let ecs_res =
+            runGetOrFail (JpgInternal.skipUntilFrames *> parseFramesWithParseECSFunction JpgInternal.parseECS) bsl
+    let ecs_simple_res =
+            runGetOrFail (JpgInternal.skipUntilFrames *> parseFramesWithParseECSFunction JpgInternal.parseECS_simple) bsl
+    case (ecs_res, ecs_simple_res) of
+        (Right{}, Right{})
+            | ecs_res == ecs_simple_res -> return ()
+            | otherwise -> error "Test failure: parseECS /= parseECS_simple"
+        _ -> error $ "Test failure: parseECS / parseECS_simple failed unexpectedly with results: " ++ show (isRight ecs_res, isRight ecs_simple_res) -- only show Left/Right
   where
     parseFramesWithParseECSFunction :: Get L.ByteString -> Get [JpgInternal.JpgFrame]
     parseFramesWithParseECSFunction parseECSFunction = do
         kind <- get
-        mbFrame <- case kind of
-            JpgInternal.JpgStartOfScan -> do
-                scanHeader <- get
-                ecs <- parseECSFunction
-                return $! Just $! JpgInternal.JpgScanBlob scanHeader ecs
-            _ -> JpgInternal.parseFrameOfKind kind
-        JpgInternal.skipFrameMarker
-        remainingFrames <- JpgInternal.parseFrames
-        return $ maybeToList mbFrame ++ remainingFrames
+        case kind of
+            JpgInternal.JpgEndOfImage -> return []
+            _ -> do
+                mbFrame <- case kind of
+                    JpgInternal.JpgStartOfScan -> do
+                        scanHeader <- get
+                        ecs <- parseECSFunction
+                        return $! Just $! JpgInternal.JpgScanBlob scanHeader ecs
+                    _ -> JpgInternal.parseFrameOfKind kind
+                JpgInternal.skipFrameMarker
+                remainingFrames <- JpgInternal.parseFrames
+                return $ maybeToList mbFrame ++ remainingFrames
+
+-- The given `path` must be a valid JPEG; this function checks it.
+-- This is to guard against not noticing that everything fails parsing.
+getJpgImage_equivalence_success :: FilePath -> IO ()
+getJpgImage_equivalence_success path = do
+    bsl <- L.fromStrict <$> B.readFile path
+    let res = runGetOrFail (JpgInternal.getJpgImage) bsl
+    let legacy_res = runGetOrFail (get :: Get JpgInternal.JpgImage) bsl
+    case (res, legacy_res) of
+        (Right{}, Right{})
+            | res == legacy_res -> return ()
+            | otherwise -> error "Test failure: getJpgImage /= (get :: Get JpgImage)"
+        _ -> error $ "Test failure: getJpgImage / (get :: Get JpgImage) failed unexpectedly with results: " ++ show (isRight res, isRight legacy_res) -- only show Left/Right
 
 testSuite :: IO ()
 testSuite = do
@@ -847,7 +869,9 @@ testSuite = do
     putStrLn ">>>> Gif palette test"
     gifPaletteTest
     putStrLn ">>>> Jpg parseECS equivalence test"
-    mapM_ (jpgParseECS_equivalence . (("tests" </> "jpeg") </>)) ("huge.jpg" : "10x8-samsung-s8.jpg" : jpegValidTests)
+    mapM_ (jpgParseECS_equivalence_success . (("tests" </> "jpeg") </>)) ("huge.jpg" : "10x8-samsung-s8.jpg" : jpegValidTests)
+    putStrLn ">>>> Jpg getJpgImage equivalence test"
+    mapM_ (getJpgImage_equivalence_success . (("tests" </> "jpeg") </>)) ("huge.jpg" : "10x8-samsung-s8.jpg" : jpegValidTests)
     putStrLn ">>>> Valid instances"
     toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
     toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
