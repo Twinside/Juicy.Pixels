@@ -844,6 +844,19 @@ jpgParseECS_equivalence_success path = do
                 remainingFrames <- JpgInternal.parseFrames
                 return $ maybeToList mbFrame ++ remainingFrames
 
+-- The given `path` must be a valid JPEG; this function checks it.
+-- This is to guard against not noticing that everything fails parsing.
+getJpgImage_equivalence_success :: FilePath -> IO ()
+getJpgImage_equivalence_success path = do
+    bsl <- L.fromStrict <$> B.readFile path
+    let res = runGetOrFail (JpgInternal.getJpgImage) bsl
+    let legacy_res = runGetOrFail (get :: Get JpgInternal.JpgImage) bsl
+    case (res, legacy_res) of
+        (Right{}, Right{})
+            | res == legacy_res -> return ()
+            | otherwise -> error "Test failure: getJpgImage /= (get :: Get JpgImage)"
+        _ -> error $ "Test failure: getJpgImage / (get :: Get JpgImage) failed unexpectedly with results: " ++ show (isRight res, isRight legacy_res) -- only show Left/Right
+
 testSuite :: IO ()
 testSuite = do
     putStrLn ">>>> Metadata test"
@@ -857,6 +870,8 @@ testSuite = do
     gifPaletteTest
     putStrLn ">>>> Jpg parseECS equivalence test"
     mapM_ (jpgParseECS_equivalence_success . (("tests" </> "jpeg") </>)) ("huge.jpg" : "10x8-samsung-s8.jpg" : jpegValidTests)
+    putStrLn ">>>> Jpg getJpgImage equivalence test"
+    mapM_ (getJpgImage_equivalence_success . (("tests" </> "jpeg") </>)) ("huge.jpg" : "10x8-samsung-s8.jpg" : jpegValidTests)
     putStrLn ">>>> Valid instances"
     toJpg "white" $ generateImage (\_ _ -> PixelRGB8 255 255 255) 16 16
     toJpg "black" $ generateImage (\_ _ -> PixelRGB8 0 0 0) 16 16
