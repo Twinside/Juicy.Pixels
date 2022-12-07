@@ -38,6 +38,7 @@ module Codec.Picture.Jpg.Internal.Types( MutableMacroBlock
                               , skipFrameMarker
                               , parseFrameOfKind
                               , parseFrames
+                              , parseFrameKinds
                               , parseToFirstFrameHeader
                               ) where
 
@@ -69,7 +70,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Unsafe as BU
 
-import Data.Int( Int16 )
+import Data.Int( Int16, Int64 )
 import Data.Word(Word8, Word16 )
 import Data.Binary( Binary(..) )
 
@@ -827,6 +828,25 @@ parseFrames = do
             skipFrameMarker
             remainingFrames <- parseFrames
             return $ maybeToList mbFrame ++ remainingFrames
+
+-- | Parse a list of `JpgFrameKind`s with their corresponding offsets and lengths
+-- (not counting the segment and frame markers into the lengths).
+--
+-- Useful for debugging.
+parseFrameKinds :: Get [(JpgFrameKind, Int64, Int64)]
+parseFrameKinds = do
+    kindMarkerOffset :: Int64 <- bytesRead
+    kind <- get
+    case kind of
+        JpgEndOfImage -> pure [(JpgEndOfImage, kindMarkerOffset, 0)]
+        _ -> do
+            parserOffsetBefore <- bytesRead
+            _ <- parseFrameOfKind kind
+            parserOffsetAfter <- bytesRead
+            let !segmentLengthWithoutMarker = parserOffsetAfter - parserOffsetBefore
+            skipFrameMarker
+            remainingKinds <- parseFrameKinds
+            return $ (kind, kindMarkerOffset, segmentLengthWithoutMarker):remainingKinds
 
 -- | Parses forward, returning the first scan header encountered.
 --
