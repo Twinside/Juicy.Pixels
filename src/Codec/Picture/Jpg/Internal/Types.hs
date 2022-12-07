@@ -603,7 +603,7 @@ parseECS = do
     -- so that we can set `consumed` properly, because this function is supposed
     -- to not consume the start of the segment marker (see code dropping the last
     -- byte of the previous chunk below).
-    GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks) (return . L.fromChunks)
+    GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks . (B.singleton v_first :)) (return . L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
   where
     consumeChunk :: GetInternal.Consume (Word8, B.ByteString) -- which is: (Word8, B.ByteString) -> B.ByteString -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
     consumeChunk (!v_chunk_start, !prev_chunk) !chunk =
@@ -772,6 +772,9 @@ parseFramesSemiLazy :: Get [JpgFrame]
 parseFramesSemiLazy = do
     kind <- get
     case kind of
+        -- The end-of-image case needs to be here because `_ ->` default case below
+        -- unconditionally uses `skipFrameMarker` which does not exist after `JpgEndOfImage`.
+        JpgEndOfImage -> pure []
         JpgStartOfScan -> do
             scanHeader <- get
             remainingBytes <- getRemainingLazyBytes
@@ -806,10 +809,13 @@ parseFramesSemiLazy = do
 parseFrames :: Get [JpgFrame]
 parseFrames = do
     kind <- get
-    mbFrame <- parseFrameOfKind kind
-    skipFrameMarker
-    remainingFrames <- parseFrames
-    return $ maybeToList mbFrame ++ remainingFrames
+    case kind of
+        JpgEndOfImage -> pure []
+        _ -> do
+            mbFrame <- parseFrameOfKind kind
+            skipFrameMarker
+            remainingFrames <- parseFrames
+            return $ maybeToList mbFrame ++ remainingFrames
 
 -- | Parses forward, returning the first scan header encountered.
 --
@@ -822,6 +828,7 @@ parseToFirstFrameHeader :: Get (Maybe JpgFrameHeader)
 parseToFirstFrameHeader = do
     kind <- get
     case kind of
+        JpgEndOfImage -> return Nothing
         JpgStartOfScan -> fail "parseToFirstFrameHeader: Encountered SOS frame marker before frame header that tells its dimensions"
         _ -> do
             mbFrame <- parseFrameOfKind kind
