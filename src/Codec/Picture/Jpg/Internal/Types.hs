@@ -606,8 +606,14 @@ parseECS = do
     GetInternal.withInputChunks (v_first, B.empty) consumeChunk (L.fromChunks . (B.singleton v_first :)) (return . L.fromChunks . (B.singleton v_first :)) -- `v_first` also belongs to the returned BS
   where
     consumeChunk :: GetInternal.Consume (Word8, B.ByteString) -- which is: (Word8, B.ByteString) -> B.ByteString -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
-    consumeChunk (!v_chunk_start, !prev_chunk) !chunk =
-        let
+    consumeChunk (!v_chunk_start, !prev_chunk) !chunk
+        -- If `withInputChunks` hands us an empty chunk (which `binary` probably
+        -- won't do, but since that's not documented, handle it anyway) then skip over it,
+        -- so that we always remember the last `prev_chunk` that actually has data in it,
+        -- since we `bsDropEnd 1 prev_chunk` in the `case` below.
+        | B.null chunk = Left (v_chunk_start, prev_chunk)
+        | otherwise = loop v_chunk_start 0
+          where
             loop :: Word8 -> Int -> Either (Word8, B.ByteString) (B.ByteString, B.ByteString)
             loop !v !offset_in_chunk
                 | offset_in_chunk >= B.length chunk = Left (v, chunk)
@@ -629,7 +635,7 @@ parseECS = do
                                         | otherwise            -> B.splitAt (offset_in_chunk - 1) chunk -- segment marker starts at `v`, which is 1 before `vNext` (which is at `offset_in_chunk`)
                                 in Right $! (consumed, unconsumed)
 
-        in loop v_chunk_start 0
+
 
 parseAdobe14 :: B.ByteString -> Maybe JpgFrame
 parseAdobe14 str = case runGetStrict get str of
