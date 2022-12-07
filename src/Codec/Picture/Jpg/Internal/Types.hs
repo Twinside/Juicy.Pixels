@@ -67,6 +67,7 @@ import qualified Data.Vector.Storable.Mutable as M
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Unsafe as BU
 
 import Data.Int( Int16 )
 import Data.Word(Word8, Word16 )
@@ -622,7 +623,7 @@ parseECS = do
             loop !v !offset_in_chunk
                 | offset_in_chunk >= B.length chunk = Left (v, chunk)
                 | otherwise =
-                    let !vNext = B.index chunk offset_in_chunk
+                    let !vNext = BU.unsafeIndex chunk offset_in_chunk -- bounds check is done above
                         !isReset = 0xD0 <= vNext && vNext <= 0xD7
                         !vIsSegmentMarker = v == 0xFF && vNext /= 0 && not isReset
                     in
