@@ -47,3 +47,4 @@ cabal-dev
 .cabal-sandbox
 magick
 cabal.sandbox.config
+/dist-newstyle/
