@@ -1,3 +1,7 @@
+Cabal-version:       1.18
+  -- Constraint on the version of Cabal needed to build this package.
+  -- NB: 3.0 is the first to support globs like 'tests/**/*.png' correctly.
+
 Name:                JuicyPixels
 Version:             3.3.8
 Synopsis:            Picture loading/serialization (in png, jpeg, bitmap, gif, tga, tiff and radiance)
@@ -15,20 +19,409 @@ Category:            Codec, Graphics, Image
 Stability:           Stable
 Build-type:          Simple
 
--- Constraint on the version of Cabal needed to build this package.
-Cabal-version:       1.18
+tested-with:
+  GHC == 9.8.1
+  GHC == 9.6.3
+  GHC == 9.4.7
+  GHC == 9.2.8
+  GHC == 9.0.2
+  GHC == 8.10.7
+  GHC == 8.8.4
+  GHC == 8.6.5
+  GHC == 8.4.4
+  GHC == 8.2.2
+  GHC == 8.0.2
 
-extra-source-files: changelog, docimages/*.png, docimages/*.svg, README.md
-extra-doc-files: docimages/*.png, docimages/*.svg
+extra-doc-files: changelog, docimages/*.png, docimages/*.svg, README.md
+
+extra-source-files:
+  -- tests/pngsuite
+  tests/pngsuite/s39i3p04.png
+  tests/pngsuite/s38i3p04.png
+  tests/pngsuite/s05n3p02.png
+  tests/pngsuite/cs5n2c08.png
+  tests/pngsuite/bgwn6a08.png
+  tests/pngsuite/xc1n0g08.png
+  tests/pngsuite/basn3p02.png
+  tests/pngsuite/bggn4a16.png
+  tests/pngsuite/tbgn3p08.png
+  tests/pngsuite/basi0g08.png
+  tests/pngsuite/bgbn4a08.png
+  tests/pngsuite/basn4a16.png
+  tests/pngsuite/s04n3p01.png
+  tests/pngsuite/s33i3p04.png
+  tests/pngsuite/s32i3p04.png
+  tests/pngsuite/cm0n0g04.png
+  tests/pngsuite/basn3p01.png
+  tests/pngsuite/basi2c08.png
+  tests/pngsuite/bgyn6a16.png
+  tests/pngsuite/ps1n2c16.png
+  tests/pngsuite/g03n3p04.png
+  tests/pngsuite/xs1n0g01.png
+  tests/pngsuite/basn6a16.png
+  tests/pngsuite/ccwn3p08.png
+  tests/pngsuite/oi1n2c16.png
+  tests/pngsuite/f03n0g08.png
+  tests/pngsuite/f02n0g08.png
+  tests/pngsuite/oi1n0g16.png
+  tests/pngsuite/s06i3p02.png
+  tests/pngsuite/tbyn3p08.png
+  tests/pngsuite/s07i3p02.png
+  tests/pngsuite/cdhn2c08.png
+  tests/pngsuite/f03n2c08.png
+  tests/pngsuite/f02n2c08.png
+  tests/pngsuite/cs8n3p08.png
+  tests/pngsuite/basn3p04.png
+  tests/pngsuite/g04n0g16.png
+  tests/pngsuite/g05n0g16.png
+  tests/pngsuite/cthn0g04.png
+  tests/pngsuite/cs3n3p08.png
+  tests/pngsuite/bgai4a08.png
+  tests/pngsuite/xhdn0g08.png
+  tests/pngsuite/basi3p08.png
+  tests/pngsuite/g05n3p04.png
+  tests/pngsuite/g04n3p04.png
+  tests/pngsuite/xs7n0g01.png
+  tests/pngsuite/bgan6a16.png
+  tests/pngsuite/f04n0g08.png
+  tests/pngsuite/ct0n0g04.png
+  tests/pngsuite/ct1n0g04.png
+  tests/pngsuite/f04n2c08.png
+  tests/pngsuite/tbbn2c16.png
+  tests/pngsuite/cten0g04.png
+  tests/pngsuite/basn0g01.png
+  tests/pngsuite/g03n0g16.png
+  tests/pngsuite/basn2c16.png
+  tests/pngsuite/s40n3p04.png
+  tests/pngsuite/xdtn0g01.png
+  tests/pngsuite/basi4a08.png
+  tests/pngsuite/cs5n3p08.png
+  tests/pngsuite/s37n3p04.png
+  tests/pngsuite/s36n3p04.png
+  tests/pngsuite/s01i3p01.png
+  tests/pngsuite/xcsn0g01.png
+  tests/pngsuite/g07n2c08.png
+  tests/pngsuite/basn0g02.png
+  tests/pngsuite/basn0g16.png
+  tests/pngsuite/PngSuite.README
+  tests/pngsuite/tbrn2c08.png
+  tests/pngsuite/tbbn0g04.png
+  tests/pngsuite/g25n2c08.png
+  tests/pngsuite/xcrn0g04.png
+  tests/pngsuite/PngSuite.png
+  tests/pngsuite/basi6a08.png
+  tests/pngsuite/tbwn0g16.png
+  tests/pngsuite/xd0n2c08.png
+  tests/pngsuite/z03n2c08.png
+  tests/pngsuite/s08n3p02.png
+  tests/pngsuite/s09n3p02.png
+  tests/pngsuite/pp0n6a08.png
+  tests/pngsuite/cs8n2c08.png
+  tests/pngsuite/f99n0g04.png
+  tests/pngsuite/ps2n0g08.png
+  tests/pngsuite/s34i3p04.png
+  tests/pngsuite/s35i3p04.png
+  tests/pngsuite/huge.png
+  tests/pngsuite/ctzn0g04.png
+  tests/pngsuite/s03n3p01.png
+  tests/pngsuite/s02n3p01.png
+  tests/pngsuite/z09n2c08.png
+  tests/pngsuite/g10n2c08.png
+  tests/pngsuite/cm7n0g04.png
+  tests/pngsuite/ccwn2c08.png
+  tests/pngsuite/basn0g04.png
+  tests/pngsuite/g07n0g16.png
+  tests/pngsuite/basi3p01.png
+  tests/pngsuite/basn2c08.png
+  tests/pngsuite/PngSuite.LICENSE
+  tests/pngsuite/oi9n2c16.png
+  tests/pngsuite/basi4a16.png
+  tests/pngsuite/s04i3p01.png
+  tests/pngsuite/ctjn0g04.png
+  tests/pngsuite/s33n3p04.png
+  tests/pngsuite/s32n3p04.png
+  tests/pngsuite/oi9n0g16.png
+  tests/pngsuite/g03n2c08.png
+  tests/pngsuite/basn0g08.png
+  tests/pngsuite/xs2n0g01.png
+  tests/pngsuite/basi3p02.png
+  tests/pngsuite/tp0n2c08.png
+  tests/pngsuite/bgan6a08.png
+  tests/pngsuite/oi2n2c16.png
+  tests/pngsuite/f00n0g08.png
+  tests/pngsuite/f01n0g08.png
+  tests/pngsuite/s05i3p02.png
+  tests/pngsuite/oi2n0g16.png
+  tests/pngsuite/f00n2c08.png
+  tests/pngsuite/f01n2c08.png
+  tests/pngsuite/s39n3p04.png
+  tests/pngsuite/s38n3p04.png
+  tests/pngsuite/tp0n0g08.png
+  tests/pngsuite/tbgn2c16.png
+  tests/pngsuite/cdun2c08.png
+  tests/pngsuite/xc9n2c08.png
+  tests/pngsuite/g10n0g16.png
+  tests/pngsuite/ch1n3p04.png
+  tests/pngsuite/ps2n2c16.png
+  tests/pngsuite/basi3p04.png
+  tests/pngsuite/cs3n2c16.png
+  tests/pngsuite/s06n3p02.png
+  tests/pngsuite/s07n3p02.png
+  tests/pngsuite/g25n0g16.png
+  tests/pngsuite/z06n2c08.png
+  tests/pngsuite/basi6a16.png
+  tests/pngsuite/cm9n0g04.png
+  tests/pngsuite/cdsn2c08.png
+  tests/pngsuite/tbbn3p08.png
+  tests/pngsuite/ps1n0g08.png
+  tests/pngsuite/basi0g02.png
+  tests/pngsuite/basi0g16.png
+  tests/pngsuite/basn4a08.png
+  tests/pngsuite/s37i3p04.png
+  tests/pngsuite/s36i3p04.png
+  tests/pngsuite/s01n3p01.png
+  tests/pngsuite/s40i3p04.png
+  tests/pngsuite/xd9n2c08.png
+  tests/pngsuite/g25n3p04.png
+  tests/pngsuite/tp1n3p08.png
+  tests/pngsuite/tp0n3p08.png
+  tests/pngsuite/basi2c16.png
+  tests/pngsuite/pp0n2c16.png
+  tests/pngsuite/basi0g01.png
+  tests/pngsuite/g10n3p04.png
+  tests/pngsuite/basn3p08.png
+  tests/pngsuite/xlfn0g04.png
+  tests/pngsuite/xd3n2c08.png
+  tests/pngsuite/z00n2c08.png
+  tests/pngsuite/basi0g04.png
+  tests/pngsuite/s34n3p04.png
+  tests/pngsuite/s35n3p04.png
+  tests/pngsuite/s03i3p01.png
+  tests/pngsuite/s02i3p01.png
+  tests/pngsuite/s08i3p02.png
+  tests/pngsuite/s09i3p02.png
+  tests/pngsuite/tbwn3p08.png
+  tests/pngsuite/g05n2c08.png
+  tests/pngsuite/g04n2c08.png
+  tests/pngsuite/ch2n3p08.png
+  tests/pngsuite/bgai4a16.png
+  tests/pngsuite/cdfn2c08.png
+  tests/pngsuite/basn6a08.png
+  tests/pngsuite/xs4n0g01.png
+  tests/pngsuite/g07n3p04.png
+  tests/pngsuite/oi4n2c16.png
+  tests/pngsuite/oi4n0g16.png
+  tests/pngsuite/megaman.png
+  tests/pngsuite/ctfn0g04.png
+  tests/pngsuite/ctgn0g04.png
+  -- tests/apng
+  tests/apng/APNG-cube.png
+  tests/apng/APNG-Icos4D.png
+  tests/apng/APNG-spinfox.png
+  tests/apng/APNG-pyani.png
+  tests/apng/APNG-clock.png
+  -- tests/tga
+  tests/tga/XING_T24.TGA
+  tests/tga/tgatest.c
+  tests/tga/XING_T32.TGA
+  tests/tga/UBW8.TGA
+  tests/tga/CBW8.TGA
+  tests/tga/CTC16.TGA
+  tests/tga/FLAG_T32.TGA
+  tests/tga/XING_B16.TGA
+  tests/tga/FLAG_B16.TGA
+  tests/tga/UTC16.TGA
+  tests/tga/UTC24.TGA
+  tests/tga/MARBLES.TGA
+  tests/tga/FLAG_B24.TGA
+  tests/tga/FLAG_B32.TGA
+  tests/tga/CCM8.TGA
+  tests/tga/UTC32.TGA
+  tests/tga/XING_B24.TGA
+  tests/tga/UCM8.TGA
+  tests/tga/XING_B32.TGA
+  tests/tga/CTC32.TGA
+  tests/tga/FLAG_T16.TGA
+  tests/tga/CTC24.TGA
+  tests/tga/XING_T16.TGA
+  -- tests/radiance
+  tests/radiance/sunrise.hdr
+  tests/radiance/free_009.hdr
+  -- tests/jpeg
+  tests/jpeg/img_cmyk.jpg
+  tests/jpeg/rgb.jpg
+  tests/jpeg/JPEG_example_JPG_RIP_001.jpg
+  tests/jpeg/Channel_digital_image_CMYK_color.jpg
+  tests/jpeg/JPEG_example_JPG_RIP_010.jpg
+  tests/jpeg/inf_loop02.jpg
+  tests/jpeg/20100713-0107-interleaved2.jpg
+  tests/jpeg/inf_loop01.jpg
+  tests/jpeg/JPEG_example_JPG_RIP_100.jpg
+  tests/jpeg/sheep.jpg
+  tests/jpeg/MCU1.jpg
+  tests/jpeg/bad_decode.jpg
+  tests/jpeg/MCU0.jpg
+  tests/jpeg/MCU5.jpg
+  tests/jpeg/16x16jpeg.jpg
+  tests/jpeg/huge.jpg
+  tests/jpeg/MCU35.jpg
+  tests/jpeg/MCU10.jpg
+  tests/jpeg/avatar.jpg
+  tests/jpeg/borked_render.jpg
+  tests/jpeg/.gitignore
+  tests/jpeg/10x8-samsung-s8.jpg
+  tests/jpeg/fenek.jpg
+  tests/jpeg/JPEG_example_JPG_RIP_050.jpg
+  tests/jpeg/broken.jpg
+  tests/jpeg/8x8jpeg.jpg
+  tests/jpeg/richys-groceries.jpg
+  tests/jpeg/bad.jpg
+  tests/jpeg/JPEG_example_JPG_RIP_025.jpg
+  tests/jpeg/explore_jpeg.jpg
+  tests/jpeg/dunno.jpg
+  tests/jpeg/mand_prgrsv.jpg
+  -- tests/bmp
+  tests/bmp/bitmap_32bits_type0.bmp
+  tests/bmp/simple_bitmap_24bits.bmp
+  tests/bmp/smiley.bmp
+  tests/bmp/eggyra0001.bmp
+  tests/bmp/rle_test.bmp
+  tests/bmp/simple_bitmap_8bits.bmp
+  -- tests/bmp/bmpsuite_good
+  tests/bmp/bmpsuite_good/pal8v5.bmp
+  tests/bmp/bmpsuite_good/pal1.bmp
+  tests/bmp/bmpsuite_good/pal8v4.bmp
+  tests/bmp/bmpsuite_good/pal4rle.bmp
+  tests/bmp/bmpsuite_good/pal8rle.bmp
+  tests/bmp/bmpsuite_good/pal8w124.bmp
+  tests/bmp/bmpsuite_good/rgb32.bmp
+  tests/bmp/bmpsuite_good/pal8topdown.bmp
+  tests/bmp/bmpsuite_good/rgb24pal.bmp
+  tests/bmp/bmpsuite_good/pal8w125.bmp
+  tests/bmp/bmpsuite_good/pal8-0.bmp
+  tests/bmp/bmpsuite_good/pal4.bmp
+  tests/bmp/bmpsuite_good/rgb24.bmp
+  tests/bmp/bmpsuite_good/pal8w126.bmp
+  tests/bmp/bmpsuite_good/pal4gs.bmp
+  tests/bmp/bmpsuite_good/pal8nonsquare.bmp
+  tests/bmp/bmpsuite_good/rgb32bf.bmp
+  tests/bmp/bmpsuite_good/rgb16-565pal.bmp
+  tests/bmp/bmpsuite_good/pal8os2.bmp
+  tests/bmp/bmpsuite_good/pal1bg.bmp
+  tests/bmp/bmpsuite_good/rgb32bfdef.bmp
+  tests/bmp/bmpsuite_good/pal1wb.bmp
+  tests/bmp/bmpsuite_good/pal8gs.bmp
+  tests/bmp/bmpsuite_good/pal8.bmp
+  tests/bmp/bmpsuite_good/rgb16.bmp
+  tests/bmp/bmpsuite_good/rgb16-565.bmp
+  tests/bmp/bmpsuite_good/rgb16bfdef.bmp
+  tests/bmp/simple_bitmap_32bits.bmp
+  tests/planeseparationrgba.png
+  tests/planeseparation.png
+  -- tests/palette
+  tests/palette/lena.png
+  tests/palette/seniors.png
+  tests/palette/frog.png
+  tests/palette/barb.png
+  tests/palette/mandrill.png
+  -- tests/tiff
+  tests/tiff/cramps.tif
+  tests/tiff/jim___gg.tif
+  -- tests/tiff/depth
+  tests/tiff/depth/flower-palette-08.tif
+  tests/tiff/depth/flower-separated-contig-08.tif
+  tests/tiff/depth/flower-rgb-planar-24.tif
+  tests/tiff/depth/flower-separated-planar-08.tif
+  tests/tiff/depth/flower-minisblack-14.tif
+  tests/tiff/depth/flower-rgb-contig-24.tif
+  tests/tiff/depth/flower-rgb-contig-32.tif
+  tests/tiff/depth/flower-minisblack-02.tif
+  tests/tiff/depth/flower-minisblack-16.tif
+  tests/tiff/depth/flower-rgb-planar-32.tif
+  tests/tiff/depth/flower-minisblack-12.tif
+  tests/tiff/depth/flower-minisblack-06.tif
+  tests/tiff/depth/flower-minisblack-10.tif
+  tests/tiff/depth/flower-rgb-contig-08.tif
+  tests/tiff/depth/flower-minisblack-04.tif
+  tests/tiff/depth/flower-rgb-planar-08.tif
+  tests/tiff/depth/flower-rgb-contig-04.tif
+  tests/tiff/depth/flower-minisblack-08.tif
+  tests/tiff/depth/flower-rgb-contig-10.tif
+  tests/tiff/depth/flower-rgb-planar-04.tif
+  tests/tiff/depth/flower-rgb-planar-10.tif
+  tests/tiff/depth/flower-separated-contig-16.tif
+  tests/tiff/depth/flower-rgb-planar-12.tif
+  tests/tiff/depth/flower-separated-planar-16.tif
+  tests/tiff/depth/flower-rgb-contig-12.tif
+  tests/tiff/depth/summary.txt
+  tests/tiff/depth/flower-minisblack-32.tif
+  tests/tiff/depth/flower-rgb-contig-16.tif
+  tests/tiff/depth/flower-rgb-contig-02.tif
+  tests/tiff/depth/flower-rgb-planar-16.tif
+  tests/tiff/depth/flower-rgb-planar-02.tif
+  tests/tiff/depth/flower-rgb-planar-14.tif
+  tests/tiff/depth/flower-rgb-contig-14.tif
+  tests/tiff/depth/flower-minisblack-24.tif
+  tests/tiff/depth/README.txt
+  tests/tiff/depth/flower-palette-02.tif
+  tests/tiff/depth/flower-palette-16.tif
+  tests/tiff/depth/flower-palette-04.tif
+  tests/tiff/quad-tile.tif
+  tests/tiff/oxford.tif
+  tests/tiff/g3test.g3
+  --tests/tiff/other
+  tests/tiff/other/butique-YA16.tif
+  tests/tiff/other/butique-YA8.tif
+  tests/tiff/strike.tif
+  tests/tiff/caspian.tif
+  tests/tiff/ladoga.tif
+  tests/tiff/off_l16.tif
+  tests/tiff/README
+  tests/tiff/g3test.tif
+  tests/tiff/cramps-tile.tif
+  tests/tiff/jim___ah.tif
+  tests/tiff/horizontal-difference-lzw.tiff
+  tests/tiff/rad_YF.tif
+  tests/tiff/text.tif
+  tests/tiff/rad_Y32.tif
+  tests/tiff/jello.tif
+  tests/tiff/ycbcr-cat.tif
+  tests/tiff/off_luv32.tif
+  tests/tiff/dscf0013.tif
+  --tests/tiff/compression
+  tests/tiff/compression/flower-rgb-contig-16-packbits.tif
+  tests/tiff/compression/cs3n2c16.tif
+  tests/tiff/quad-lzw.tif
+  tests/tiff/smallliz.tif
+  tests/tiff/off_luv24.tif
+  tests/tiff/jim___cg.tif
+  tests/tiff/zackthecat.tif
+  tests/tiff/quad-jpeg.tif
+  tests/tiff/jim___dg.tif
+  tests/tiff/pc260001.tif
+  tests/tiff/fax2d.tif
+  -- tests/gif
+  tests/gif/fgs.gif
+  tests/gif/delta.gif
+  tests/gif/magceit.gif
+  tests/gif/1bitgiffail.gif
+  tests/gif/rId98.gif
+  tests/gif/Gif_pixel_cube.gif
+  tests/gif/pikachu.gif
+  tests/gif/animated.gif
+  tests/gif/delta2.gif
+  tests/gif/2k.gif
+  tests/gif/huge.gif
+  tests/gif/interleaved.gif
 
 Source-Repository head
     Type:      git
-    Location:  git://github.com/Twinside/Juicy.Pixels.git
+    Location:  https://github.com/Twinside/Juicy.Pixels.git
 
 Source-Repository this
     Type:      git
-    Location:  git://github.com/Twinside/Juicy.Pixels.git
-    Tag:       v3.3.7
+    Location:  https://github.com/Twinside/Juicy.Pixels.git
+    Tag:       v3.3.8
 
 Flag Mmap
     Description: Enable the file loading via mmap (memory map)
@@ -97,6 +490,7 @@ Benchmark imageBenchmark
 Library
   hs-source-dirs: src
   Default-Language: Haskell2010
+  default-extensions: TypeOperators
   Exposed-modules:  Codec.Picture,
                     Codec.Picture.Bitmap,
                     Codec.Picture.Gif,
@@ -126,16 +520,16 @@ Library
                     Codec.Picture.Tiff.Internal.Types
 
   Ghc-options: -O3 -Wall
-  Build-depends: base                >= 4.8     && < 6,
-                 bytestring          >= 0.9     && < 0.12,
+  Build-depends: base                >= 4.8     && < 5,
+                 bytestring          >= 0.9     && < 0.13,
                  mtl                 >= 1.1     && < 2.4,
                  binary              >= 0.8.1     && < 0.9,
                  zlib                >= 0.5.3.1 && < 0.7,
                  transformers        >= 0.2,
                  vector              >= 0.12.3.1,
                  primitive           >= 0.4,
-                 deepseq             >= 1.1     && < 1.5,
-                 containers          >= 0.4.2   && < 0.7
+                 deepseq             >= 1.1     && < 1.6,
+                 containers          >= 0.4.2   && < 0.8
 
   -- Modules not exported by this package.
   Other-modules: Codec.Picture.BitWriter,

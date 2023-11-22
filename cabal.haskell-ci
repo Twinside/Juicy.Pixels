@@ -1,0 +1,8 @@
+branches: master
+
+-- Tests do not build yet with GHC 9.8 due to dependencies
+tests: < 9.8
+
+-- `cabal check` fails for this package
+cabal-check: False
+
