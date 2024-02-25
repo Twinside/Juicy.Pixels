@@ -8,9 +8,9 @@
 #
 # For more information, see https://github.com/andreasabel/haskell-ci
 #
-# version: 0.17.20231012
+# version: 0.17.20240127
 #
-# REGENDATA ("0.17.20231012",["github","JuicyPixels.cabal"])
+# REGENDATA ("0.17.20240127",["github","JuicyPixels.cabal"])
 #
 name: Haskell-CI
 on:
@@ -37,14 +37,14 @@ jobs:
             compilerVersion: 9.8.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.6.3
+          - compiler: ghc-9.6.4
             compilerKind: ghc
-            compilerVersion: 9.6.3
+            compilerVersion: 9.6.4
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.4.7
+          - compiler: ghc-9.4.8
             compilerKind: ghc
-            compilerVersion: 9.4.7
+            compilerVersion: 9.4.8
             setup-method: ghcup
             allow-failure: false
           - compiler: ghc-9.2.8
@@ -94,11 +94,10 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common libtinfo5 libnuma-dev
           mkdir -p "$HOME/.ghcup/bin"
-          curl -sL https://downloads.haskell.org/ghcup/0.1.19.5/x86_64-linux-ghcup-0.1.19.5 > "$HOME/.ghcup/bin/ghcup"
+          curl -sL https://downloads.haskell.org/ghcup/0.1.20.0/x86_64-linux-ghcup-0.1.20.0 > "$HOME/.ghcup/bin/ghcup"
           chmod a+x "$HOME/.ghcup/bin/ghcup"
-          "$HOME/.ghcup/bin/ghcup" config add-release-channel https://raw.githubusercontent.com/haskell/ghcup-metadata/master/ghcup-prereleases-0.0.7.yaml;
           "$HOME/.ghcup/bin/ghcup" install ghc "$HCVER" || (cat "$HOME"/.ghcup/logs/*.* && false)
-          "$HOME/.ghcup/bin/ghcup" install cabal 3.10.1.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
+          "$HOME/.ghcup/bin/ghcup" install cabal 3.10.2.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
         env:
           HCKIND: ${{ matrix.compilerKind }}
           HCNAME: ${{ matrix.compiler }}
@@ -116,7 +115,7 @@ jobs:
           echo "HC=$HC" >> "$GITHUB_ENV"
           echo "HCPKG=$HCPKG" >> "$GITHUB_ENV"
           echo "HADDOCK=$HADDOCK" >> "$GITHUB_ENV"
-          echo "CABAL=$HOME/.ghcup/bin/cabal-3.10.1.0 -vnormal+nowrap" >> "$GITHUB_ENV"
+          echo "CABAL=$HOME/.ghcup/bin/cabal-3.10.2.0 -vnormal+nowrap" >> "$GITHUB_ENV"
           HCNUMVER=$(${HC} --numeric-version|perl -ne '/^(\d+)\.(\d+)\.(\d+)(\.(\d+))?$/; print(10000 * $1 + 100 * $2 + ($3 == 0 ? $5 != 1 : $3))')
           echo "HCNUMVER=$HCNUMVER" >> "$GITHUB_ENV"
           if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "ARG_TESTS=--enable-tests" >> "$GITHUB_ENV" ; else echo "ARG_TESTS=--disable-tests" >> "$GITHUB_ENV" ; fi
@@ -209,7 +208,7 @@ jobs:
           $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dry-run all
           cabal-plan
       - name: restore cache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@v4
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store
@@ -235,7 +234,7 @@ jobs:
           rm -f cabal.project.local
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
       - name: save cache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@v4
         if: always()
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
