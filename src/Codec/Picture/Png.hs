@@ -366,8 +366,8 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker str =
 deinterlacer :: PngIHdr -> B.ByteString -> ST s (Either (V.Vector Word8) (V.Vector Word16))
 deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
                       , interlaceMethod = method, bitDepth = depth  }) str = do
-    let compCount = sampleCountOfImageType imgKind 
-        arraySize = fromIntegral $ w * h * compCount
+    let compCount = fromIntegral $ sampleCountOfImageType imgKind 
+        arraySize = (fromIntegral w) * (fromIntegral h) * compCount
         deinterlaceFunction = case method of
             PngNoInterlace -> scanLineInterleaving
             PngInterlaceAdam7 -> adam7Unpack
@@ -377,10 +377,9 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         imgArray <- M.new arraySize
         let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
         deinterlaceFunction iBitDepth 
-                            (fromIntegral compCount)
+                            compCount
                             (fromIntegral w, fromIntegral h)
-                            (scanlineUnpacker8 iBitDepth (fromIntegral compCount)
-                                                         mutableImage)
+                            (scanlineUnpacker8 iBitDepth compCount mutableImage)
                             str
         Left <$> V.unsafeFreeze imgArray
 
@@ -388,9 +387,9 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
         imgArray <- M.new arraySize
         let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
         deinterlaceFunction iBitDepth 
-                            (fromIntegral compCount)
+                            compCount
                             (fromIntegral w, fromIntegral h)
-                            (shortUnpacker (fromIntegral compCount) mutableImage)
+                            (shortUnpacker compCount mutableImage)
                             str
         Right <$> V.unsafeFreeze imgArray
 

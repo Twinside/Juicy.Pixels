@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 -- | This module provide a totally partial and incomplete maping
 -- of Exif values. Used for Tiff parsing and reused for Exif extraction.
 module Codec.Picture.Metadata.Exif ( ExifTag( .. )
@@ -14,6 +16,7 @@ import Data.Int( Int32 )
 import Data.Word( Word16, Word32 )
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
+import GHC.Generics( Generic )
 
 -- | Tag values used for exif fields. Completly incomplete
 data ExifTag
@@ -72,7 +75,8 @@ data ExifTag
 
   | TagExifOffset
   | TagUnknown !Word16
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+instance NFData ExifTag
 
 -- | Convert a value to it's corresponding Exif tag.
 -- Will often be written as 'TagUnknown'
@@ -206,13 +210,5 @@ data ExifData
   | ExifRational  !Word32 !Word32
   | ExifSignedRational  !Int32 !Int32
   | ExifIFD       ![(ExifTag, ExifData)]
-  deriving Show
-
-instance NFData ExifTag where
-  rnf a = a `seq` ()
-
-instance NFData ExifData where
-  rnf (ExifIFD ifds) = rnf ifds `seq` ()
-  rnf (ExifLongs l) = rnf l `seq` ()
-  rnf (ExifShorts l) = rnf l `seq` ()
-  rnf a = a `seq` ()
+  deriving (Eq, Show, Generic)
+instance NFData ExifData

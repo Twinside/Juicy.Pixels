@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -32,6 +33,7 @@ module Codec.Picture.Tiff.Internal.Types
 import Control.Applicative( (<$>), (<*>), pure )
 #endif
 
+import Control.DeepSeq( NFData(..) )
 import Control.Monad( forM_, when, replicateM, )
 import Data.Bits( (.&.), unsafeShiftR )
 import Data.Binary( Binary( .. ) )
@@ -53,6 +55,7 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import Data.Int( Int32 )
 import Data.Word( Word8, Word16, Word32 )
+import GHC.Generics( Generic )
 
 import Codec.Picture.Metadata.Exif
 {-import Debug.Trace-}
@@ -154,7 +157,8 @@ data IfdType
   | TypeSignedRational
   | TypeFloat
   | TypeDouble
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData IfdType
 
 instance BinaryParam Endianness IfdType where
     getP endianness = getP endianness >>= conv where
@@ -403,7 +407,8 @@ data ImageFileDirectory = ImageFileDirectory
   , ifdOffset     :: !Word32
   , ifdExtended   :: !ExifData
   }
-  deriving Show
+  deriving (Eq, Show, Generic)
+instance NFData ImageFileDirectory
 
 instance BinaryParam Endianness ImageFileDirectory where
   getP endianness =
