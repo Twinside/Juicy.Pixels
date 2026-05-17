@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- | Module implementing a basic png export, no filtering is applyed, but
+-- | Module implementing a basic png export, no filtering is applied, but
 -- export at least valid images.
 module Codec.Picture.Png.Internal.Export( PngSavable( .. )
                                , PngPaletteSaveable( .. )
@@ -93,11 +93,11 @@ class PngSavable a where
     --  * 'Codec.Picture.Metadata.Warning'
     --  * 'Codec.Picture.Metadata.Unknown' using the key present in the constructor.
     -- 
-    -- the followings metadata will be stored in the `gAMA` chunk.
+    -- the following metadata will be stored in the `gAMA` chunk.
     --
     --  * 'Codec.Picture.Metadata.Gamma'
     --
-    -- The followings metadata will be stored in a `pHYs` chunk
+    -- The following metadata will be stored in a `pHYs` chunk
     --
     --  * 'Codec.Picture.Metadata.DpiX'
     --  * 'Codec.Picture.Metadata.DpiY' 

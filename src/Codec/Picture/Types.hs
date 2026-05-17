@@ -467,7 +467,7 @@ dynamicMap f (ImageCMYK8 i) = f i
 dynamicMap f (ImageCMYK16 i) = f i
 
 -- | Equivalent of the `pixelMap` function for the dynamic images.
--- You can perform pixel colorspace independant operations with this
+-- You can perform pixel colorspace independent operations with this
 -- function.
 --
 -- For instance, if you want to extract a square crop of any image,
@@ -742,12 +742,12 @@ class ( Storable (PixelBaseComponent a)
     -- it is treated like the other color components.
     colorMap :: (PixelBaseComponent a -> PixelBaseComponent a) -> a -> a
 
-    -- | Calculate the index for the begining of the pixel
+    -- | Calculate the index for the beginning of the pixel
     pixelBaseIndex :: Image a -> Int -> Int -> Int
     pixelBaseIndex (Image { imageWidth = w }) x y =
             (x + y * w) * componentCount (undefined :: a)
 
-    -- | Calculate theindex for the begining of the pixel at position x y
+    -- | Calculate theindex for the beginning of the pixel at position x y
     mutablePixelBaseIndex :: MutableImage s a -> Int -> Int -> Int
     mutablePixelBaseIndex (MutableImage { mutableImageWidth = w }) x y =
             (x + y * w) * componentCount (undefined :: a)
@@ -1188,7 +1188,7 @@ instance LumaPlaneExtractable PixelYCbCr8 where
     computeLuma (PixelYCbCr8 y _ _) = y
     extractLumaPlane = extractComponent PlaneLuma
 
--- | Free promotion for identic pixel types
+-- | Free promotion for identical pixel types
 instance (Pixel a) => ColorConvertible a a where
     {-# INLINE promotePixel #-}
     promotePixel = id
@@ -2404,7 +2404,7 @@ toneMapping exposure img = Image (imageWidth img) (imageHeight img) scaledData
 -- to pack a pixel value to a simpler "primitive" data
 -- type to allow faster writing to moemory.
 class PackeablePixel a where
-    -- | Primitive type asociated to the current pixel
+    -- | Primitive type associated to the current pixel
     -- It's Word32 for PixelRGBA8 for instance
     type PackedRepresentation a
 

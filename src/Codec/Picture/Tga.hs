@@ -460,7 +460,7 @@ decodeTga byte = fst <$> decodeTgaWithMetadata byte
 decodeTgaWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeTgaWithMetadata byte = first palettedToTrueColor <$> decodeTgaWithPaletteAndMetadata byte
 
--- | Equivalent to decodeTga but with metdata and palette if any
+-- | Equivalent to decodeTga but with metadata and palette if any
 decodeTgaWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
 decodeTgaWithPaletteAndMetadata byte = runGetStrict get byte >>= unparse
 

@@ -41,7 +41,7 @@ import           Codec.Picture.Gif (GifFrame(..), GifDisposalMethod, GifDelay)
 
 -- | Define which palette creation method is used.
 data PaletteCreationMethod =
-      -- | MedianMeanCut method, provide the best results (visualy)
+      -- | MedianMeanCut method, provide the best results (visually)
       -- at the cost of increased calculations.
       MedianMeanCut
       -- | Very fast algorithm (one pass), doesn't provide good
@@ -282,7 +282,7 @@ intLength = Fold (\n _ -> n + 1) 0 id
 -- We use the product of volume and population to determine the next cluster
 -- to split and determine the placement of each color by compating it to the
 -- mean of the parent cluster. So median cut is a bit of a misnomer, since one
--- of the modifiations is to use the mean.
+-- of the modifications is to use the mean.
 
 mkPaletteVec :: [Cluster] -> Vector PixelRGB8
 mkPaletteVec  = V.fromList . map (toRGB8 . meanColor)

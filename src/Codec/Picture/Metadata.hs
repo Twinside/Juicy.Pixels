@@ -80,7 +80,7 @@ instance NFData SourceFormat where
   rnf a = a `seq` ()
 
 -- | The same color values may result in slightly different colors on different
--- devices. To get consistent colors accross multiple devices we need a way of
+-- devices. To get consistent colors across multiple devices we need a way of
 -- mapping color values from a source device into their equivalents on the
 -- target device.
 --
@@ -129,7 +129,7 @@ instance NFData ColorSpace where
 --   * 'ColorProfile' An unparsed ICC color profile. Currently only supported by
 --          the Bitmap format.
 --
---   * 'Unknown' unlikely to be decoded, but usefull for metadata writing
+--   * 'Unknown' unlikely to be decoded, but useful for metadata writing
 --
 --   * 'Exif' Exif tag and associated data.
 --

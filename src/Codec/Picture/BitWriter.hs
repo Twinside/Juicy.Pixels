@@ -92,7 +92,7 @@ setDecodedString str = case B.uncons str of
      Nothing        -> S.put $ BoolState      0 0 B.empty
      Just (v, rest) -> S.put $ BoolState      0 v    rest
 
--- | Drop all bit until the bit of indice 0, usefull to parse restart
+-- | Drop all bit until the bit of indice 0, useful to parse restart
 -- marker, as they are byte aligned, but Huffman might not.
 byteAlignJpg :: BoolReader s ()
 byteAlignJpg = do

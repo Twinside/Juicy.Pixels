@@ -498,7 +498,7 @@ decodePng = fmap fst . decodePngWithMetadata
 decodePngWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodePngWithMetadata b = first palettedToTrueColor <$> decodePngWithPaletteAndMetadata b
 
--- | Same as 'decodePng' but also extract meta datas present
+-- | Same as 'decodePng' but also extract meta data present
 -- in the files.
 decodePngWithPaletteAndMetadata :: B.ByteString -> Either String (PalettedImage, Metadatas)
 decodePngWithPaletteAndMetadata byte =  do

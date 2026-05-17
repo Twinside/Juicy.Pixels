@@ -111,7 +111,7 @@ Status
         - 8 and 16 bits
         - CMYK, YCbCr, RGB, RGBA, Greyscale
         - Uncompressed
-    * Metadata: reading DpiX, DpiY and EXIF informations.
+    * Metadata: reading DpiX, DpiY and EXIF information.
 
 _I love juicy pixels_
 

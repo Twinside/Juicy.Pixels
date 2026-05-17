@@ -51,7 +51,7 @@ import Codec.Picture.VectorByteConversion
 #if MIN_VERSION_transformers(0, 4, 0)
 import Control.Monad.Trans.Except( ExceptT, throwE, runExceptT )
 #else
--- Transfomers 0.3 compat
+-- Transformers 0.3 compat
 import Control.Monad.Trans.Error( Error, ErrorT, throwError, runErrorT )
 
 type ExceptT = ErrorT
@@ -179,7 +179,7 @@ decodeInfos = do
 decodeHDR :: B.ByteString -> Either String DynamicImage
 decodeHDR = fmap fst . decodeHDRWithMetadata
 
--- | Equivalent to decodeHDR but with aditional metadatas.
+-- | Equivalent to decodeHDR but with additional metadatas.
 decodeHDRWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeHDRWithMetadata str = runST $ runExceptT $
   case runGet decodeHeader $ L.fromChunks [str] of

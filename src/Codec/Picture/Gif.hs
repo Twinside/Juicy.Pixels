@@ -83,7 +83,7 @@ data GifLooping =
       LoopingNever
       -- | The animation will restart once the end is reached
     | LoopingForever
-      -- | The animation will repeat n times before stoping
+      -- | The animation will repeat n times before stopping
     | LoopingRepeat Word16
 
 

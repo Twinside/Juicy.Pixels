@@ -381,7 +381,7 @@ iHDRSignature :: ChunkSignature
 iHDRSignature = signature "IHDR"
 
 -- | Signature for a palette chunk in the pgn file. Must
--- occure before iDAT.
+-- occurred before iDAT.
 pLTESignature :: ChunkSignature
 pLTESignature = signature "PLTE"
 

@@ -740,7 +740,7 @@ prepareHuffmanTable classVal dest tableDef =
                         }, VS.singleton 0)
       where sizes = VU.fromListN 16 $ map (fromIntegral . length) tableDef
 
--- | Encode an image in jpeg at a reasonnable quality level.
+-- | Encode an image in jpeg at a reasonable quality level.
 -- If you want better quality or reduced file size, you should
 -- use `encodeJpegAtQuality`
 encodeJpeg :: Image PixelYCbCr8 -> L.ByteString
@@ -780,7 +780,7 @@ encodeJpegAtQuality quality = encodeJpegAtQualityWithMetadata quality mempty
 
 -- | Record gathering all information to encode a component
 -- from the source image. Previously was a huge tuple
--- burried in the code
+-- buried in the code
 data EncoderState = EncoderState
   { _encComponentIndex :: !Int
   , _encBlockWidth     :: !Int

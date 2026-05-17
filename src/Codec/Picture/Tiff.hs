@@ -817,11 +817,11 @@ unpack _ _ = Left "Failure to unpack TIFF file"
 decodeTiff :: B.ByteString -> Either String DynamicImage
 decodeTiff = fmap fst . decodeTiffWithMetadata 
 
--- | Like 'decodeTiff' but also provides some metdata present
+-- | Like 'decodeTiff' but also provides some metadata present
 -- in the Tiff file.
 --
 -- The metadata extracted are the 'Codec.Picture.Metadata.DpiX' &
--- 'Codec.Picture.Metadata.DpiY' information alongside the EXIF informations.
+-- 'Codec.Picture.Metadata.DpiY' information alongside the EXIF information.
 decodeTiffWithMetadata :: B.ByteString -> Either String (DynamicImage, Metadatas)
 decodeTiffWithMetadata str = first palettedToTrueColor <$> decodeTiffWithPaletteAndMetadata str
 

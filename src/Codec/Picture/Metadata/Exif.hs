@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 
--- | This module provide a totally partial and incomplete maping
+-- | This module provide a totally partial and incomplete mapping
 -- of Exif values. Used for Tiff parsing and reused for Exif extraction.
 module Codec.Picture.Metadata.Exif ( ExifTag( .. )
                                    , ExifData( .. )
@@ -18,7 +18,7 @@ import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import GHC.Generics( Generic )
 
--- | Tag values used for exif fields. Completly incomplete
+-- | Tag values used for exif fields. Completely incomplete
 data ExifTag
   = TagPhotometricInterpretation
   | TagCompression -- ^ Short type

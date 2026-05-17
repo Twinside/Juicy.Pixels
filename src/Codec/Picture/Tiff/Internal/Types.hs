@@ -359,11 +359,11 @@ instance BinaryParam B.ByteString (TiffHeader, [[ImageFileDirectory]]) where
     put hdr
     putByteString rawData
     let endianness = hdrEndianness hdr
-        (_, offseted) = mapAccumL
+        (_, offsetted) = mapAccumL
             (\ix ifd -> setupIfdOffsets ix $ orderIfdByTag ifd)
             (hdrOffset hdr)
             ifds
-    forM_ offseted $ \list -> do
+    forM_ offsetted $ \list -> do
         putP endianness list
         mapM_ (\field -> putP (endianness, (0::Int), field) $ ifdExtended field) list
 

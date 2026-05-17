@@ -1,6 +1,6 @@
 -- $graph
 --
--- The following graph describe the differents way to convert between pixel types,
+-- The following graph describe the different way to convert between pixel types,
 --
 -- * Nodes describe pixel type
 --

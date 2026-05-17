@@ -99,7 +99,7 @@ makeInverseTable t = V.replicate 255 (0,0) V.// inner 0 0 t
             where shifted = code `unsafeShiftL` 1
 
 -- | Represent a compact array of 8 * 8 values. The size
--- is not guarenteed by type system, but if makeMacroBlock is
+-- is not guaranteed by type system, but if makeMacroBlock is
 -- used, everything should be fine size-wise
 type MacroBlock a = SV.Vector a
 
