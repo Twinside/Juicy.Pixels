@@ -347,6 +347,7 @@ unsafeFreezeImage ::  (Storable (PixelBaseComponent a), PrimMonad m)
 unsafeFreezeImage (MutableImage w h d) = Image w h `liftM` V.unsafeFreeze d
 
 -- | Create a mutable image, filled with the given background color.
+{-# INLINE createMutableImage #-}
 createMutableImage :: (Pixel px, PrimMonad m)
                    => Int -- ^ Width
                    -> Int -- ^ Height
